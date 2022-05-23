@@ -12,8 +12,8 @@ class NamedType(ParametrizedAttribute):
     type_name = ParameterDef(StringAttr)
 
 
-int_type = NamedType([StringAttr.from_str("int")])
-float_type = NamedType([StringAttr.from_str("float")])
+int_type = NamedType([StringAttr.from_str("integer")])
+float_type = NamedType([StringAttr.from_str("real")])
 bool_type = NamedType([StringAttr.from_str("bool")])
 str_type = NamedType([StringAttr.from_str("str")])
 char_type = NamedType([StringAttr.from_str("char")])

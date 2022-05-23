@@ -8,9 +8,11 @@ from xdsl.ir import MLContext
 from xdsl.dialects.builtin import ModuleOp
 
 from psy.psy_ast_to_psy_flat import psy_ast_to_psy_flat
+from psy.psy_ast_to_psy_dag import psy_ast_to_psy_dag
 from psy.printer import print_program
 
 from psy.dialects.psy_ast import PsyAST
+from psy.dialects.psy_dag import PsyDAG
 from psy.dialects.psy_flat import PsyFlat
 from psy.semantic_error import SemanticError
 
@@ -22,8 +24,8 @@ class PsyOptMain(xDSLOptMain):
 
     passes_native = [       
 
-        # IR Generation
-        psy_ast_to_psy_flat        
+        # IR Generation        
+        psy_ast_to_psy_dag
     ]
 
     def register_all_passes(self):
@@ -44,6 +46,7 @@ class PsyOptMain(xDSLOptMain):
         super().register_all_dialects()
         """Register all dialects that can be used."""        
         psy_ast = PsyAST(self.ctx)
+        psy_dag = PsyDAG(self.ctx)
         psy_flat = PsyFlat(self.ctx)        
 
     @staticmethod
