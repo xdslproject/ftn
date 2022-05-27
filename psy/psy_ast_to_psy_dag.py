@@ -195,13 +195,14 @@ def translate_var_def(ctx: SSAValueCtx,
    
     var_name = var_def.attributes["var_name"]
     assert isinstance(var_name, StringAttr)
-    type = try_translate_type(var_def.attributes["type"])    
+    type = try_translate_type(var_def.attributes["type"])
+    
+    tkn=psy_dag.Token([var_name, type])
 
-    vardef=psy_dag.VarDef.create(attributes={"var_name": var_name, "type":type}, operands=[], result_types=[type])
-    vardef.results[0].name=var_name
+    vardef=psy_dag.VarDef.create(attributes={"var": tkn}, result_types=[type])    
 
-    # relate variable identifier and SSA value by adding it into the current context
-    ctx[var_name.data] = vardef.results[0]
+    # relate variable identifier and SSA value by adding it into the current context    
+    ctx[var_name.data] = tkn 
 
     return vardef
 
@@ -217,7 +218,7 @@ def try_translate_expr(
     if isinstance(op, psy_ast.Literal):        
         return translate_literal(op)
     if isinstance(op, psy_ast.ExprName):        
-        return psy_dag.ExprName.create(attributes={"id": op.attributes["id"]}, operands=[ctx[op.id.data]])
+        return psy_dag.ExprName.create(attributes={"id": op.attributes["id"], "var": ctx[op.id.data]})
     if isinstance(op, psy_ast.BinaryExpr):        
         return translate_binary_expr(ctx, op)
     if isinstance(op, psy_ast.CallExpr):

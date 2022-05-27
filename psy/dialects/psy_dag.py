@@ -6,7 +6,7 @@ from typing import List, Optional, Type, Union
 from xdsl.dialects.builtin import IntegerAttr, StringAttr, IntegerType, Float32Type, i32, f32, ArrayAttr
 from xdsl.ir import Data, MLContext, Operation, ParametrizedAttribute
 from xdsl.irdl import (AnyOf, AttributeDef, SingleBlockRegionDef, builder, AnyAttr, ResultDef, OperandDef,
-                       irdl_attr_definition, irdl_op_definition)
+                       irdl_attr_definition, irdl_op_definition, ParameterDef)
 from xdsl.parser import Parser
 from xdsl.printer import Printer
 
@@ -118,7 +118,7 @@ class ExprName(Operation):
     name = "psy.dag.id_expr"
 
     id = AttributeDef(StringAttr)
-    var= OperandDef(AnyAttr())
+    var= AttributeDef(AnyAttr())
 
     @staticmethod
     def get(name: Union[str, StringAttr], v, verify_op: bool = True) -> ExprName:
@@ -126,15 +126,21 @@ class ExprName(Operation):
         if verify_op:
             # We don't verify nested operations since they might have already been verified
             res.verify(verify_nested_ops=False)
-        return res    
+        return res
+      
+@irdl_attr_definition
+class Token(ParametrizedAttribute):
+    name = "psy.dag.token"
+
+    var_name = ParameterDef(StringAttr)
+    type = ParameterDef(AnyAttr())        
             
 @irdl_op_definition
 class VarDef(Operation):
     name = "psy.dag.var_def"
 
-    type = AttributeDef(AnyAttr())
-    result = ResultDef(AnyAttr())
-    var_name = AttributeDef(StringAttr)
+    var= AttributeDef(AnyAttr())
+    result = ResultDef(AnyAttr())    
     
 @irdl_op_definition
 class Assign(Operation):

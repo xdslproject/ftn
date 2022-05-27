@@ -14,7 +14,7 @@ def print_op(op, stream=sys.stdout):
       print_routine(op)
     elif isinstance(op, psy_dag.VarDef):
       print_indent()
-      print(f"{op.type.parameters[0].data} :: {op.var_name.data}")      
+      print(f"{op.var.type.parameters[0].data} :: {op.var.var_name.data}")      
     elif isinstance(op, psy_dag.CallExpr):
       if op.isstatement.data: print_indent()
       print(f"call {op.func.data}()", end='')
@@ -27,11 +27,8 @@ def print_op(op, stream=sys.stdout):
       print_op(op.rhs.blocks[0].ops[0])
     elif isinstance(op, psy_dag.Assign):
       print_assign(op)
-    elif isinstance(op, psy_dag.ExprName):
-      if len(op.operands) > 0:        
-        print(f"{op.operands[0].name.data}", end="")
-      else:
-        print(f"{op.id.data}", end="")         
+    elif isinstance(op, psy_dag.ExprName):          
+      print(op.var.var_name.data, end="")          
     elif isinstance(op, psy_dag.If):
       print_if(op)
     elif isinstance(op, psy_dag.Do):
