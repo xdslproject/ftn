@@ -13,12 +13,9 @@ def print_op(op, stream=sys.stdout):
     elif isinstance(op, psy_dag.Routine):      
       print_routine(op)
     elif isinstance(op, psy_dag.VarDef):
-      print_indent()
-      print(f"{op.var.type.parameters[0].data} :: {op.var.var_name.data}")      
+      print_vardef(op)
     elif isinstance(op, psy_dag.CallExpr):
-      if op.isstatement.data: print_indent()
-      print(f"call {op.func.data}()", end='')
-      if op.isstatement.data: print("")
+      print_callexpr(op)
     elif isinstance(op, psy_dag.Literal):
       print_literal(op)
     elif isinstance(op, psy_dag.BinaryExpr):      
@@ -33,14 +30,58 @@ def print_op(op, stream=sys.stdout):
       print_if(op)
     elif isinstance(op, psy_dag.Do):
       print_do(op)
+    elif isinstance(op, psy_dag.Import):
+      print_import(op)
+    elif isinstance(op, psy_dag.MemberAccess):
+      print_memberaccess(op)
     else:
         raise Exception(f"Trying to print unknown operation '{op.name}'")
+      
+def print_callexpr(op):
+  if op.isstatement.data: print_indent()
+  print(f"call {op.func.data}(", end='')
+  needs_comma=False
+  for arg in op.args.blocks[0].ops:
+    if (needs_comma): print(", ", end="")
+    needs_comma=True
+    print_op(arg)
+  print(")", end="")
+  if op.isstatement.data: print("") 
+      
+def print_memberaccess(op):
+  print(f"{op.var.var_name.data}", end="")
+  for member in op.fields.data:
+    print(f"%{member.data}", end="")
+      
+def print_import(op):
+  print(f"use {op.import_name.data}", end="")
+  if len(op.specific_procedures.data) > 1:
+    print(", only : ", end="")
+    needs_comma=False
+    for proc in op.specific_procedures.data:
+      if (needs_comma): print(", ", end="")
+      needs_comma=True
+      print(proc.data, end="")      
+  print("") # force a newline
+      
+def print_vardef(op):
+  print_indent()
+  if isinstance(op.var.type, psy_type.DerivedType):
+    type_str=f"type({op.var.type.parameters[0].data})"
+  else:
+    type_str=f"{op.var.type.parameters[0].data}"  
+  if op.is_proc_argument.data:    
+    type_str+=f", intent({op.intent.data})"
+  print(f"{type_str} :: {op.var.var_name.data}")   
       
 def print_container(op):
   global incr
   print_indent()
   print(f"module {op.container_name.data}")
   incr+=2
+  for import_stmt in op.imports.blocks[0].ops:
+    print_indent()
+    print_op(import_stmt)
   print_indent()
   print("implicit none")
   print_indent()
@@ -108,11 +149,17 @@ def print_routine(op):
   if op.program_entry_point.data:
     print(f"program {op.routine_name.data}")
   else:
-    print(f"subroutine {op.routine_name.data}()")
+    print(f"subroutine {op.routine_name.data}(", end="")
+    needs_comma=False
+    for arg in op.args.data:
+      if (needs_comma): print(", ", end="")
+      needs_comma=True
+      print(arg.var_name.data, end="")
+    print(")")
   incr+=2
-  for entry in op.attributes["required_module_uses"].data:
+  for import_stmt in op.imports.blocks[0].ops:
     print_indent()
-    print("use "+entry.data)
+    print_op(import_stmt)
   for block in op.local_var_declarations.blocks[0].ops:
     print_op(block)
   if len(op.local_var_declarations.blocks[0].ops) > 0: print("")
