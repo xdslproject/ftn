@@ -3,12 +3,88 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import List, Optional, Type, Union
 
-from xdsl.dialects.builtin import IntegerAttr, StringAttr, IntegerType, Float32Type, i32, f32
+from xdsl.dialects.builtin import IntegerAttr, StringAttr, IntegerType, Float32Type, i32, f32, ArrayAttr, ArrayOfConstraint, AnyAttr
 from xdsl.ir import Data, MLContext, Operation, ParametrizedAttribute
-from xdsl.irdl import (AnyOf, AttributeDef, SingleBlockRegionDef, builder,
+from xdsl.irdl import (AnyOf, AttributeDef, SingleBlockRegionDef, builder, ParameterDef,
                        irdl_attr_definition, irdl_op_definition)
 from xdsl.parser import Parser
 from xdsl.printer import Printer
+
+@irdl_attr_definition
+class BoolAttr(Data):
+    name = "bool"
+    data: bool
+
+    @staticmethod
+    def parse(parser: Parser) -> BoolAttr:
+        data = parser.parse_int_literal()
+        return IntAttr(data)
+
+    def print(self, printer: Printer) -> None:
+        printer.print_string(f'{self.data}')
+
+    @staticmethod
+    @builder
+    def from_int(data: bool) -> BoolAttr:
+        return BoolAttr(data)
+
+@irdl_attr_definition
+class DerivedType(ParametrizedAttribute):
+    name = "derivedtype"
+    
+    type = ParameterDef(StringAttr)
+    
+    @staticmethod
+    @builder
+    def from_str(type: str) -> DerivedType:
+        return DerivedType([StringAttr.from_str(type)])
+
+    @staticmethod
+    @builder
+    def from_string_attr(data: StringAttr) -> DerivedType:
+        return DerivedType([data])
+      
+@irdl_attr_definition
+class AnonymousAttr(ParametrizedAttribute):
+    name = "anonymous"
+      
+# Ideally would use vector, but need unknown dimension types (and ranges too!)
+@irdl_attr_definition
+class ArrayType(ParametrizedAttribute):
+    name = "array"
+
+    shape = ParameterDef(ArrayAttr)
+    element_type = ParameterDef(AnyOf([IntegerType, Float32Type, DerivedType]))
+
+    def get_num_dims(self) -> int:
+        return len(self.parameters[0].data)
+
+    def get_shape(self) -> List[int]:
+        return [i.parameters[0].data for i in self.shape.data]
+
+    @staticmethod
+    @builder
+    def from_type_and_list(
+            referenced_type: Attribute,
+            shape: List[Union[int, IntegerAttr, AnonymousAttr]] = None) -> ArrayType:
+        if shape is None:
+            shape = [1]
+        if (isinstance(referenced_type, str) and referenced_type in VarDef.TYPE_MAP_TO_PSY.keys()):
+          type=VarDef.TYPE_MAP_TO_PSY[referenced_type]
+        else:
+          type=referenced_type
+        return ArrayType([
+            ArrayAttr.from_list([(IntegerAttr.build(d) if isinstance(d, int) else d) for d in shape]),
+            type]
+        )
+
+    @staticmethod
+    @builder
+    def from_params(
+        referenced_type: Attribute,
+        shape: ArrayAttr) -> ArrayType:
+        return ArrayType([shape, referenced_type])     
+    
 
 @irdl_op_definition
 class FileContainer(Operation):
@@ -32,13 +108,34 @@ class Container(Operation):
     name = "psy.ast.container"
 
     container_name = AttributeDef(StringAttr)
-    routines = SingleBlockRegionDef()    
+    imports = SingleBlockRegionDef()
+    routines = SingleBlockRegionDef()
 
     @staticmethod
     def get(container_name: str,
+            imports: List[Operation],
             routines: List[Operation],
             verify_op: bool = True) -> Container:
-      res = Container.build(attributes={"container_name": container_name}, regions=[routines])
+      res = Container.build(attributes={"container_name": container_name}, regions=[imports, routines])
+      if verify_op:
+        res.verify(verify_nested_ops=False)
+      return res
+
+    def verify_(self) -> None:
+      pass
+    
+@irdl_op_definition
+class Import(Operation):
+    name = "psy.ast.import"
+    
+    import_name=AttributeDef(StringAttr)
+    specific_procedures=AttributeDef(ArrayAttr)
+    
+    @staticmethod
+    def get(import_name: str,
+            specific_procedures: List[str],
+            verify_op: bool = True) -> Container:
+      res = Import.build(attributes={"import_name": import_name, "specific_procedures": specific_procedures})
       if verify_op:
         res.verify(verify_nested_ops=False)
       return res
@@ -51,7 +148,8 @@ class Routine(Operation):
     name = "psy.ast.routine"
 
     routine_name = AttributeDef(StringAttr)
-    params = SingleBlockRegionDef()
+    imports = SingleBlockRegionDef()
+    args = AttributeDef(ArrayAttr)
     return_type = AttributeDef(StringAttr)
     
     local_var_declarations = SingleBlockRegionDef()
@@ -60,12 +158,13 @@ class Routine(Operation):
     @staticmethod
     def get(routine_name: Union[str, StringAttr],
             return_type: str,
-            params: List[Operation],            
+            imports: List[Operation],
+            args: List[Operation],            
             local_var_declarations: List[Operation],
             routine_body: List[Operation],
             verify_op: bool = True) -> Routine:
-        res = Routine.build(attributes={"routine_name": routine_name, "return_type": return_type},
-                            regions=[params, local_var_declarations, routine_body])
+        res = Routine.build(attributes={"routine_name": routine_name, "return_type": return_type, "args": args},
+                            regions=[imports, local_var_declarations, routine_body])
         if verify_op:
             # We don't verify nested operations since they might have already been verified
             res.verify(verify_nested_ops=False)
@@ -90,7 +189,25 @@ class FloatAttr(Data):
     @staticmethod
     @builder
     def from_float(val: float) -> FloatAttr:
-        return FloatAttr(val) 
+        return FloatAttr(val)
+      
+@irdl_op_definition
+class ArrayAccess(Operation):
+    name="psy.ast.array_access_expr"
+    
+    var_name = AttributeDef(StringAttr)
+    accessors = SingleBlockRegionDef()
+    
+    @staticmethod
+    def get(var_name: StringAttr, 
+            accessors: List[Operation], 
+            verify_op: bool = True) -> ExprName:
+        res = ArrayAccess.build(attributes={"var_name": var_name}, regions=[accessors])
+        if verify_op:
+            # We don't verify nested operations since they might have already been verified
+            res.verify(verify_nested_ops=False)
+        return res
+
     
 @irdl_op_definition
 class ExprName(Operation):
@@ -105,6 +222,21 @@ class ExprName(Operation):
             # We don't verify nested operations since they might have already been verified
             res.verify(verify_nested_ops=False)
         return res
+      
+@irdl_op_definition
+class MemberAccess(Operation):
+    name = "psy.ast.member_access_expr"    
+
+    id = AttributeDef(StringAttr)
+    member = SingleBlockRegionDef()
+    
+    @staticmethod
+    def get(name: Union[str, StringAttr], member: Union[str, StringAttr], verify_op: bool = True) -> ExprName:
+        res = MemberAccess.build(attributes={"id": name}, regions=[[member]])
+        if verify_op:
+            # We don't verify nested operations since they might have already been verified
+            res.verify(verify_nested_ops=False)
+        return res
             
 @irdl_op_definition
 class VarDef(Operation):
@@ -113,14 +245,25 @@ class VarDef(Operation):
     TYPE_MAP_TO_PSY = {"int": i32,
                        "float": f32}
 
-    type = AttributeDef(AnyOf([IntegerType, Float32Type]))
-    var_name = AttributeDef(StringAttr)
+    type = AttributeDef(AnyOf([IntegerType, Float32Type, DerivedType, ArrayType]))
+    var_name = AttributeDef(StringAttr)    
+    is_proc_argument = AttributeDef(BoolAttr)
+    is_constant = AttributeDef(BoolAttr)
+    intent = AttributeDef(StringAttr)
 
     @staticmethod
     def get(typed_var: str,
             var_name: str,
-            verify_op: bool = True) -> VarDef:        
-        res = VarDef.build(attributes={"var_name": var_name, "type": VarDef.TYPE_MAP_TO_PSY[typed_var]})
+            is_proc_argument: bool = False,
+            is_constant: bool = False,
+            intent: str = "",
+            verify_op: bool = True) -> VarDef:    
+        #TODO: This is a bit nasty how we feed in both string and IR nodes, with arrays will be hard to fix though?    
+        if (isinstance(typed_var, str) and typed_var in VarDef.TYPE_MAP_TO_PSY.keys()):
+          type=VarDef.TYPE_MAP_TO_PSY[typed_var]
+        else:
+          type=typed_var
+        res = VarDef.build(attributes={"var_name": var_name, "type": type, "is_proc_argument": is_proc_argument, "is_constant": is_constant, "intent": intent})
         if verify_op:
             # We don't verify nested operations since they might have already been verified
             res.verify(verify_nested_ops=False)
@@ -276,12 +419,15 @@ class PsyAST:
         self.ctx.register_op(FileContainer)
         self.ctx.register_op(Container)
         self.ctx.register_op(Routine)
+        self.ctx.register_op(Import)
         self.ctx.register_op(VarDef)        
         self.ctx.register_op(Assign)
         self.ctx.register_op(If)
         self.ctx.register_op(Do)
         self.ctx.register_op(Literal)
         self.ctx.register_op(ExprName)
+        self.ctx.register_op(ArrayAccess)
+        self.ctx.register_op(MemberAccess)
         self.ctx.register_op(BinaryExpr)        
         self.ctx.register_op(CallExpr)
 
@@ -299,7 +445,7 @@ class PsyAST:
     @staticmethod
     def get_expression_op_types() -> List[Type[Operation]]:
         return [
-            BinaryExpr, CallExpr, Literal, ExprName
+            BinaryExpr, CallExpr, Literal, ExprName, MemberAccess, ArrayAccess
         ]
 
     @staticmethod
