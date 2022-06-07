@@ -3,30 +3,12 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import List, Optional, Type, Union
 
-from xdsl.dialects.builtin import IntegerAttr, StringAttr, IntegerType, Float32Type, i32, f32, ArrayAttr, ArrayOfConstraint, AnyAttr
+from xdsl.dialects.builtin import IntegerAttr, StringAttr, IntegerType, Float32Type, i32, f32, ArrayAttr, ArrayOfConstraint, AnyAttr, BoolAttr
 from xdsl.ir import Data, MLContext, Operation, ParametrizedAttribute
 from xdsl.irdl import (AnyOf, AttributeDef, SingleBlockRegionDef, builder, ParameterDef,
                        irdl_attr_definition, irdl_op_definition)
 from xdsl.parser import Parser
 from xdsl.printer import Printer
-
-@irdl_attr_definition
-class BoolAttr(Data):
-    name = "bool"
-    data: bool
-
-    @staticmethod
-    def parse(parser: Parser) -> BoolAttr:
-        data = parser.parse_int_literal()
-        return IntAttr(data)
-
-    def print(self, printer: Printer) -> None:
-        printer.print_string(f'{self.data}')
-
-    @staticmethod
-    @builder
-    def from_int(data: bool) -> BoolAttr:
-        return BoolAttr(data)
 
 @irdl_attr_definition
 class DerivedType(ParametrizedAttribute):
@@ -51,7 +33,7 @@ class AnonymousAttr(ParametrizedAttribute):
 # Ideally would use vector, but need unknown dimension types (and ranges too!)
 @irdl_attr_definition
 class ArrayType(ParametrizedAttribute):
-    name = "array"
+    name = "arraytype"
 
     shape = ParameterDef(ArrayAttr)
     element_type = ParameterDef(AnyOf([IntegerType, Float32Type, DerivedType]))
@@ -415,6 +397,10 @@ class PsyAST:
 
     def __post_init__(self):
         self.ctx.register_attr(FloatAttr)
+        self.ctx.register_attr(BoolAttr)
+        self.ctx.register_attr(AnonymousAttr)        
+        self.ctx.register_attr(DerivedType)
+        self.ctx.register_attr(ArrayType)
         
         self.ctx.register_op(FileContainer)
         self.ctx.register_op(Container)
@@ -429,7 +415,7 @@ class PsyAST:
         self.ctx.register_op(ArrayAccess)
         self.ctx.register_op(MemberAccess)
         self.ctx.register_op(BinaryExpr)        
-        self.ctx.register_op(CallExpr)
+        self.ctx.register_op(CallExpr)        
 
     @staticmethod
     def get_type(annotation: str) -> Operation:
