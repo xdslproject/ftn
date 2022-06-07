@@ -74,7 +74,6 @@ class Routine(Operation):
     routine_name = AttributeDef(StringAttr)
     args = AttributeDef(ArrayAttr)
     return_type = AttributeDef(StringAttr)
-    required_module_uses=AttributeDef(ArrayAttr)
     program_entry_point=AttributeDef(BoolAttr)
     
     imports = SingleBlockRegionDef()
@@ -88,9 +87,9 @@ class Routine(Operation):
             imports: List[Operation],
             local_var_declarations: List[Operation],
             routine_body: List[Operation],
-            program_entry_point : bool = True,
+            program_entry_point : bool = False,
             verify_op: bool = True) -> Routine:
-        res = Routine.build(attributes={"routine_name": routine_name, "return_type": return_type, "required_module_uses": [], "program_entry_point": program_entry_point, "args": args},
+        res = Routine.build(attributes={"routine_name": routine_name, "return_type": return_type, "program_entry_point": program_entry_point, "args": args},
                             regions=[imports, local_var_declarations, routine_body])
         if verify_op:
             # We don't verify nested operations since they might have already been verified
