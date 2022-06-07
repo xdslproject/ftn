@@ -3,30 +3,12 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import List, Optional, Type, Union
 
-from xdsl.dialects.builtin import IntegerAttr, StringAttr, IntegerType, Float32Type, i32, f32, ArrayAttr
+from xdsl.dialects.builtin import IntegerAttr, StringAttr, IntegerType, Float32Type, i32, f32, ArrayAttr, BoolAttr
 from xdsl.ir import Data, MLContext, Operation, ParametrizedAttribute
 from xdsl.irdl import (AnyOf, AttributeDef, SingleBlockRegionDef, builder, AnyAttr, ResultDef, OperandDef,
                        irdl_attr_definition, irdl_op_definition, ParameterDef)
 from xdsl.parser import Parser
 from xdsl.printer import Printer
-
-@irdl_attr_definition
-class BoolAttr(Data):
-    name = "bool"
-    data: bool
-
-    @staticmethod
-    def parse(parser: Parser) -> BoolAttr:
-        data = parser.parse_int_literal()
-        return IntAttr(data)
-
-    def print(self, printer: Printer) -> None:
-        printer.print_string(f'{self.data}')
-
-    @staticmethod
-    @builder
-    def from_int(data: bool) -> BoolAttr:
-        return BoolAttr(data)
 
 @irdl_op_definition
 class FileContainer(Operation):
@@ -50,43 +32,66 @@ class Container(Operation):
     name = "psy.dag.container"
 
     container_name = AttributeDef(StringAttr)
-    routines = SingleBlockRegionDef()    
+    imports = SingleBlockRegionDef()
+    routines = SingleBlockRegionDef()
 
     @staticmethod
     def get(container_name: str,
+            imports: List[Operation],
             routines: List[Operation],
             verify_op: bool = True) -> Container:
-      res = Container.build(attributes={"container_name": container_name}, regions=[routines])
+      res = Container.build(attributes={"container_name": container_name}, regions=[imports, routines])
       if verify_op:
         res.verify(verify_nested_ops=False)
       return res
 
     def verify_(self) -> None:
       pass
+    
+@irdl_op_definition
+class Import(Operation):
+    name = "psy.dag.import"
+    
+    import_name=AttributeDef(StringAttr)
+    specific_procedures=AttributeDef(ArrayAttr)
+    
+    @staticmethod
+    def get(import_name: str,
+            specific_procedures: List[str],
+            verify_op: bool = True) -> Container:
+      res = Import.build(attributes={"import_name": import_name, "specific_procedures": specific_procedures})
+      if verify_op:
+        res.verify(verify_nested_ops=False)
+      return res
+
+    def verify_(self) -> None:
+      pass  
                 
 @irdl_op_definition
 class Routine(Operation):
     name = "psy.dag.routine"
 
     routine_name = AttributeDef(StringAttr)
-    params = SingleBlockRegionDef()
+    args = AttributeDef(ArrayAttr)
     return_type = AttributeDef(StringAttr)
     required_module_uses=AttributeDef(ArrayAttr)
     program_entry_point=AttributeDef(BoolAttr)
     
+    imports = SingleBlockRegionDef()
     local_var_declarations = SingleBlockRegionDef()
     routine_body = SingleBlockRegionDef()
 
     @staticmethod
     def get(routine_name: Union[str, StringAttr],
             return_type: str,
-            params: List[Operation],            
+            args: List[Operation],
+            imports: List[Operation],
             local_var_declarations: List[Operation],
             routine_body: List[Operation],
             program_entry_point : bool = True,
             verify_op: bool = True) -> Routine:
-        res = Routine.build(attributes={"routine_name": routine_name, "return_type": return_type, "required_module_uses": [], "program_entry_point": program_entry_point},
-                            regions=[params, local_var_declarations, routine_body])
+        res = Routine.build(attributes={"routine_name": routine_name, "return_type": return_type, "required_module_uses": [], "program_entry_point": program_entry_point, "args": args},
+                            regions=[imports, local_var_declarations, routine_body])
         if verify_op:
             # We don't verify nested operations since they might have already been verified
             res.verify(verify_nested_ops=False)
@@ -111,7 +116,22 @@ class FloatAttr(Data):
     @staticmethod
     @builder
     def from_float(val: float) -> FloatAttr:
-        return FloatAttr(val) 
+        return FloatAttr(val)
+      
+@irdl_op_definition
+class MemberAccess(Operation):
+    name = "psy.dag.member_access_expr"    
+
+    var = AttributeDef(AnyAttr())
+    fields = AttributeDef(ArrayAttr)
+    
+    @staticmethod
+    def get(var, fields, verify_op: bool = True) -> ExprName:
+        res = MemberAccess.build(attributes={"var": var, "fields": fields})
+        if verify_op:
+            # We don't verify nested operations since they might have already been verified
+            res.verify(verify_nested_ops=False)
+        return res      
     
 @irdl_op_definition
 class ExprName(Operation):
@@ -140,7 +160,10 @@ class VarDef(Operation):
     name = "psy.dag.var_def"
 
     var= AttributeDef(AnyAttr())
-    result = ResultDef(AnyAttr())    
+    result = ResultDef(AnyAttr())
+    is_proc_argument = AttributeDef(BoolAttr)
+    is_constant = AttributeDef(BoolAttr)
+    intent = AttributeDef(StringAttr)
     
 @irdl_op_definition
 class Assign(Operation):

@@ -42,7 +42,7 @@ def psy_ast_to_psy_dag(ctx: MLContext, input_module: ModuleOp):
     applyModuleUseToFloatingRegions(res_module, collectContainerNames(res_module))
     res_module.regions[0].move_blocks(input_module.regions[0])
     # Create program entry point
-    wrap_top_levelcall_from_main(ctx, input_module)
+    #wrap_top_levelcall_from_main(ctx, input_module)
     
 def collectContainerNames(module: ModuleOp):
   container_names=[]
@@ -86,17 +86,25 @@ def translate_program(p: psy_ast.FileContainer) -> ModuleOp:
   
 def translate_container(ctx: SSAValueCtx, op: Operation) -> Operation:
   
-  if isinstance(op, psy_ast.Container):            
-    routines = Region()
-    block = Block()
-    block.add_ops(translate_fun_def(ctx, routine.blocks[0].ops[0]) for routine in op.regions)
-    routines.add_block(block)
+  if isinstance(op, psy_ast.Container):    
+    imports = Region()
+    imports_block = Block()
+    imports_block.add_ops(translate_import_stmt(ctx, import_statement) for import_statement in op.imports.blocks[0].ops)
+    imports.add_block(imports_block)
     
-    return psy_dag.Container.create(attributes={"container_name": op.container_name}, regions=[routines])
+    routines = Region()
+    routines_block = Block()
+    routines_block.add_ops(translate_fun_def(ctx, routine.ops[0]) for routine in op.routines.blocks)
+    routines.add_block(routines_block)
+    
+    return psy_dag.Container.create(attributes={"container_name": op.container_name}, regions=[imports, routines])
   elif isinstance(op, psy_ast.Routine):
     return translate_fun_def(ctx, op)
   
-def translate_def_or_stmt(ctx: SSAValueCtx, op: Operation) -> List[Operation]:    
+def translate_import_stmt(ctx: SSAValueCtx, op: Operation) -> List[Operation]:
+  return psy_dag.Import.create(attributes={"import_name": op.attributes["import_name"], "specific_procedures": op.attributes["specific_procedures"]})
+  
+def translate_def_or_stmt(ctx: SSAValueCtx, op: Operation) -> List[Operation]:
     """
     Translate an operation that can either be a definition or statement
     """
@@ -140,22 +148,9 @@ def translate_def(ctx: SSAValueCtx, op: Operation) -> List[Operation]:
         return ops  
   
 def translate_fun_def(ctx: SSAValueCtx,
-                      routine_def: psy_ast.Routine) -> Operation:
-    routine_name = routine_def.attributes["routine_name"]
-
-    def get_param(op: Operation) -> Tuple[str, Attribute]:
-        assert isinstance(op, psy_ast.TypedVar)
-        var_name = op.attributes.get('var_name')
-        assert isinstance(var_name, StringAttr)
-        name = var_name.data
-        type_name = op.regions[0].blocks[0].ops[0]
-        type = try_translate_type(type_name)
-        assert type is not None
-        return name, type
-
-    params = [get_param(op) for op in routine_def.params.blocks[0].ops]
-    param_names: List[str] = [p[0] for p in params]
-    param_types: List[Attribute] = [p[1] for p in params]
+                      routine_def: psy_ast.Routine) -> Operation:    
+    routine_name = routine_def.attributes["routine_name"]  
+    
     #return_type = try_translate_type(fun_def.return_type.blocks[0].ops[0])
     #if return_type is None:
     #    return_type = choco_type.none_type
@@ -163,22 +158,28 @@ def translate_fun_def(ctx: SSAValueCtx,
     # create a new nested scope and
     # relate parameter identifiers with SSA values of block arguments
     body = Region()
-    block = Block.from_arg_types(param_types)
     
-    c = SSAValueCtx(dictionary=dict(zip(param_names, block.args)),
-                    parent_scope=ctx)
+    c = SSAValueCtx(dictionary={}, parent_scope=ctx)
+    
+    imports = []
+    for import_statement in routine_def.imports.blocks[0].ops:
+      imports.append(translate_import_stmt(ctx, import_statement))
 
     declarations=[]
     for op in routine_def.local_var_declarations.blocks[0].ops:
-      declarations.append(translate_def_or_stmt(c, op))          
+      declarations.append(translate_def_or_stmt(c, op))
     
     exec_statements=[]
     for op in routine_def.routine_body.blocks[0].ops:
       exec_statements.append(translate_def_or_stmt(c, op))
       
-    #print(exec_statements)
-    #body.append(translate_def_or_stmt(c, op) for op in routine_def.routine_body.blocks[0].ops)    
-    return psy_dag.Routine.get(routine_name, "void", [], declarations, exec_statements)
+    # Do arguments last, as these are already created in the declarations lookup
+    arguments=[]
+    for op in routine_def.args.data:
+      token=c[op.data]
+      arguments.append(token)
+          
+    return psy_dag.Routine.get(routine_name, "void", arguments, imports, declarations, exec_statements)
     
 def try_translate_type(op: Operation) -> Optional[Attribute]:
     """Tries to translate op as a type, returns None otherwise."""    
@@ -186,6 +187,8 @@ def try_translate_type(op: Operation) -> Optional[Attribute]:
       return psy_type.int_type
     elif isinstance(op, psy_ast.Float32Type):              
       return psy_type.float_type
+    elif isinstance(op, psy_ast.DerivedType):
+      return psy_type.DerivedType([op.type])
 
     return None
 
@@ -195,11 +198,13 @@ def translate_var_def(ctx: SSAValueCtx,
    
     var_name = var_def.attributes["var_name"]
     assert isinstance(var_name, StringAttr)
-    type = try_translate_type(var_def.attributes["type"])
+    type = try_translate_type(var_def.attributes["type"])    
     
     tkn=psy_dag.Token([var_name, type])
 
-    vardef=psy_dag.VarDef.create(attributes={"var": tkn}, result_types=[type])    
+    vardef=psy_dag.VarDef.create(attributes={"var": tkn, "is_proc_argument": var_def.attributes["is_proc_argument"], 
+                                             "is_constant": var_def.attributes["is_constant"], 
+                                             "intent": var_def.attributes["intent"]}, result_types=[type])    
 
     # relate variable identifier and SSA value by adding it into the current context    
     ctx[var_name.data] = tkn 
@@ -217,13 +222,17 @@ def try_translate_expr(
     """    
     if isinstance(op, psy_ast.Literal):        
         return translate_literal(op)
-    if isinstance(op, psy_ast.ExprName):        
+    if isinstance(op, psy_ast.ExprName):
+        if ctx[op.id.data] is None:
+          print("Missing "+op.id.data)
         return psy_dag.ExprName.create(attributes={"id": op.attributes["id"], "var": ctx[op.id.data]})
     if isinstance(op, psy_ast.BinaryExpr):        
         return translate_binary_expr(ctx, op)
     if isinstance(op, psy_ast.CallExpr):
         print("No call expression here!")
         return translate_call_expr(ctx, op)
+    if isinstance(op, psy_ast.MemberAccess):
+        return translate_member_access_expr(ctx, op)
 
     assert False, "Unknown Expression "+str(op)
 
@@ -242,6 +251,20 @@ def translate_expr(ctx: SSAValueCtx,
     else:
         ops = res
         return ops
+      
+def translate_member_access_expr(ctx: SSAValueCtx, op: psy_ast.MemberAccess, first_in_chain=True) -> List[Operation]:  
+  entry = op.member.blocks[0].ops[0]  
+  if isinstance(entry, psy_ast.MemberAccess):
+    members=translate_member_access_expr(ctx, entry, False)
+  elif isinstance(entry, psy_ast.ExprName):
+    members=[entry.id.data]
+  else:
+    members=[]
+  if (first_in_chain):    
+    return psy_dag.MemberAccess.get(ctx[op.id.data], [StringAttr(member) for member in members])
+  else:    
+    members.insert(0, op.attributes["id"].data)
+    return members
       
 def translate_literal(op: psy_ast.Literal) -> Operation:
     value = op.attributes["value"]
