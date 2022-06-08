@@ -191,8 +191,8 @@ def try_translate_type(ctx: SSAValueCtx, op: Operation) -> Optional[Attribute]:
       return psy_type.int_type
     elif isinstance(op, psy_ast.Float32Type):              
       return psy_type.float_type
-    elif isinstance(op, psy_ast.DerivedType):
-      return psy_type.DerivedType([try_translate_type(op.type)])
+    elif isinstance(op, psy_ast.DerivedType):      
+      return psy_type.DerivedType([op.type])
     elif isinstance(op, psy_ast.ArrayType):
       transformed_shape=[]
       for member in op.shape.data:
