@@ -1,8 +1,8 @@
 from __future__ import annotations
 
-from xdsl.dialects.builtin import StringAttr
+from xdsl.dialects.builtin import StringAttr, ArrayAttr
 from xdsl.ir import ParametrizedAttribute
-from xdsl.irdl import AnyAttr, ParameterDef, irdl_attr_definition
+from xdsl.irdl import AnyAttr, ParameterDef, irdl_attr_definition, AnyOf
 
 
 @irdl_attr_definition
@@ -16,6 +16,13 @@ class DerivedType(ParametrizedAttribute):
     name = "derivedtype"
     
     type = ParameterDef(StringAttr)
+    
+@irdl_attr_definition
+class ArrayType(ParametrizedAttribute):
+    name = "arraytype"
+    
+    shape = ParameterDef(ArrayAttr)
+    element_type = ParameterDef(AnyOf([NamedType, DerivedType]))    
 
 int_type = NamedType([StringAttr.from_str("integer")])
 float_type = NamedType([StringAttr.from_str("real")])
