@@ -120,8 +120,8 @@ def print_container(op):
   print_container_level_routine_visibility("public", op.public_routines.data)
   print_container_level_routine_visibility("private", op.private_routines.data)  
   print("contains")      
-  for block in op.routines.blocks:
-    print_op(block.ops[0])        
+  for block in op.routines.blocks[0].ops:
+    print_op(block)        
   incr-=2
   print_indent()
   print(f"end module {op.container_name.data}\n")
