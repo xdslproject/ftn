@@ -36,7 +36,7 @@ class SSAValueCtx:
 
 def psy_ast_to_psy_dag(ctx: MLContext, input_module: ModuleOp):
     input_program = input_module.ops[0]
-    assert isinstance(input_program, psy_ast.FileContainer)
+    assert isinstance(input_program, psy_ast.FileContainer) or isinstance(input_program, psy_ast.Container)
     res_module = translate_program(input_program)    
     # Now we need to gather the containers and inform the top level routine about these so it can generate the use
     applyModuleUseToFloatingRegions(res_module, collectContainerNames(res_module))
@@ -78,15 +78,18 @@ def find_floating_region(module: ModuleOp):
 def translate_program(p: psy_ast.FileContainer) -> ModuleOp:
     # create an empty global context
     global_ctx = SSAValueCtx()   
-    containers: List[psy_dag.Container] = [
-      translate_container(global_ctx, container) for container in p.programs.blocks[0].ops
-    ]        
+    if isinstance(p, psy_ast.FileContainer):
+      containers: List[psy_dag.Container] = [translate_container(global_ctx, container) for container in p.programs.blocks[0].ops]
+    elif isinstance(p, psy_ast.Container):
+      containers: List[psy_dag.Container] = [translate_container(global_ctx, p)]
+    else:
+      containers: List[psy_dag.Container] = []
             
     return ModuleOp.from_region_or_ops(containers)
   
 def translate_container(ctx: SSAValueCtx, op: Operation) -> Operation:
   
-  if isinstance(op, psy_ast.Container):    
+  if isinstance(op, psy_ast.Container):
     imports = Region()
     imports_block = Block()
     imports_block.add_ops(translate_import_stmt(ctx, import_statement) for import_statement in op.imports.blocks[0].ops)
