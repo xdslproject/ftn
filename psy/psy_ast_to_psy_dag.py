@@ -97,7 +97,8 @@ def translate_container(ctx: SSAValueCtx, op: Operation) -> Operation:
     routines_block.add_ops(translate_fun_def(ctx, routine.ops[0]) for routine in op.routines.blocks)
     routines.add_block(routines_block)
     
-    return psy_dag.Container.create(attributes={"container_name": op.container_name}, regions=[imports, routines])
+    return psy_dag.Container.create(attributes={"container_name": op.container_name, "default_visibility": op.default_visibility,
+                                                "public_routines": op.public_routines, "private_routines": op.private_routines}, regions=[imports, routines])
   elif isinstance(op, psy_ast.Routine):
     return translate_fun_def(ctx, op)
   

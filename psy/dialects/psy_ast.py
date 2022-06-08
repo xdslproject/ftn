@@ -92,13 +92,20 @@ class Container(Operation):
     container_name = AttributeDef(StringAttr)
     imports = SingleBlockRegionDef()
     routines = SingleBlockRegionDef()
+    default_visibility = AttributeDef(StringAttr)
+    public_routines = AttributeDef(ArrayAttr)
+    private_routines = AttributeDef(ArrayAttr)
 
     @staticmethod
     def get(container_name: str,
+            default_visibility: str,
+            public_routines: List[str],
+            private_routines: List[str],
             imports: List[Operation],
             routines: List[Operation],
             verify_op: bool = True) -> Container:
-      res = Container.build(attributes={"container_name": container_name}, regions=[imports, routines])
+      res = Container.build(attributes={"container_name": container_name, "default_visibility": default_visibility, 
+                                        "public_routines": public_routines, "private_routines": private_routines}, regions=[imports, routines])
       if verify_op:
         res.verify(verify_nested_ops=False)
       return res

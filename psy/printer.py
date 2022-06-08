@@ -85,12 +85,25 @@ def print_container(op):
   print_indent()
   print("implicit none")
   print_indent()
-  print("public\n\ncontains")      
+  print(f"{op.default_visibility.data}\n")
+  print_container_level_routine_visibility("public", op.public_routines.data)
+  print_container_level_routine_visibility("private", op.private_routines.data)  
+  print("contains")      
   for block in op.routines.blocks:
     print_op(block.ops[0])        
   incr-=2
   print_indent()
   print(f"end module {op.container_name.data}\n")
+  
+def print_container_level_routine_visibility(visibility, vis_list):
+  if len(vis_list) > 0:
+    print(f"{visibility} :: ", end="")
+    needs_comma=False
+    for member in vis_list:
+      if (needs_comma): print(", ", end="")
+      needs_comma=True
+      print(member.data, end="")
+    print("\n")
       
 def print_literal(op):
   global incr
