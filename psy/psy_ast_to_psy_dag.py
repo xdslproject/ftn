@@ -182,14 +182,22 @@ def translate_fun_def(ctx: SSAValueCtx,
           
     return psy_dag.Routine.get(routine_name, "void", arguments, imports, declarations, exec_statements)
     
-def try_translate_type(op: Operation) -> Optional[Attribute]:
+def try_translate_type(ctx: SSAValueCtx, op: Operation) -> Optional[Attribute]:
     """Tries to translate op as a type, returns None otherwise."""    
     if isinstance(op, psy_ast.IntegerType):               
       return psy_type.int_type
     elif isinstance(op, psy_ast.Float32Type):              
       return psy_type.float_type
     elif isinstance(op, psy_ast.DerivedType):
-      return psy_type.DerivedType([op.type])
+      return psy_type.DerivedType([try_translate_type(op.type)])
+    elif isinstance(op, psy_ast.ArrayType):
+      transformed_shape=[]
+      for member in op.shape.data:
+        if isinstance(member, psy_ast.AnonymousAttr):
+          transformed_shape.append(psy_dag.AnonymousAttr())
+        else:
+          transformed_shape.append(try_translate_expr(ctx, member))
+      return psy_type.ArrayType([ArrayAttr(transformed_shape), try_translate_type(ctx, op.element_type)])
 
     return None
 
@@ -199,7 +207,7 @@ def translate_var_def(ctx: SSAValueCtx,
    
     var_name = var_def.attributes["var_name"]
     assert isinstance(var_name, StringAttr)
-    type = try_translate_type(var_def.attributes["type"])    
+    type = try_translate_type(ctx, var_def.attributes["type"])    
     
     tkn=psy_dag.Token([var_name, type])
 
@@ -234,6 +242,8 @@ def try_translate_expr(
         return translate_call_expr(ctx, op)
     if isinstance(op, psy_ast.MemberAccess):
         return translate_member_access_expr(ctx, op)
+    if isinstance(op, psy_ast.ArrayAccess):
+        return translate_array_access_expr(ctx, op)
 
     assert False, "Unknown Expression "+str(op)
 
@@ -252,6 +262,12 @@ def translate_expr(ctx: SSAValueCtx,
     else:
         ops = res
         return ops
+      
+def translate_array_access_expr(ctx: SSAValueCtx, op: psy_ast.ArrayAccess) -> List[Operation]:
+  index_accessors=[]
+  for entry in op.accessors.blocks[0].ops:
+    index_accessors.append(translate_expr(ctx, entry))
+  return psy_dag.ArrayAccess.get(ctx[op.var_name.data], index_accessors)
       
 def translate_member_access_expr(ctx: SSAValueCtx, op: psy_ast.MemberAccess, first_in_chain=True) -> List[Operation]:  
   entry = op.member.blocks[0].ops[0]  

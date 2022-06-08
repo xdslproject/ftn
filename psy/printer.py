@@ -34,8 +34,19 @@ def print_op(op, stream=sys.stdout):
       print_import(op)
     elif isinstance(op, psy_dag.MemberAccess):
       print_memberaccess(op)
+    elif isinstance(op, psy_dag.ArrayAccess):
+      print_arrayaccess(op)
     else:
         raise Exception(f"Trying to print unknown operation '{op.name}'")
+      
+def print_arrayaccess(op):
+  print(f"{op.var.var_name.data}(", end="")
+  needs_comma=False
+  for member in op.accessors.blocks[0].ops:
+    if (needs_comma): print(", ", end="")
+    needs_comma=True
+    print_op(member)
+  print(")", end="")        
       
 def print_callexpr(op):
   if op.isstatement.data: print_indent()
@@ -66,13 +77,32 @@ def print_import(op):
       
 def print_vardef(op):
   print_indent()
-  if isinstance(op.var.type, psy_type.DerivedType):
-    type_str=f"type({op.var.type.parameters[0].data})"
+  type_str=generate_typestring(op.var.type)
+  type_str+=generate_vardeclaration_extra_type_info(op)
+  print(f"{type_str} :: {op.var.var_name.data}")
+  
+def generate_vardeclaration_extra_type_info(var_def):
+  extra_info=""
+  if var_def.is_proc_argument.data:    
+    extra_info+=f", intent({var_def.intent.data})"
+  return extra_info
+  
+def generate_typestring(type):  
+  if isinstance(type, psy_type.DerivedType):
+    type_str=f"type({type.parameters[0].data})"
+  elif isinstance(type, psy_type.ArrayType):
+    type_str=generate_typestring(type.element_type)
+    type_str+=", dimension("
+    needs_comma=False
+    for dim_size in type.shape.data:
+      if isinstance(dim_size, psy_dag.AnonymousAttr):
+        if (needs_comma): type_str+=(",")
+        needs_comma=True
+        type_str+=":"
+    type_str+=")"
   else:
-    type_str=f"{op.var.type.parameters[0].data}"  
-  if op.is_proc_argument.data:    
-    type_str+=f", intent({op.intent.data})"
-  print(f"{type_str} :: {op.var.var_name.data}")   
+    type_str=f"{type.parameters[0].data}"
+  return type_str  
       
 def print_container(op):
   global incr
@@ -82,6 +112,7 @@ def print_container(op):
   for import_stmt in op.imports.blocks[0].ops:
     print_indent()
     print_op(import_stmt)
+  print("")
   print_indent()
   print("implicit none")
   print_indent()
@@ -97,6 +128,7 @@ def print_container(op):
   
 def print_container_level_routine_visibility(visibility, vis_list):
   if len(vis_list) > 0:
+    print_indent()
     print(f"{visibility} :: ", end="")
     needs_comma=False
     for member in vis_list:
@@ -115,7 +147,7 @@ def print_literal(op):
       
 def print_assign(op):
   global incr
-  print_indent()      
+  print_indent()
   print_op(op.lhs.blocks[0].ops[0])
   print("=", end="")
   print_op(op.rhs.blocks[0].ops[0])

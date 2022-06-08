@@ -10,6 +10,10 @@ from xdsl.irdl import (AnyOf, AttributeDef, SingleBlockRegionDef, builder, AnyAt
 from xdsl.parser import Parser
 from xdsl.printer import Printer
 
+@irdl_attr_definition
+class AnonymousAttr(ParametrizedAttribute):
+    name = "anonymous"
+
 @irdl_op_definition
 class FileContainer(Operation):
     name = "psy.dag.filecontainer"
@@ -134,6 +138,23 @@ class MemberAccess(Operation):
     @staticmethod
     def get(var, fields, verify_op: bool = True) -> ExprName:
         res = MemberAccess.build(attributes={"var": var, "fields": fields})
+        if verify_op:
+            # We don't verify nested operations since they might have already been verified
+            res.verify(verify_nested_ops=False)
+        return res
+      
+@irdl_op_definition
+class ArrayAccess(Operation):
+    name="psy.ast.array_access_expr"
+    
+    var = AttributeDef(AnyAttr())
+    accessors = SingleBlockRegionDef()
+    
+    @staticmethod
+    def get(var, 
+            accessors: List[Operation], 
+            verify_op: bool = True) -> ExprName:
+        res = ArrayAccess.build(attributes={"var": var}, regions=[accessors])
         if verify_op:
             # We don't verify nested operations since they might have already been verified
             res.verify(verify_nested_ops=False)
