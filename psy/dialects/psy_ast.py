@@ -65,19 +65,20 @@ class ArrayType(ParametrizedAttribute):
     def from_params(
         referenced_type: Attribute,
         shape: ArrayAttr) -> ArrayType:
-        return ArrayType([shape, referenced_type])     
-    
+        return ArrayType([shape, referenced_type])    
 
 @irdl_op_definition
 class FileContainer(Operation):
     name = "psy.ast.filecontainer"
 
-    programs = SingleBlockRegionDef()
+    file_name = AttributeDef(StringAttr)
+    containers = SingleBlockRegionDef()
 
     @staticmethod
-    def get(programs: List[Operation],
+    def get(file_name: str,
+            containers: List[Operation],
             verify_op: bool = True) -> FileContainer:
-      res = FileContainer.build(regions=[programs])
+      res = FileContainer.build(attributes={"file_name": file_name}, regions=[containers])
       if verify_op:
         res.verify(verify_nested_ops=False)
       return res
