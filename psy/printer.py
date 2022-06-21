@@ -102,6 +102,10 @@ def generate_typestring(type):
     type_str+=")"
   else:
     type_str=f"{type.parameters[0].data}"
+    if (len(type.parameters[1].data) > 0):
+      type_str+=f"(kind={type.parameters[1].data})"
+    elif (type_str=="float" or type_str=="integer") and type.parameters[2].data != 4:
+      type_str+=f"({type.parameters[2].data})"
   return type_str  
       
 def print_container(op):

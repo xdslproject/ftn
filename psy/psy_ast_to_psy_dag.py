@@ -185,10 +185,10 @@ def translate_fun_def(ctx: SSAValueCtx,
     
 def try_translate_type(ctx: SSAValueCtx, op: Operation) -> Optional[Attribute]:
     """Tries to translate op as a type, returns None otherwise."""    
-    if isinstance(op, psy_ast.IntegerType):               
-      return psy_type.int_type
-    elif isinstance(op, psy_ast.Float32Type):              
-      return psy_type.float_type
+    if isinstance(op, psy_ast.IntegerType):
+      return psy_type.NamedType([StringAttr("integer"), op.kind, op.precision])
+    elif isinstance(op, psy_ast.FloatType):              
+      return psy_type.NamedType([StringAttr("real"), op.kind, op.precision])
     elif isinstance(op, psy_ast.DerivedType):      
       return psy_type.DerivedType([op.type])
     elif isinstance(op, psy_ast.ArrayType):

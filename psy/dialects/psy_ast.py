@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import List, Optional, Type, Union
 
-from xdsl.dialects.builtin import IntegerAttr, StringAttr, IntegerType, Float32Type, i32, f32, ArrayAttr, ArrayOfConstraint, AnyAttr, BoolAttr
+from xdsl.dialects.builtin import IntegerAttr, StringAttr, ArrayAttr, ArrayOfConstraint, AnyAttr, BoolAttr, IntAttr
 from xdsl.ir import Data, MLContext, Operation, ParametrizedAttribute
 from xdsl.irdl import (AnyOf, AttributeDef, SingleBlockRegionDef, builder, ParameterDef,
                        irdl_attr_definition, irdl_op_definition)
@@ -27,6 +27,57 @@ class DerivedType(ParametrizedAttribute):
         return DerivedType([data])
       
 @irdl_attr_definition
+class FloatType(ParametrizedAttribute):
+    name = "floattype"
+    
+    kind = ParameterDef(StringAttr)
+    precision = ParameterDef(IntAttr)
+    
+    @staticmethod
+    @builder
+    def from_str(kind: str="", precision:int=4) -> FloatType:
+        return FloatType([StringAttr.from_str(kind), IntAttr.from_int(precision)])
+      
+    def set_kind(self, kind):      
+      self.parameters[0]=kind
+      
+    def set_precision(self, precision):
+      self.parameters[1]=precision
+
+    @staticmethod
+    @builder
+    def from_string_attr(kind: StringAttr, precision:IntAttr) -> FloatType:
+        return FloatType([kind, precision])
+      
+@irdl_attr_definition
+class DoublePrecisionType(ParametrizedAttribute):
+    name = "doubletype"      
+      
+@irdl_attr_definition
+class IntegerType(ParametrizedAttribute):
+    name = "integertype"
+    
+    kind = ParameterDef(StringAttr)
+    precision = ParameterDef(IntAttr)
+    
+    @staticmethod
+    @builder
+    def from_str(kind: str="", precision:int=4) -> IntegerType:
+        return IntegerType([StringAttr.from_str(kind), IntAttr.from_int(precision)])
+      
+    def set_kind(self, kind):      
+      self.parameters[0]=kind
+      
+    def set_precision(self, precision):
+      self.parameters[1]=precision
+
+    @staticmethod
+    @builder
+    def from_string_attr(kind: StringAttr, precision:IntAttr) -> IntegerType:
+        return IntegerType([kind, precision])      
+ 
+      
+@irdl_attr_definition
 class AnonymousAttr(ParametrizedAttribute):
     name = "anonymous"
       
@@ -36,7 +87,7 @@ class ArrayType(ParametrizedAttribute):
     name = "arraytype"
 
     shape = ParameterDef(ArrayAttr)
-    element_type = ParameterDef(AnyOf([IntegerType, Float32Type, DerivedType]))
+    element_type = ParameterDef(AnyOf([IntegerType, FloatType, DerivedType]))
 
     def get_num_dims(self) -> int:
         return len(self.parameters[0].data)
@@ -231,11 +282,8 @@ class MemberAccess(Operation):
 @irdl_op_definition
 class VarDef(Operation):
     name = "psy.ast.var_def"
-    
-    TYPE_MAP_TO_PSY = {"int": i32,
-                       "float": f32}
 
-    type = AttributeDef(AnyOf([IntegerType, Float32Type, DerivedType, ArrayType]))
+    type = AttributeDef(AnyOf([IntegerType, FloatType, DerivedType, ArrayType]))
     var_name = AttributeDef(StringAttr)    
     is_proc_argument = AttributeDef(BoolAttr)
     is_constant = AttributeDef(BoolAttr)
@@ -248,11 +296,8 @@ class VarDef(Operation):
             is_constant: bool = False,
             intent: str = "",
             verify_op: bool = True) -> VarDef:    
-        #TODO: This is a bit nasty how we feed in both string and IR nodes, with arrays will be hard to fix though?    
-        if (isinstance(typed_var, str) and typed_var in VarDef.TYPE_MAP_TO_PSY.keys()):
-          type=VarDef.TYPE_MAP_TO_PSY[typed_var]
-        else:
-          type=typed_var
+        #TODO: This is a bit nasty how we feed in both string and IR nodes, with arrays will be hard to fix though?            
+        type=typed_var
         res = VarDef.build(attributes={"var_name": var_name, "type": type, "is_proc_argument": is_proc_argument, "is_constant": is_constant, "intent": intent})
         if verify_op:
             # We don't verify nested operations since they might have already been verified
@@ -408,6 +453,9 @@ class PsyAST:
         self.ctx.register_attr(BoolAttr)
         self.ctx.register_attr(AnonymousAttr)        
         self.ctx.register_attr(DerivedType)
+        self.ctx.register_attr(IntegerType)
+        self.ctx.register_attr(FloatType)
+        self.ctx.register_attr(DoublePrecisionType)        
         self.ctx.register_attr(ArrayType)
         
         self.ctx.register_op(FileContainer)

@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from xdsl.dialects.builtin import StringAttr, ArrayAttr
+from xdsl.dialects.builtin import StringAttr, ArrayAttr, IntAttr
 from xdsl.ir import ParametrizedAttribute
 from xdsl.irdl import AnyAttr, ParameterDef, irdl_attr_definition, AnyOf
 
@@ -10,6 +10,8 @@ class NamedType(ParametrizedAttribute):
     name = "psy.ir.named_type"
 
     type_name = ParameterDef(StringAttr)
+    kind = ParameterDef(StringAttr)
+    precision = ParameterDef(IntAttr)
     
 @irdl_attr_definition
 class DerivedType(ParametrizedAttribute):
@@ -22,13 +24,8 @@ class ArrayType(ParametrizedAttribute):
     name = "arraytype"
     
     shape = ParameterDef(ArrayAttr)
-    element_type = ParameterDef(AnyOf([NamedType, DerivedType]))    
+    element_type = ParameterDef(AnyOf([NamedType, DerivedType]))
+    
+int_type=NamedType([StringAttr("integer"), StringAttr(""), IntAttr(4)])
+float_type=NamedType([StringAttr("real"), StringAttr(""), IntAttr(4)])
 
-int_type = NamedType([StringAttr.from_str("integer")])
-float_type = NamedType([StringAttr.from_str("real")])
-bool_type = NamedType([StringAttr.from_str("bool")])
-str_type = NamedType([StringAttr.from_str("str")])
-char_type = NamedType([StringAttr.from_str("char")])
-none_type = NamedType([StringAttr.from_str("<None>")])
-empty_type = NamedType([StringAttr.from_str("<Empty>")])
-object_type = NamedType([StringAttr.from_str("object")])
