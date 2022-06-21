@@ -1,4 +1,4 @@
-from psy.dialects import *
+from ftn.dialects import *
 from xdsl.dialects.builtin import StringAttr, IntegerAttr
 import sys
 
@@ -6,35 +6,35 @@ incr=0
 
 def print_op(op, stream=sys.stdout):
     global incr
-    if isinstance(op, psy_dag.FileContainer):
+    if isinstance(op, ftn_dag.FileContainer):
       pass
-    elif isinstance(op, psy_dag.Container):
+    elif isinstance(op, ftn_dag.Container):
       print_container(op)
-    elif isinstance(op, psy_dag.Routine):      
+    elif isinstance(op, ftn_dag.Routine):      
       print_routine(op)
-    elif isinstance(op, psy_dag.VarDef):
+    elif isinstance(op, ftn_dag.VarDef):
       print_vardef(op)
-    elif isinstance(op, psy_dag.CallExpr):
+    elif isinstance(op, ftn_dag.CallExpr):
       print_callexpr(op)
-    elif isinstance(op, psy_dag.Literal):
+    elif isinstance(op, ftn_dag.Literal):
       print_literal(op)
-    elif isinstance(op, psy_dag.BinaryExpr):      
+    elif isinstance(op, ftn_dag.BinaryExpr):      
       print_op(op.lhs.blocks[0].ops[0])
       print(op.attributes["op"].data, end="")
       print_op(op.rhs.blocks[0].ops[0])
-    elif isinstance(op, psy_dag.Assign):
+    elif isinstance(op, ftn_dag.Assign):
       print_assign(op)
-    elif isinstance(op, psy_dag.ExprName):          
+    elif isinstance(op, ftn_dag.ExprName):          
       print(op.var.var_name.data, end="")          
-    elif isinstance(op, psy_dag.If):
+    elif isinstance(op, ftn_dag.If):
       print_if(op)
-    elif isinstance(op, psy_dag.Do):
+    elif isinstance(op, ftn_dag.Do):
       print_do(op)
-    elif isinstance(op, psy_dag.Import):
+    elif isinstance(op, ftn_dag.Import):
       print_import(op)
-    elif isinstance(op, psy_dag.MemberAccess):
+    elif isinstance(op, ftn_dag.MemberAccess):
       print_memberaccess(op)
-    elif isinstance(op, psy_dag.ArrayAccess):
+    elif isinstance(op, ftn_dag.ArrayAccess):
       print_arrayaccess(op)
     else:
         raise Exception(f"Trying to print unknown operation '{op.name}'")
@@ -88,14 +88,14 @@ def generate_vardeclaration_extra_type_info(var_def):
   return extra_info
   
 def generate_typestring(type):  
-  if isinstance(type, psy_type.DerivedType):
+  if isinstance(type, ftn_type.DerivedType):
     type_str=f"type({type.parameters[0].data})"
-  elif isinstance(type, psy_type.ArrayType):
+  elif isinstance(type, ftn_type.ArrayType):
     type_str=generate_typestring(type.element_type)
     type_str+=", dimension("
     needs_comma=False
     for dim_size in type.shape.data:
-      if isinstance(dim_size, psy_dag.AnonymousAttr):
+      if isinstance(dim_size, ftn_dag.AnonymousAttr):
         if (needs_comma): type_str+=(",")
         needs_comma=True
         type_str+=":"
@@ -146,7 +146,7 @@ def print_literal(op):
   literal_val=op.attributes["value"]
   if isinstance(literal_val, IntegerAttr):
     print(op.attributes["value"].parameters[0].data, end="")
-  elif isinstance(literal_val, psy_dag.FloatAttr):
+  elif isinstance(literal_val, ftn_dag.FloatAttr):
     print(op.attributes["value"].data, end="")      
       
 def print_assign(op):

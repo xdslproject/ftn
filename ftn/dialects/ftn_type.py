@@ -7,7 +7,7 @@ from xdsl.irdl import AnyAttr, ParameterDef, irdl_attr_definition, AnyOf
 
 @irdl_attr_definition
 class NamedType(ParametrizedAttribute):
-    name = "psy.ir.named_type"
+    name = "ftn.ir.named_type"
 
     type_name = ParameterDef(StringAttr)
     kind = ParameterDef(StringAttr)

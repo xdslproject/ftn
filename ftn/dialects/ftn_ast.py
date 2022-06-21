@@ -120,7 +120,7 @@ class ArrayType(ParametrizedAttribute):
 
 @irdl_op_definition
 class FileContainer(Operation):
-    name = "psy.ast.filecontainer"
+    name = "ftn.ast.filecontainer"
 
     file_name = AttributeDef(StringAttr)
     containers = SingleBlockRegionDef()
@@ -139,7 +139,7 @@ class FileContainer(Operation):
     
 @irdl_op_definition
 class Container(Operation):
-    name = "psy.ast.container"
+    name = "ftn.ast.container"
 
     container_name = AttributeDef(StringAttr)
     imports = SingleBlockRegionDef()
@@ -167,7 +167,7 @@ class Container(Operation):
     
 @irdl_op_definition
 class Import(Operation):
-    name = "psy.ast.import"
+    name = "ftn.ast.import"
     
     import_name=AttributeDef(StringAttr)
     specific_procedures=AttributeDef(ArrayAttr)
@@ -186,7 +186,7 @@ class Import(Operation):
                 
 @irdl_op_definition
 class Routine(Operation):
-    name = "psy.ast.routine"
+    name = "ftn.ast.routine"
 
     routine_name = AttributeDef(StringAttr)
     imports = SingleBlockRegionDef()
@@ -216,7 +216,7 @@ class Routine(Operation):
     
 @irdl_attr_definition
 class FloatAttr(Data):
-    name = 'psy.ast.float'
+    name = 'ftn.ast.float'
     data: float
 
     @staticmethod
@@ -234,7 +234,7 @@ class FloatAttr(Data):
       
 @irdl_op_definition
 class ArrayAccess(Operation):
-    name="psy.ast.array_access_expr"
+    name="ftn.ast.array_access_expr"
     
     var_name = AttributeDef(StringAttr)
     accessors = SingleBlockRegionDef()
@@ -252,7 +252,7 @@ class ArrayAccess(Operation):
     
 @irdl_op_definition
 class ExprName(Operation):
-    name = "psy.ast.id_expr"
+    name = "ftn.ast.id_expr"
 
     id = AttributeDef(StringAttr)
 
@@ -266,7 +266,7 @@ class ExprName(Operation):
       
 @irdl_op_definition
 class MemberAccess(Operation):
-    name = "psy.ast.member_access_expr"    
+    name = "ftn.ast.member_access_expr"    
 
     id = AttributeDef(StringAttr)
     member = SingleBlockRegionDef()
@@ -281,7 +281,7 @@ class MemberAccess(Operation):
             
 @irdl_op_definition
 class VarDef(Operation):
-    name = "psy.ast.var_def"
+    name = "ftn.ast.var_def"
 
     type = AttributeDef(AnyOf([IntegerType, FloatType, DerivedType, ArrayType]))
     var_name = AttributeDef(StringAttr)    
@@ -309,7 +309,7 @@ class VarDef(Operation):
             
 @irdl_op_definition
 class Assign(Operation):
-    name = "psy.ast.assign"
+    name = "ftn.ast.assign"
 
     lhs = SingleBlockRegionDef()
     rhs = SingleBlockRegionDef()
@@ -329,7 +329,7 @@ class Assign(Operation):
                 
 @irdl_op_definition
 class Literal(Operation):
-    name = "psy.ast.literal"
+    name = "ftn.ast.literal"
 
     value = AttributeDef(AnyOf([StringAttr, IntegerAttr, FloatAttr]))
 
@@ -352,7 +352,7 @@ class Literal(Operation):
       
 @irdl_op_definition
 class If(Operation):
-    name = "psy.ast.if"
+    name = "ftn.ast.if"
 
     cond = SingleBlockRegionDef()
     then = SingleBlockRegionDef()
@@ -374,7 +374,7 @@ class If(Operation):
     
 @irdl_op_definition
 class Do(Operation):
-    name = "psy.ast.do"
+    name = "ftn.ast.do"
 
     iter_name = AttributeDef(StringAttr)
     start = SingleBlockRegionDef()
@@ -400,7 +400,7 @@ class Do(Operation):
       
 @irdl_op_definition
 class BinaryExpr(Operation):
-    name = "psy.ast.binary_expr"
+    name = "ftn.ast.binary_expr"
 
     op = AttributeDef(StringAttr)
     lhs = SingleBlockRegionDef()
@@ -426,7 +426,7 @@ class BinaryExpr(Operation):
             
 @irdl_op_definition
 class CallExpr(Operation):
-    name = "psy.ast.call_expr"
+    name = "ftn.ast.call_expr"
 
     func = AttributeDef(StringAttr)
     args = SingleBlockRegionDef()
@@ -445,7 +445,7 @@ class CallExpr(Operation):
       pass
                 
 @dataclass
-class PsyAST:
+class ftnAST:
     ctx: MLContext
 
     def __post_init__(self):
@@ -482,7 +482,7 @@ class PsyAST:
         statements: List[Type[Operation]] = [
             Assign, If, Do
         ]
-        return statements + PsycloneAST.get_expression_op_types()
+        return statements + FtnAST.get_expression_op_types()
 
     @staticmethod
     def get_expression_op_types() -> List[Type[Operation]]:

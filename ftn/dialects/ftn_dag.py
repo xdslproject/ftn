@@ -16,7 +16,7 @@ class AnonymousAttr(ParametrizedAttribute):
 
 @irdl_op_definition
 class FileContainer(Operation):
-    name = "psy.dag.filecontainer"
+    name = "ftn.dag.filecontainer"
 
     programs = SingleBlockRegionDef()
 
@@ -33,7 +33,7 @@ class FileContainer(Operation):
     
 @irdl_op_definition
 class Container(Operation):
-    name = "psy.dag.container"
+    name = "ftn.dag.container"
 
     container_name = AttributeDef(StringAttr)
     imports = SingleBlockRegionDef()
@@ -61,7 +61,7 @@ class Container(Operation):
     
 @irdl_op_definition
 class Import(Operation):
-    name = "psy.dag.import"
+    name = "ftn.dag.import"
     
     import_name=AttributeDef(StringAttr)
     specific_procedures=AttributeDef(ArrayAttr)
@@ -80,7 +80,7 @@ class Import(Operation):
                 
 @irdl_op_definition
 class Routine(Operation):
-    name = "psy.dag.routine"
+    name = "ftn.dag.routine"
 
     routine_name = AttributeDef(StringAttr)
     args = AttributeDef(ArrayAttr)
@@ -112,7 +112,7 @@ class Routine(Operation):
     
 @irdl_attr_definition
 class FloatAttr(Data):
-    name = 'psy.dag.float'
+    name = 'ftn.dag.float'
     data: float
 
     @staticmethod
@@ -130,7 +130,7 @@ class FloatAttr(Data):
       
 @irdl_op_definition
 class MemberAccess(Operation):
-    name = "psy.dag.member_access_expr"    
+    name = "ftn.dag.member_access_expr"    
 
     var = AttributeDef(AnyAttr())
     fields = AttributeDef(ArrayAttr)
@@ -145,7 +145,7 @@ class MemberAccess(Operation):
       
 @irdl_op_definition
 class ArrayAccess(Operation):
-    name="psy.ast.array_access_expr"
+    name="ftn.ast.array_access_expr"
     
     var = AttributeDef(AnyAttr())
     accessors = SingleBlockRegionDef()
@@ -162,7 +162,7 @@ class ArrayAccess(Operation):
     
 @irdl_op_definition
 class ExprName(Operation):
-    name = "psy.dag.id_expr"
+    name = "ftn.dag.id_expr"
 
     id = AttributeDef(StringAttr)
     var= AttributeDef(AnyAttr())
@@ -177,14 +177,14 @@ class ExprName(Operation):
       
 @irdl_attr_definition
 class Token(ParametrizedAttribute):
-    name = "psy.dag.token"
+    name = "ftn.dag.token"
 
     var_name = ParameterDef(StringAttr)
     type = ParameterDef(AnyAttr())        
             
 @irdl_op_definition
 class VarDef(Operation):
-    name = "psy.dag.var_def"
+    name = "ftn.dag.var_def"
 
     var= AttributeDef(AnyAttr())
     result = ResultDef(AnyAttr())
@@ -194,7 +194,7 @@ class VarDef(Operation):
     
 @irdl_op_definition
 class Assign(Operation):
-    name = "psy.dag.assign"
+    name = "ftn.dag.assign"
 
     lhs = SingleBlockRegionDef()
     rhs = SingleBlockRegionDef()
@@ -214,7 +214,7 @@ class Assign(Operation):
                 
 @irdl_op_definition
 class Literal(Operation):
-    name = "psy.dag.literal"
+    name = "ftn.dag.literal"
 
     value = AttributeDef(AnyAttr())
     result = ResultDef(AnyAttr())
@@ -244,7 +244,7 @@ class Literal(Operation):
       
 @irdl_op_definition
 class If(Operation):
-    name = "psy.dag.if"
+    name = "ftn.dag.if"
 
     cond = SingleBlockRegionDef()
     then = SingleBlockRegionDef()
@@ -266,7 +266,7 @@ class If(Operation):
     
 @irdl_op_definition
 class Do(Operation):
-    name = "psy.dag.do"
+    name = "ftn.dag.do"
 
     iter_name = AttributeDef(StringAttr)
     start = SingleBlockRegionDef()
@@ -292,7 +292,7 @@ class Do(Operation):
       
 @irdl_op_definition
 class BinaryExpr(Operation):
-    name = "psy.dag.binary_expr"
+    name = "ftn.dag.binary_expr"
 
     op = AttributeDef(StringAttr)
     lhs = SingleBlockRegionDef()
@@ -318,7 +318,7 @@ class BinaryExpr(Operation):
             
 @irdl_op_definition
 class CallExpr(Operation):
-    name = "psy.dag.call_expr"
+    name = "ftn.dag.call_expr"
 
     func = AttributeDef(StringAttr)
     isstatement = AttributeDef(BoolAttr)
@@ -338,7 +338,7 @@ class CallExpr(Operation):
       pass
                 
 @dataclass
-class PsyDAG:
+class ftnDAG:
     ctx: MLContext
 
     def __post_init__(self):
@@ -365,7 +365,7 @@ class PsyDAG:
         statements: List[Type[Operation]] = [
             Assign, If, Do
         ]
-        return statements + PsycloneAST.get_expression_op_types()
+        return statements + FtnDAG.get_expression_op_types()
 
     @staticmethod
     def get_expression_op_types() -> List[Type[Operation]]:

@@ -3,7 +3,7 @@ from xdsl.dialects.builtin import StringAttr, ModuleOp, IntegerAttr, ArrayAttr
 from xdsl.ir import Operation, Attribute, ParametrizedAttribute, Region, Block, SSAValue, MLContext
 
 from util.list_ops import flatten
-from psy.dialects import psy_dag, psy_ast, psy_type
+from ftn.dialects import ftn_dag, ftn_ast, ftn_type
 from dataclasses import dataclass, field
 from typing import List, Optional, Tuple, Dict
 
@@ -34,7 +34,7 @@ class SSAValueCtx:
             self.dictionary[identifier] = ssa_value
 
 
-def psy_ast_to_psy_dag(ctx: MLContext, input_module: ModuleOp):
+def ftn_ast_to_ftn_dag(ctx: MLContext, input_module: ModuleOp):
     res_module = translate_program(input_module)    
     # Now we need to gather the containers and inform the top level routine about these so it can generate the use
     applyModuleUseToFloatingRegions(res_module, collectContainerNames(res_module))
@@ -45,13 +45,13 @@ def psy_ast_to_psy_dag(ctx: MLContext, input_module: ModuleOp):
 def collectContainerNames(module: ModuleOp):
   container_names=[]
   for op in module.ops:
-    if isinstance(op, psy_dag.Container):
+    if isinstance(op, ftn_dag.Container):
       container_names.append(op.container_name)
   return container_names
 
 def applyModuleUseToFloatingRegions(module: ModuleOp, container_names):
   for op in module.ops:
-    if isinstance(op, psy_dag.Routine):
+    if isinstance(op, ftn_dag.Routine):
       op.attributes["required_module_uses"]=ArrayAttr(container_names)
     
 def wrap_top_levelcall_from_main(ctx: MLContext, module: ModuleOp):
@@ -61,33 +61,33 @@ def wrap_top_levelcall_from_main(ctx: MLContext, module: ModuleOp):
   body = Region()
   block = Block()
   
-  callexpr = psy_dag.CallExpr.get(found_routine.routine_name, [], True)
+  callexpr = ftn_dag.CallExpr.get(found_routine.routine_name, [], True)
   block.add_ops([callexpr])
   body.add_block(block)
-  main = psy_dag.Routine.get("main", "void", [], [], body, True)  
+  main = ftn_dag.Routine.get("main", "void", [], [], body, True)  
   module.regions[0].blocks[0].add_ops([main])
     
 def find_floating_region(module: ModuleOp):
   for op in module.ops:
-    if isinstance(op, psy_dag.Routine):
+    if isinstance(op, ftn_dag.Routine):
       return op
   return None    
 
 def translate_program(input_module: ModuleOp) -> ModuleOp:
     # create an empty global context
     global_ctx = SSAValueCtx()
-    containers: List[psy_dag.Container] = []
+    containers: List[ftn_dag.Container] = []
     for top_level_entry in input_module.ops:
-      if isinstance(top_level_entry, psy_ast.FileContainer):
+      if isinstance(top_level_entry, ftn_ast.FileContainer):
         containers.extend([translate_container(global_ctx, container) for container in top_level_entry.containers.blocks[0].ops])
-      elif isinstance(top_level_entry, psy_ast.Container):        
+      elif isinstance(top_level_entry, ftn_ast.Container):        
         containers.append(translate_container(global_ctx, top_level_entry))      
             
     return ModuleOp.from_region_or_ops(containers)
   
 def translate_container(ctx: SSAValueCtx, op: Operation) -> Operation:
   
-  if isinstance(op, psy_ast.Container):
+  if isinstance(op, ftn_ast.Container):
     imports = Region()
     imports_block = Block()
     imports_block.add_ops(translate_import_stmt(ctx, import_statement) for import_statement in op.imports.blocks[0].ops)
@@ -98,13 +98,13 @@ def translate_container(ctx: SSAValueCtx, op: Operation) -> Operation:
     routines_block.add_ops(translate_fun_def(ctx, routine) for routine in op.routines.blocks[0].ops)
     routines.add_block(routines_block)
     
-    return psy_dag.Container.create(attributes={"container_name": op.container_name, "default_visibility": op.default_visibility,
+    return ftn_dag.Container.create(attributes={"container_name": op.container_name, "default_visibility": op.default_visibility,
                                                 "public_routines": op.public_routines, "private_routines": op.private_routines}, regions=[imports, routines])
-  elif isinstance(op, psy_ast.Routine):
+  elif isinstance(op, ftn_ast.Routine):
     return translate_fun_def(ctx, op)
   
 def translate_import_stmt(ctx: SSAValueCtx, op: Operation) -> List[Operation]:
-  return psy_dag.Import.create(attributes={"import_name": op.attributes["import_name"], "specific_procedures": op.attributes["specific_procedures"]})
+  return ftn_dag.Import.create(attributes={"import_name": op.attributes["import_name"], "specific_procedures": op.attributes["specific_procedures"]})
   
 def translate_def_or_stmt(ctx: SSAValueCtx, op: Operation) -> List[Operation]:
     """
@@ -130,9 +130,9 @@ def try_translate_def(ctx: SSAValueCtx,
     Tries to translate op as a definition.
     Returns a list of the translated Operations if op is a definition, returns None otherwise.
     """
-    if isinstance(op, psy_ast.Routine):
+    if isinstance(op, ftn_ast.Routine):
         return [translate_fun_def(ctx, op)]
-    elif isinstance(op, psy_ast.VarDef):
+    elif isinstance(op, ftn_ast.VarDef):
         return translate_var_def(ctx, op)
     else:
         return None
@@ -150,7 +150,7 @@ def translate_def(ctx: SSAValueCtx, op: Operation) -> List[Operation]:
         return ops  
   
 def translate_fun_def(ctx: SSAValueCtx,
-                      routine_def: psy_ast.Routine) -> Operation:    
+                      routine_def: ftn_ast.Routine) -> Operation:    
     routine_name = routine_def.attributes["routine_name"]  
     
     #return_type = try_translate_type(fun_def.return_type.blocks[0].ops[0])
@@ -181,38 +181,38 @@ def translate_fun_def(ctx: SSAValueCtx,
       token=c[op.data]
       arguments.append(token)
           
-    return psy_dag.Routine.get(routine_name, "void", arguments, imports, declarations, exec_statements)
+    return ftn_dag.Routine.get(routine_name, "void", arguments, imports, declarations, exec_statements)
     
 def try_translate_type(ctx: SSAValueCtx, op: Operation) -> Optional[Attribute]:
     """Tries to translate op as a type, returns None otherwise."""    
-    if isinstance(op, psy_ast.IntegerType):
-      return psy_type.NamedType([StringAttr("integer"), op.kind, op.precision])
-    elif isinstance(op, psy_ast.FloatType):              
-      return psy_type.NamedType([StringAttr("real"), op.kind, op.precision])
-    elif isinstance(op, psy_ast.DerivedType):      
-      return psy_type.DerivedType([op.type])
-    elif isinstance(op, psy_ast.ArrayType):
+    if isinstance(op, ftn_ast.IntegerType):
+      return ftn_type.NamedType([StringAttr("integer"), op.kind, op.precision])
+    elif isinstance(op, ftn_ast.FloatType):              
+      return ftn_type.NamedType([StringAttr("real"), op.kind, op.precision])
+    elif isinstance(op, ftn_ast.DerivedType):      
+      return ftn_type.DerivedType([op.type])
+    elif isinstance(op, ftn_ast.ArrayType):
       transformed_shape=[]
       for member in op.shape.data:
-        if isinstance(member, psy_ast.AnonymousAttr):
-          transformed_shape.append(psy_dag.AnonymousAttr())
+        if isinstance(member, ftn_ast.AnonymousAttr):
+          transformed_shape.append(ftn_dag.AnonymousAttr())
         else:
           transformed_shape.append(try_translate_expr(ctx, member))
-      return psy_type.ArrayType([ArrayAttr(transformed_shape), try_translate_type(ctx, op.element_type)])
+      return ftn_type.ArrayType([ArrayAttr(transformed_shape), try_translate_type(ctx, op.element_type)])
 
     return None
 
 
 def translate_var_def(ctx: SSAValueCtx,
-                      var_def: psy_ast.VarDef) -> List[Operation]:
+                      var_def: ftn_ast.VarDef) -> List[Operation]:
    
     var_name = var_def.attributes["var_name"]
     assert isinstance(var_name, StringAttr)
     type = try_translate_type(ctx, var_def.attributes["type"])    
     
-    tkn=psy_dag.Token([var_name, type])
+    tkn=ftn_dag.Token([var_name, type])
 
-    vardef=psy_dag.VarDef.create(attributes={"var": tkn, "is_proc_argument": var_def.attributes["is_proc_argument"], 
+    vardef=ftn_dag.VarDef.create(attributes={"var": tkn, "is_proc_argument": var_def.attributes["is_proc_argument"], 
                                              "is_constant": var_def.attributes["is_constant"], 
                                              "intent": var_def.attributes["intent"]}, result_types=[type])    
 
@@ -230,20 +230,20 @@ def try_translate_expr(
     and the ssa value representing the translated expression.
     Returns None otherwise.
     """    
-    if isinstance(op, psy_ast.Literal):        
+    if isinstance(op, ftn_ast.Literal):        
         return translate_literal(op)
-    if isinstance(op, psy_ast.ExprName):
+    if isinstance(op, ftn_ast.ExprName):
         if ctx[op.id.data] is None:
           print("Missing "+op.id.data)
-        return psy_dag.ExprName.create(attributes={"id": op.attributes["id"], "var": ctx[op.id.data]})
-    if isinstance(op, psy_ast.BinaryExpr):        
+        return ftn_dag.ExprName.create(attributes={"id": op.attributes["id"], "var": ctx[op.id.data]})
+    if isinstance(op, ftn_ast.BinaryExpr):        
         return translate_binary_expr(ctx, op)
-    if isinstance(op, psy_ast.CallExpr):
+    if isinstance(op, ftn_ast.CallExpr):
         print("No call expression here!")
         return translate_call_expr(ctx, op)
-    if isinstance(op, psy_ast.MemberAccess):
+    if isinstance(op, ftn_ast.MemberAccess):
         return translate_member_access_expr(ctx, op)
-    if isinstance(op, psy_ast.ArrayAccess):
+    if isinstance(op, ftn_ast.ArrayAccess):
         return translate_array_access_expr(ctx, op)
 
     assert False, "Unknown Expression "+str(op)
@@ -264,68 +264,68 @@ def translate_expr(ctx: SSAValueCtx,
         ops = res
         return ops
       
-def translate_array_access_expr(ctx: SSAValueCtx, op: psy_ast.ArrayAccess) -> List[Operation]:
+def translate_array_access_expr(ctx: SSAValueCtx, op: ftn_ast.ArrayAccess) -> List[Operation]:
   index_accessors=[]
   for entry in op.accessors.blocks[0].ops:
     index_accessors.append(translate_expr(ctx, entry))
-  return psy_dag.ArrayAccess.get(ctx[op.var_name.data], index_accessors)
+  return ftn_dag.ArrayAccess.get(ctx[op.var_name.data], index_accessors)
       
-def translate_member_access_expr(ctx: SSAValueCtx, op: psy_ast.MemberAccess, first_in_chain=True) -> List[Operation]:  
+def translate_member_access_expr(ctx: SSAValueCtx, op: ftn_ast.MemberAccess, first_in_chain=True) -> List[Operation]:  
   entry = op.member.blocks[0].ops[0]  
-  if isinstance(entry, psy_ast.MemberAccess):
+  if isinstance(entry, ftn_ast.MemberAccess):
     members=translate_member_access_expr(ctx, entry, False)
-  elif isinstance(entry, psy_ast.ExprName):
+  elif isinstance(entry, ftn_ast.ExprName):
     members=[entry.id.data]
   else:
     members=[]
   if (first_in_chain):    
-    return psy_dag.MemberAccess.get(ctx[op.id.data], [StringAttr(member) for member in members])
+    return ftn_dag.MemberAccess.get(ctx[op.id.data], [StringAttr(member) for member in members])
   else:    
     members.insert(0, op.attributes["id"].data)
     return members
       
-def translate_literal(op: psy_ast.Literal) -> Operation:
+def translate_literal(op: ftn_ast.Literal) -> Operation:
     value = op.attributes["value"]
 
     if isinstance(value, IntegerAttr):
-        return psy_dag.Literal.create(attributes={"value": value},
-                                         result_types=[psy_type.int_type])  
+        return ftn_dag.Literal.create(attributes={"value": value},
+                                         result_types=[ftn_type.int_type])  
         
-    if isinstance(value, psy_ast.FloatAttr):
-        attr = psy_dag.FloatAttr(value.data)  
-        return psy_dag.Literal.create(attributes={"value": attr},
-                                         result_types=[psy_type.float_type])  
+    if isinstance(value, ftn_ast.FloatAttr):
+        attr = ftn_dag.FloatAttr(value.data)  
+        return ftn_dag.Literal.create(attributes={"value": attr},
+                                         result_types=[ftn_type.float_type])  
 
     if isinstance(value, StringAttr):
-        return psy_dag.Literal.create(attributes={"value": value},
-                                         result_types=[psy_type.str_type])
+        return ftn_dag.Literal.create(attributes={"value": value},
+                                         result_types=[ftn_type.str_type])
 
     raise Exception(f"Could not translate `{op}' as a literal")
   
 def translate_binary_expr(
         ctx: SSAValueCtx,
-        binary_expr: psy_ast.BinaryExpr) -> List[Operation]:
+        binary_expr: ftn_ast.BinaryExpr) -> List[Operation]:
     lhs = translate_expr(ctx, binary_expr.lhs.blocks[0].ops[0])
     rhs = translate_expr(ctx, binary_expr.rhs.blocks[0].ops[0])
 
     if binary_expr.op.data in ['!=', '==', '<', '<=', '>', '>=', 'is']:
-        result_type = psy_type.bool_type
+        result_type = ftn_type.bool_type
 
     attr = binary_expr.op
     assert isinstance(attr, Attribute)      
 
-    return psy_dag.BinaryExpr.get(attr,lhs, rhs)
+    return ftn_dag.BinaryExpr.get(attr,lhs, rhs)
     
 # This function could be avoided if we could remove the result type via rewriting in a separate pass
 def translate_call_expr_stmt(ctx: SSAValueCtx,
-                             call_expr: psy_ast.CallExpr, statement) -> List[Operation]:
+                             call_expr: ftn_ast.CallExpr, statement) -> List[Operation]:
     
     result_list=[]
     for arg in call_expr.args.blocks[0].ops:
       result_list.append(translate_expr(ctx, arg))
 
     name = call_expr.attributes["func"]    
-    return psy_dag.CallExpr.get(name.data, result_list, statement)
+    return ftn_dag.CallExpr.get(name.data, result_list, statement)
   
 def try_translate_stmt(ctx: SSAValueCtx,
                        op: Operation) -> Optional[List[Operation]]:
@@ -334,13 +334,13 @@ def try_translate_stmt(ctx: SSAValueCtx,
     If op is an expression, returns a list of the translated Operations.
     Returns None otherwise.
     """
-    if isinstance(op, psy_ast.Assign):
+    if isinstance(op, ftn_ast.Assign):
         return translate_assign(ctx, op)
-    if isinstance(op, psy_ast.CallExpr):
+    if isinstance(op, ftn_ast.CallExpr):
         return translate_call_expr_stmt(ctx, op, True)
-    if isinstance(op, psy_ast.If):
+    if isinstance(op, ftn_ast.If):
         return translate_if(ctx, op)
-    if isinstance(op, psy_ast.Do):
+    if isinstance(op, ftn_ast.Do):
         return translate_do(ctx, op)
 
     res = try_translate_expr(ctx, op)
@@ -362,7 +362,7 @@ def translate_stmt(ctx: SSAValueCtx, op: Operation) -> List[Operation]:
     else:
         return ops
       
-def translate_if(ctx: SSAValueCtx, if_stmt: psy_ast.If) -> List[Operation]:
+def translate_if(ctx: SSAValueCtx, if_stmt: ftn_ast.If) -> List[Operation]:
     cond = translate_expr(ctx, if_stmt.cond.blocks[0].ops[0])
 
     ops: List[Operation] = []
@@ -377,10 +377,10 @@ def translate_if(ctx: SSAValueCtx, if_stmt: psy_ast.If) -> List[Operation]:
         ops.append(stmt_ops)
     orelse = Region.from_operation_list(ops)
     
-    return psy_dag.If.get(cond, then, orelse)
+    return ftn_dag.If.get(cond, then, orelse)
   
 def translate_do(ctx: SSAValueCtx,
-                  for_stmt: psy_ast.Do) -> List[Operation]:
+                  for_stmt: ftn_ast.Do) -> List[Operation]:
 
     ops: List[Operation] = []
     for op in for_stmt.body.blocks[0].ops:
@@ -389,12 +389,12 @@ def translate_do(ctx: SSAValueCtx,
     body = Region.from_operation_list(ops)
 
     iterator = ctx[for_stmt.iter_name.data]
-    return psy_dag.Do.get(for_stmt.iter_name.data, translate_expr(ctx, for_stmt.start.blocks[0].ops[0]), translate_expr(ctx, for_stmt.stop.blocks[0].ops[0]), translate_expr(ctx, for_stmt.step.blocks[0].ops[0]), body)  
+    return ftn_dag.Do.get(for_stmt.iter_name.data, translate_expr(ctx, for_stmt.start.blocks[0].ops[0]), translate_expr(ctx, for_stmt.stop.blocks[0].ops[0]), translate_expr(ctx, for_stmt.step.blocks[0].ops[0]), body)  
 
 
 def translate_assign(ctx: SSAValueCtx,
-                     assign: psy_ast.Assign) -> List[Operation]:
+                     assign: ftn_ast.Assign) -> List[Operation]:
     lhs=translate_expr(ctx, assign.lhs.op)
     rhs=translate_expr(ctx, assign.rhs.op)
-    return psy_dag.Assign.get(lhs, rhs) 
+    return ftn_dag.Assign.get(lhs, rhs) 
         
