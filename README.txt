@@ -1,3 +1,3 @@
-./psy-opt -p "psy-ast-to-psy-flat" output.xdsl
+# Fortran xDSL dialects
 
-./psy-opt -p "psy-ast-to-psy-flat" output.xdsl -t fortran
+Dialects supporting a representation of a subset of Fortran
