@@ -180,15 +180,18 @@ class FortranPrinter():
     self.print_indent()
     print("end do")
       
-  def print_routine(self, op):    
+  def print_routine(self, op):
     print("")
+    self.print_out_routine(op)
+    
+  def print_out_routine(self, op):
     self.print_indent()
     if op.program_entry_point.data:
       print(f"program {op.routine_name.data}")
     else:
       print(f"subroutine {op.routine_name.data}(", end="")      
       for index, arg in enumerate(op.args.data):
-        if (index > 0): print(", ", end="")        
+        if (index > 0): print(", ", end="")
         print(arg.var_name.data, end="")
       print(")")
     self.incr+=2
