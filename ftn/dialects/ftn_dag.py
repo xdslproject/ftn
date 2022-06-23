@@ -145,16 +145,16 @@ class MemberAccess(Operation):
       
 @irdl_op_definition
 class ArrayAccess(Operation):
-    name="ftn.ast.array_access_expr"
+    name="ftn.dag.array_access_expr"
     
-    var = AttributeDef(AnyAttr())
+    var = SingleBlockRegionDef()
     accessors = SingleBlockRegionDef()
     
     @staticmethod
-    def get(var, 
+    def get(var: List[Operation], 
             accessors: List[Operation], 
             verify_op: bool = True) -> ExprName:
-        res = ArrayAccess.build(attributes={"var": var}, regions=[accessors])
+        res = ArrayAccess.build(regions=[var, accessors])
         if verify_op:
             # We don't verify nested operations since they might have already been verified
             res.verify(verify_nested_ops=False)
@@ -180,7 +180,7 @@ class Token(ParametrizedAttribute):
     name = "ftn.dag.token"
 
     var_name = ParameterDef(StringAttr)
-    type = ParameterDef(AnyAttr())        
+    type = ParameterDef(AnyAttr())
             
 @irdl_op_definition
 class VarDef(Operation):
@@ -323,12 +323,17 @@ class CallExpr(Operation):
     func = AttributeDef(StringAttr)
     isstatement = AttributeDef(BoolAttr)
     args = SingleBlockRegionDef()
+    bound_function_instance=SingleBlockRegionDef()
+    bound_variables=AttributeDef(ArrayAttr)
 
     @staticmethod
     def get(func: str,
             args: List[Operation], isstatement,
+            bound_variables=[],
+            bound_function_instance=[],
             verify_op: bool = True) -> CallExpr:        
-        res = CallExpr.build(regions=[args], attributes={"func": func, "isstatement": isstatement})
+        res = CallExpr.build(regions=[args, bound_function_instance], attributes={"func": func, "isstatement": isstatement,
+                                                                                  "bound_variables": bound_variables})
         if verify_op:
             # We don't verify nested operations since they might have already been verified
             res.verify(verify_nested_ops=False)

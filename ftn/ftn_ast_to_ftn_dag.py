@@ -181,7 +181,7 @@ def translate_fun_def(ctx: SSAValueCtx,
       token=c[op.data]
       arguments.append(token)
           
-    return ftn_dag.Routine.get(routine_name, "void", arguments, imports, declarations, exec_statements)
+    return ftn_dag.Routine.get(routine_name, "void", arguments, imports, declarations, exec_statements)    
     
 def try_translate_type(ctx: SSAValueCtx, op: Operation) -> Optional[Attribute]:
     """Tries to translate op as a type, returns None otherwise."""    
@@ -268,7 +268,8 @@ def translate_array_access_expr(ctx: SSAValueCtx, op: ftn_ast.ArrayAccess) -> Li
   index_accessors=[]
   for entry in op.accessors.blocks[0].ops:
     index_accessors.append(translate_expr(ctx, entry))
-  return ftn_dag.ArrayAccess.get(ctx[op.var_name.data], index_accessors)
+  expr=ftn_dag.ExprName.create(attributes={"id": op.var_name, "var": ctx[op.var_name.data]})
+  return ftn_dag.ArrayAccess.get([expr], index_accessors)
       
 def translate_member_access_expr(ctx: SSAValueCtx, op: ftn_ast.MemberAccess, first_in_chain=True) -> List[Operation]:  
   entry = op.member.blocks[0].ops[0]  
