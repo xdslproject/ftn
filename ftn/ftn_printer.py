@@ -52,11 +52,9 @@ class FortranPrinter():
       
   def print_callexpr(self, op):
     if op.isstatement.data: self.print_indent()
-    print(f"call {op.func.data}(", end='')
-    needs_comma=False
-    for arg in op.args.blocks[0].ops:
-      if (needs_comma): print(", ", end="")
-      needs_comma=True
+    print(f"call {op.func.data}(", end='')    
+    for index, arg in enumerate(op.args.blocks[0].ops):
+      if (index > 0): print(", ", end="")      
       self.print_op(arg)
     print(")", end="")
     if op.isstatement.data: print("") 
@@ -69,11 +67,9 @@ class FortranPrinter():
   def print_import(self, op):
     print(f"use {op.import_name.data}", end="")
     if len(op.specific_procedures.data) > 1:
-      print(", only : ", end="")
-      needs_comma=False
-      for proc in op.specific_procedures.data:
-        if (needs_comma): print(", ", end="")
-        needs_comma=True
+      print(", only : ", end="")      
+      for index, proc in enumerate(op.specific_procedures.data):
+        if (index > 0): print(", ", end="")        
         print(proc.data, end="")      
     print("") # force a newline
         
@@ -94,12 +90,10 @@ class FortranPrinter():
       type_str=f"type({type.parameters[0].data})"
     elif isinstance(type, ftn_type.ArrayType):
       type_str=self.generate_typestring(type.element_type)
-      type_str+=", dimension("
-      needs_comma=False
-      for dim_size in type.shape.data:
+      type_str+=", dimension("      
+      for index, dim_size in enumerate(type.shape.data):
         if isinstance(dim_size, ftn_dag.AnonymousAttr):
-          if (needs_comma): type_str+=(",")
-          needs_comma=True
+          if (index > 0): type_str+=(",")          
           type_str+=":"
       type_str+=")"
     else:
@@ -134,11 +128,9 @@ class FortranPrinter():
   def print_container_level_routine_visibility(self, visibility, vis_list):
     if len(vis_list) > 0:
       self.print_indent()
-      print(f"{visibility} :: ", end="")
-      needs_comma=False
-      for member in vis_list:
-        if (needs_comma): print(", ", end="")
-        needs_comma=True
+      print(f"{visibility} :: ", end="")      
+      for index, member in enumerate(vis_list):
+        if (index > 0): print(", ", end="")        
         print(member.data, end="")
       print("\n")
         
@@ -194,11 +186,9 @@ class FortranPrinter():
     if op.program_entry_point.data:
       print(f"program {op.routine_name.data}")
     else:
-      print(f"subroutine {op.routine_name.data}(", end="")
-      needs_comma=False
-      for arg in op.args.data:
-        if (needs_comma): print(", ", end="")
-        needs_comma=True
+      print(f"subroutine {op.routine_name.data}(", end="")      
+      for index, arg in enumerate(op.args.data):
+        if (index > 0): print(", ", end="")        
         print(arg.var_name.data, end="")
       print(")")
     self.incr+=2
