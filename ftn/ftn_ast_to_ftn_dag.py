@@ -388,9 +388,11 @@ def translate_do(ctx: SSAValueCtx,
         stmt_ops = translate_stmt(ctx, op)
         ops.append(stmt_ops)
     body = Region.from_operation_list(ops)
-
-    iterator = ctx[for_stmt.iter_name.data]
-    return ftn_dag.Do.get(for_stmt.iter_name.data, translate_expr(ctx, for_stmt.start.blocks[0].ops[0]), translate_expr(ctx, for_stmt.stop.blocks[0].ops[0]), translate_expr(ctx, for_stmt.step.blocks[0].ops[0]), body)  
+    
+    # For now just wrap iterator in expression name, but in future will want to support arrays, member access etc here
+    # this is a limitation of the AST dialect that we are transforming from, so will need to modify that to support more advanced iterator expressions
+    iterator_expr=ftn_dag.ExprName.create(attributes={"id": for_stmt.iter_name, "var": ctx[for_stmt.iter_name.data]})
+    return ftn_dag.Do.get(iterator_expr, translate_expr(ctx, for_stmt.start.blocks[0].ops[0]), translate_expr(ctx, for_stmt.stop.blocks[0].ops[0]), translate_expr(ctx, for_stmt.step.blocks[0].ops[0]), body)  
 
 
 def translate_assign(ctx: SSAValueCtx,

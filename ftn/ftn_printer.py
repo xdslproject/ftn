@@ -167,7 +167,10 @@ class FortranPrinter():
   
   def print_do(self, op):    
     self.print_indent()
-    print(f"do {op.iter_name.data}=", end="")
+    
+    print("do ", end="")
+    self.print_op(op.iterator.blocks[0].ops[0])
+    print("=", end="")
     self.print_op(op.start.blocks[0].ops[0])
     print(", ", end="")
     self.print_op(op.stop.blocks[0].ops[0])

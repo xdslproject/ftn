@@ -268,20 +268,20 @@ class If(Operation):
 class Do(Operation):
     name = "ftn.dag.do"
 
-    iter_name = AttributeDef(StringAttr)
+    iterator = SingleBlockRegionDef()
     start = SingleBlockRegionDef()
     stop = SingleBlockRegionDef()
     step = SingleBlockRegionDef()
     body = SingleBlockRegionDef()
 
     @staticmethod
-    def get(iter_name: Union[str, StringAttr],
+    def get(iterator: Operation,
             start: Operation,
             stop: Operation,
             step: Operation,
             body: List[Operation],
             verify_op: bool = True) -> If:
-        res = Do.build(attributes={"iter_name": iter_name}, regions=[[start], [stop], [step], body])
+        res = Do.build(regions=[[iterator], [start], [stop], [step], body])
         if verify_op:
             # We don't verify nested operations since they might have already been verified
             res.verify(verify_nested_ops=False)
