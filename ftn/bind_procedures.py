@@ -30,7 +30,7 @@ class ApplyProcedureBinder(RewritePattern):
     self.routines=routines
     
   def get_concrete_var_name(self, op):
-    if isinstance(op, ftn_dag.CallExpr):
+    if isinstance(op, ftn_dag.ExprName):
       return op.var.var_name
     elif isinstance(op, ftn_dag.ArrayAccess):
       return get_concrete_var_name(op.var.blocks[0].ops[0])
