@@ -23,7 +23,6 @@ class ReplaceDummyWithConcrete(RewritePattern):
     var_name=expr_name.var.var_name.data    
     if var_name in self.dummy_to_concrete:
       rewriter.replace_op(expr_name, self.dummy_to_concrete[var_name].clone())
-          
     
 class ApplyProcedureBinder(RewritePattern):
   def __init__(self, routines):
@@ -47,7 +46,6 @@ class ApplyProcedureBinder(RewritePattern):
       for op in self.routines[call_expr.func.data].routine_body.blocks[0].ops:
         procedure_bodies.append(op.clone())
         
-        
       call_to_procedure_dummy_mapping={}      
       for concrete, dummy in zip(call_expr.args.blocks[0].ops, self.routines[call_expr.func.data].args.data):
         concrete_var_name=self.get_concrete_var_name(concrete)
@@ -69,6 +67,5 @@ def bind_procedures(ctx: ftn_dag.MLContext, module: ModuleOp) -> ModuleOp:
   walker = PatternRewriteWalker(GreedyRewritePatternApplier([
         ApplyProcedureBinder(visitor.all_routines),]), apply_recursively=False)
   walker.rewrite_module(module)
-
   return module
   
