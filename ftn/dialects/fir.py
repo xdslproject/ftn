@@ -307,8 +307,8 @@ class BoxTdesc(Operation):
 @irdl_op_definition
 class Call(Operation):
      name =  "fir.call"
-     args = OperandDef(AnyAttr())
-     result_0 = ResultDef(AnyAttr())
+     callee = AttributeDef(AnyAttr())
+     #result_0 = ResultDef(AnyAttr())
      regs = VarRegionDef()
 
 
@@ -482,8 +482,7 @@ class HasValue(Operation):
 @irdl_op_definition
 class If(Operation):
      name =  "fir.if"
-     condition = OperandDef(AnyAttr())
-     _results = ResultDef(AnyAttr())
+     condition = OperandDef(AnyAttr())     
      regs = VarRegionDef()
 
 
@@ -578,9 +577,8 @@ class Rebox(Operation):
 
 @irdl_op_definition
 class Result(Operation):
-     name =  "fir.result"
-     _results = OperandDef(AnyAttr())
-     regs = VarRegionDef()
+  name =  "fir.result"  
+  regs = VarRegionDef()
 
 
 @irdl_op_definition
