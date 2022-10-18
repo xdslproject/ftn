@@ -1,7 +1,7 @@
 from dataclasses import dataclass
 from xdsl.ir import Operation, MLContext, ParametrizedAttribute, MLIRType
 from xdsl.irdl import (OperandDef, ResultDef, AnyAttr, AttributeDef, ParameterDef, AnyOf,
-                       VarRegionDef, irdl_op_definition, irdl_attr_definition)
+                       VarRegionDef, irdl_op_definition, irdl_attr_definition, OptResultDef)
 from xdsl.dialects.builtin import StringAttr, IntegerType, Float32Type, i32, f32, ArrayAttr
 
 
@@ -308,7 +308,7 @@ class BoxTdesc(Operation):
 class Call(Operation):
      name =  "fir.call"
      callee = AttributeDef(AnyAttr())
-     #result_0 = ResultDef(AnyAttr())
+     result_0 = OptResultDef(AnyAttr())
      regs = VarRegionDef()
 
 
