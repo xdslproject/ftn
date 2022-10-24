@@ -1,7 +1,7 @@
 from dataclasses import dataclass
 from xdsl.ir import Operation, MLContext, ParametrizedAttribute, MLIRType
-from xdsl.irdl import (OperandDef, ResultDef, AnyAttr, AttributeDef, ParameterDef, AnyOf,
-                       VarRegionDef, irdl_op_definition, irdl_attr_definition, OptResultDef)
+from xdsl.irdl import (OperandDef, ResultDef, AnyAttr, AttributeDef, ParameterDef, AnyOf, OptOperandDef, VarResultDef,
+                       VarRegionDef, irdl_op_definition, irdl_attr_definition, OptResultDef, OptAttributeDef)
 from xdsl.dialects.builtin import StringAttr, IntegerType, Float32Type, i32, f32, ArrayAttr
 
 
@@ -390,8 +390,9 @@ class DoLoop(Operation):
      lowerBound = OperandDef(AnyAttr())
      upperBound = OperandDef(AnyAttr())
      step = OperandDef(AnyAttr())
+     finalValue=OptAttributeDef(AnyAttr())
      initArgs = OperandDef(AnyAttr())
-     _results = ResultDef(AnyAttr())
+     _results = VarResultDef(AnyAttr())
      regs = VarRegionDef()
 
 
@@ -579,6 +580,7 @@ class Rebox(Operation):
 class Result(Operation):
   name =  "fir.result"  
   regs = VarRegionDef()
+  _results = OptOperandDef(AnyAttr())
 
 
 @irdl_op_definition
