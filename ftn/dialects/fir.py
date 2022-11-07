@@ -4,7 +4,7 @@ from xdsl.ir import Operation, MLContext, ParametrizedAttribute, MLIRType
 from xdsl.irdl import (OperandDef, ResultDef, AnyAttr, AttributeDef, ParameterDef, AnyOf, OptOperandDef, VarResultDef, VarOperandDef,
                        VarRegionDef, irdl_op_definition, irdl_attr_definition, OptResultDef, OptAttributeDef, builder)
 from xdsl.dialects.builtin import (StringAttr, IntegerType, Float16Type, Float32Type, Float64Type, ArrayAttr, UnitAttr,
-                                    DenseIntOrFPElementsAttr, AnyIntegerAttr, IntegerAttr, IndexType)
+                                    DenseIntOrFPElementsAttr, AnyIntegerAttr, IntegerAttr, IndexType, FlatSymbolRefAttr)
 
 
 @dataclass
@@ -130,7 +130,7 @@ class Addc(Operation):
 @irdl_op_definition
 class AddressOf(Operation):
      name =  "fir.address_of"
-     symbol: ParameterDef[StringAttr]
+     symbol: ParameterDef[FlatSymbolRefAttr]
      resTy = ResultDef(AnyAttr())
      regs = VarRegionDef()
 
@@ -496,7 +496,7 @@ class Global(Operation):
      name =  "fir.global"
      regs = VarRegionDef()
      sym_name = AttributeDef(StringAttr)
-     symref = AttributeDef(StringAttr)
+     symref = AttributeDef(FlatSymbolRefAttr)
      type : ParameterDef[AnyOf([IntegerType, Float16Type, Float32Type, Float64Type, ArrayType])]
      linkName = AttributeDef(StringAttr)
 
