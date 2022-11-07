@@ -3,7 +3,7 @@ from typing import TypeAlias, List, cast, Type, Sequence, Optional
 from xdsl.ir import Operation, MLContext, ParametrizedAttribute, MLIRType
 from xdsl.irdl import (OperandDef, ResultDef, AnyAttr, AttributeDef, ParameterDef, AnyOf, OptOperandDef, VarResultDef, VarOperandDef,
                        VarRegionDef, irdl_op_definition, irdl_attr_definition, OptResultDef, OptAttributeDef, builder)
-from xdsl.dialects.builtin import (StringAttr, IntegerType, Float32Type, i32, f32, ArrayAttr, UnitAttr, 
+from xdsl.dialects.builtin import (StringAttr, IntegerType, Float16Type, Float32Type, Float64Type, ArrayAttr, UnitAttr,
                                     DenseIntOrFPElementsAttr, AnyIntegerAttr, IntegerAttr, IndexType)
 
 
@@ -86,13 +86,13 @@ class Fir:
          self.ctx.register_op(Undefined)
          self.ctx.register_op(Unreachable)
          self.ctx.register_op(ZeroBits)
-         
-@irdl_attr_definition         
+
+@irdl_attr_definition
 class ArrayType(ParametrizedAttribute, MLIRType):
     name = "fir.array"
     shape: ParameterDef[ArrayAttr[AnyIntegerAttr]]
-    type: ParameterDef[AnyOf([IntegerType, Float32Type, i32, f32])]
-      
+    type: ParameterDef[AnyOf([IntegerType, Float16Type, Float32Type, Float64Type])]
+
     @staticmethod
     @builder
     def from_type_and_list(
@@ -105,11 +105,11 @@ class ArrayType(ParametrizedAttribute, MLIRType):
                 [IntegerAttr[IntegerType].build(d) for d in shape]),
             referenced_type
         ])
-         
-@irdl_attr_definition         
+
+@irdl_attr_definition
 class ReferenceType(ParametrizedAttribute, MLIRType):
       name = "fir.ref"
-      type : ParameterDef[AnyOf([IntegerType, Float32Type, ArrayType, i32, f32])]
+      type : ParameterDef[AnyOf([IntegerType, Float16Type, Float32Type, Float64Type, ArrayType])]
 
 @irdl_op_definition
 class Absent(Operation):
@@ -497,7 +497,7 @@ class Global(Operation):
      regs = VarRegionDef()
      sym_name = AttributeDef(StringAttr)
      symref = AttributeDef(StringAttr)
-     type : ParameterDef[AnyOf([IntegerType, Float32Type, ArrayType, i32, f32])]
+     type : ParameterDef[AnyOf([IntegerType, Float16Type, Float32Type, Float64Type, ArrayType])]
      linkName = AttributeDef(StringAttr)
 
 
@@ -511,7 +511,7 @@ class HasValue(Operation):
 @irdl_op_definition
 class If(Operation):
      name =  "fir.if"
-     condition = OperandDef(AnyAttr())     
+     condition = OperandDef(AnyAttr())
      regs = VarRegionDef()
 
 
@@ -606,7 +606,7 @@ class Rebox(Operation):
 
 @irdl_op_definition
 class Result(Operation):
-  name =  "fir.result"  
+  name =  "fir.result"
   regs = VarRegionDef()
   _results = OptOperandDef(AnyAttr())
 
