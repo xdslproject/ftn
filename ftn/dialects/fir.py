@@ -1,8 +1,10 @@
 from dataclasses import dataclass
+from typing import TypeAlias, List, cast, Type, Sequence, Optional
 from xdsl.ir import Operation, MLContext, ParametrizedAttribute, MLIRType
-from xdsl.irdl import (OperandDef, ResultDef, AnyAttr, AttributeDef, ParameterDef, AnyOf, OptOperandDef, VarResultDef,
-                       VarRegionDef, irdl_op_definition, irdl_attr_definition, OptResultDef, OptAttributeDef)
-from xdsl.dialects.builtin import StringAttr, IntegerType, Float32Type, i32, f32, ArrayAttr
+from xdsl.irdl import (OperandDef, ResultDef, AnyAttr, AttributeDef, ParameterDef, AnyOf, OptOperandDef, VarResultDef, VarOperandDef,
+                       VarRegionDef, irdl_op_definition, irdl_attr_definition, OptResultDef, OptAttributeDef, builder)
+from xdsl.dialects.builtin import (StringAttr, IntegerType, Float32Type, i32, f32, ArrayAttr, UnitAttr, 
+                                    DenseIntOrFPElementsAttr, AnyIntegerAttr, IntegerAttr, IndexType)
 
 
 @dataclass
@@ -86,9 +88,28 @@ class Fir:
          self.ctx.register_op(ZeroBits)
          
 @irdl_attr_definition         
+class ArrayType(ParametrizedAttribute, MLIRType):
+    name = "fir.array"
+    shape: ParameterDef[ArrayAttr[AnyIntegerAttr]]
+    type: ParameterDef[AnyOf([IntegerType, Float32Type, i32, f32])]
+      
+    @staticmethod
+    @builder
+    def from_type_and_list(
+        referenced_type: ParameterDef,
+        shape: Optional[List[int | IntegerAttr[IndexType]]] = None):
+        if shape is None:
+            shape = [1]
+        return ArrayType([
+            ArrayAttr.from_list(
+                [IntegerAttr[IntegerType].build(d) for d in shape]),
+            referenced_type
+        ])
+         
+@irdl_attr_definition         
 class ReferenceType(ParametrizedAttribute, MLIRType):
       name = "fir.ref"
-      type : ParameterDef[AnyOf([IntegerType, Float32Type, i32, f32])]
+      type : ParameterDef[AnyOf([IntegerType, Float32Type, ArrayType, i32, f32])]
 
 @irdl_op_definition
 class Absent(Operation):
@@ -109,6 +130,7 @@ class Addc(Operation):
 @irdl_op_definition
 class AddressOf(Operation):
      name =  "fir.address_of"
+     symbol: ParameterDef[StringAttr]
      resTy = ResultDef(AnyAttr())
      regs = VarRegionDef()
 
@@ -126,14 +148,15 @@ class Allocmem(Operation):
 class Alloca(Operation):
      name =  "fir.alloca"
      in_type = AttributeDef(AnyAttr())
-     uniq_name = AttributeDef(StringAttr)
-     bindc_name = AttributeDef(StringAttr)
+     uniq_name = OptAttributeDef(StringAttr)
+     bindc_name = OptAttributeDef(StringAttr)
      #operand_segment_sizes = AttributeDef(ArrayAttr)
      # needs boolean of pinned
      #typeparams = OperandDef(AnyAttr())
      #shape = OperandDef(AnyAttr())
      result_0 = ResultDef(AnyAttr())
      regs = VarRegionDef()
+     valuebyref = OptAttributeDef(UnitAttr)
 
 
 @irdl_op_definition
@@ -309,6 +332,7 @@ class Call(Operation):
      name =  "fir.call"
      callee = AttributeDef(AnyAttr())
      result_0 = OptResultDef(AnyAttr())
+     args = VarOperandDef(AnyAttr())
      regs = VarRegionDef()
 
 
@@ -471,6 +495,10 @@ class GlobalLen(Operation):
 class Global(Operation):
      name =  "fir.global"
      regs = VarRegionDef()
+     sym_name = AttributeDef(StringAttr)
+     symref = AttributeDef(StringAttr)
+     type : ParameterDef[AnyOf([IntegerType, Float32Type, ArrayType, i32, f32])]
+     linkName = AttributeDef(StringAttr)
 
 
 @irdl_op_definition
