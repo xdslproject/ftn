@@ -1,7 +1,7 @@
 from dataclasses import dataclass
 from typing import TypeAlias, List, cast, Type, Sequence, Optional
 from xdsl.ir import Operation, MLContext, ParametrizedAttribute, MLIRType
-from xdsl.irdl import (OperandDef, ResultDef, AnyAttr, AttributeDef, ParameterDef, AnyOf, OptOperandDef, VarResultDef, VarOperandDef,
+from xdsl.irdl import (OperandDef, ResultDef, AnyAttr, AttributeDef, ParameterDef, AnyOf, OptOperandDef, VarResultDef, VarOperandDef, VarOperandDef,
                        VarRegionDef, irdl_op_definition, irdl_attr_definition, OptResultDef, OptAttributeDef, builder)
 from xdsl.dialects.builtin import (StringAttr, IntegerType, Float16Type, Float32Type, Float64Type, ArrayAttr, UnitAttr,
                                     DenseIntOrFPElementsAttr, AnyIntegerAttr, IntegerAttr, IndexType, FlatSymbolRefAttr)
@@ -372,8 +372,9 @@ class Convert(Operation):
 @irdl_op_definition
 class CoordinateOf(Operation):
      name =  "fir.coordinate_of"
+     baseType=AttributeDef(AnyAttr())
      ref = OperandDef(AnyAttr())
-     coor = OperandDef(AnyAttr())
+     coor = VarOperandDef(AnyAttr())
      result_0 = ResultDef(AnyAttr())
      regs = VarRegionDef()
 
