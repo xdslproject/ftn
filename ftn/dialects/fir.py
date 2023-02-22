@@ -4,7 +4,7 @@ from xdsl.ir import Operation, MLContext, ParametrizedAttribute, MLIRType
 from xdsl.irdl import (Operand, OpResult, AnyAttr, ParameterDef, AnyOf, Annotated, OptOpResult, VarOperand, ParameterDef, OptOperand,
                        VarRegion, irdl_op_definition, irdl_attr_definition, OpAttr, OptOpAttr, VarOpResult, Attribute)
 from xdsl.dialects.builtin import (StringAttr, IntegerType, Float16Type, Float32Type, Float64Type, ArrayAttr, UnitAttr, IntAttr,
-                                    DenseIntOrFPElementsAttr, AnyIntegerAttr, IntegerAttr, IndexType)
+                                    DenseIntOrFPElementsAttr, AnyIntegerAttr, IntegerAttr, IndexType, SymbolRefAttr)
 from xdsl.printer import Printer
 
 @dataclass
@@ -155,7 +155,7 @@ class Addc(Operation):
 @irdl_op_definition
 class AddressOf(Operation):
      name =  "fir.address_of"
-     #symbol: ParameterDef[FlatSymbolRefAttr]
+     symbol: ParameterDef[SymbolRefAttr]
      resTy: Annotated[OpResult, AnyAttr()]
      regs: VarRegion
 
@@ -522,7 +522,7 @@ class Global(Operation):
      name =  "fir.global"
      regs : VarRegion
      sym_name: OpAttr[StringAttr]
-     #symref: OpAttr[FlatSymbolRefAttr]
+     symref: OpAttr[SymbolRefAttr]
      type: OpAttr[AnyOf([IntegerType, Float16Type, Float32Type, Float64Type, ArrayType, BoxType])]
      linkName: OpAttr[StringAttr]
 
