@@ -155,7 +155,7 @@ class Addc(Operation):
 @irdl_op_definition
 class AddressOf(Operation):
      name =  "fir.address_of"
-     symbol: ParameterDef[SymbolRefAttr]
+     symbol: OpAttr[SymbolRefAttr]
      resTy: Annotated[OpResult, AnyAttr()]
      regs: VarRegion
 
