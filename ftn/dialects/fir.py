@@ -114,6 +114,19 @@ class ArrayType(ParametrizedAttribute, MLIRType):
         ])
 
 @irdl_attr_definition
+class CharType(ParametrizedAttribute, MLIRType):
+  name = "fir.char"
+
+  from_index: ParameterDef[IntAttr]
+  to_index: ParameterDef[IntAttr]
+
+  def print_parameters(self, printer: Printer) -> None:
+      printer.print("<")
+      printer.print_string(f"{self.from_index.data},{self.to_index.data}")
+      printer.print(">")
+
+
+@irdl_attr_definition
 class ShapeType(ParametrizedAttribute, MLIRType):
   name = "fir.shape"
 
@@ -134,7 +147,7 @@ class BoxType(ParametrizedAttribute, MLIRType):
 @irdl_attr_definition
 class ReferenceType(ParametrizedAttribute, MLIRType):
       name = "fir.ref"
-      type: ParameterDef[AnyOf([IntegerType, Float16Type, Float32Type, Float64Type, ArrayType, BoxType])]
+      type: ParameterDef[AnyOf([IntegerType, Float16Type, Float32Type, Float64Type, ArrayType, BoxType, CharType])]
 
 @irdl_op_definition
 class Absent(Operation):
@@ -523,7 +536,7 @@ class Global(Operation):
      regs : VarRegion
      sym_name: OpAttr[StringAttr]
      symref: OpAttr[SymbolRefAttr]
-     type: OpAttr[AnyOf([IntegerType, Float16Type, Float32Type, Float64Type, ArrayType, BoxType])]
+     type: OpAttr[AnyOf([IntegerType, Float16Type, Float32Type, Float64Type, ArrayType, BoxType, CharType])]
      linkName: OpAttr[StringAttr]
 
 
@@ -728,8 +741,9 @@ class Store(Operation):
 @irdl_op_definition
 class StringLit(Operation):
      name =  "fir.string_lit"
+     size: OpAttr[IntegerAttr]
+     value: OpAttr[StringAttr]
      result_0: Annotated[OpResult, AnyAttr()]
-     regs: VarRegion
 
 
 @irdl_op_definition
