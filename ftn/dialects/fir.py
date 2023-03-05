@@ -2,7 +2,7 @@ from dataclasses import dataclass
 from typing import TypeAlias, List, cast, Type, Sequence, Optional
 from xdsl.ir import Operation, MLContext, ParametrizedAttribute, MLIRType
 from xdsl.irdl import (Operand, OpResult, AnyAttr, ParameterDef, AnyOf, Annotated, OptOpResult, VarOperand, ParameterDef, OptOperand,
-                       VarRegion, irdl_op_definition, irdl_attr_definition, OpAttr, OptOpAttr, VarOpResult, Attribute)
+                       VarRegion, irdl_op_definition, irdl_attr_definition, OpAttr, OptOpAttr, VarOpResult, Attribute, AttrSizedOperandSegments)
 from xdsl.dialects.builtin import (StringAttr, IntegerType, Float16Type, Float32Type, Float64Type, ArrayAttr, UnitAttr, IntAttr,
                                     DenseIntOrFPElementsAttr, AnyIntegerAttr, IntegerAttr, IndexType, SymbolRefAttr)
 from xdsl.printer import Printer
@@ -96,6 +96,13 @@ class DeferredAttr(ParametrizedAttribute, MLIRType):
       printer.print_string("?")
 
 @irdl_attr_definition
+class LLVMPointerType(ParametrizedAttribute, MLIRType):
+  name = "fir.llvm_ptr"
+
+  type: ParameterDef[AnyOf([IntegerType, Float16Type, Float32Type, Float64Type])]
+
+
+@irdl_attr_definition
 class ArrayType(ParametrizedAttribute, MLIRType):
     name = "fir.array"
     shape: ParameterDef[ArrayAttr[AnyIntegerAttr | DeferredAttr]]
@@ -185,16 +192,18 @@ class Allocmem(Operation):
 @irdl_op_definition
 class Alloca(Operation):
      name =  "fir.alloca"
-     in_type: OpAttr[AnyAttr()]
+     in_type: Annotated[VarOperand, AnyAttr()]
      uniq_name: OptOpAttr[StringAttr]
      bindc_name: OptOpAttr[StringAttr]
-     #operand_segment_sizes = AttributeDef(ArrayAttr)
+     #operand_segment_sizes: OpAttr[ArrayAttr]
      # needs boolean of pinned
      #typeparams : Annotated[Operand, AnyAttr())
      #shape : Annotated[Operand, AnyAttr())
      result_0: Annotated[OpResult, AnyAttr()]
      regs: VarRegion
      valuebyref: OptOpAttr[UnitAttr]
+
+     #irdl_options = [AttrSizedOperandSegments()]
 
 
 @irdl_op_definition
