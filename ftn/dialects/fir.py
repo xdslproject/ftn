@@ -91,8 +91,7 @@ class Fir:
 class DeferredAttr(ParametrizedAttribute, MLIRType):
   name = "fir.deferred"
 
-  @staticmethod
-  def print_parameter(data: str, printer: Printer) -> None:
+  def print_parameters(self, printer: Printer) -> None:
       printer.print_string("?")
 
 @irdl_attr_definition
@@ -120,6 +119,17 @@ class ArrayType(ParametrizedAttribute, MLIRType):
             referenced_type
         ])
 
+    def print_parameters(self, printer: Printer) -> None:
+      printer.print("<")
+      for s in self.shape.data:
+        if isinstance(s, DeferredAttr):
+          printer.print_string("?")
+        else:
+          printer.print_string(f"{s.value.data}")
+        printer.print_string("x")
+      printer.print(self.type)
+      printer.print(">")
+
 @irdl_attr_definition
 class CharType(ParametrizedAttribute, MLIRType):
   name = "fir.char"
@@ -138,6 +148,11 @@ class ShapeType(ParametrizedAttribute, MLIRType):
   name = "fir.shape"
 
   indexes: ParameterDef[IntAttr]
+
+  def print_parameters(self, printer: Printer) -> None:
+      printer.print("<")
+      printer.print_string(f"{self.indexes.data}")
+      printer.print(">")
 
 @irdl_attr_definition
 class HeapType(ParametrizedAttribute, MLIRType):
@@ -184,26 +199,29 @@ class AddressOf(Operation):
 class Allocmem(Operation):
      name =  "fir.allocmem"
      in_type: OpAttr[AnyAttr()]
+     uniq_name: OptOpAttr[StringAttr]
+     typeparams : Annotated[VarOperand, AnyAttr()]
      shape: Annotated[VarOperand, AnyAttr()]
+
      result_0: Annotated[OpResult, AnyAttr()]
      regs: VarRegion
+
+     irdl_options = [AttrSizedOperandSegments()]
 
 
 @irdl_op_definition
 class Alloca(Operation):
      name =  "fir.alloca"
-     in_type: Annotated[VarOperand, AnyAttr()]
+     in_type: OpAttr[AnyAttr()]
      uniq_name: OptOpAttr[StringAttr]
      bindc_name: OptOpAttr[StringAttr]
-     #operand_segment_sizes: OpAttr[ArrayAttr]
-     # needs boolean of pinned
-     #typeparams : Annotated[Operand, AnyAttr())
-     #shape : Annotated[Operand, AnyAttr())
+     typeparams : Annotated[VarOperand, AnyAttr()]
+     shape : Annotated[VarOperand, AnyAttr()]
      result_0: Annotated[OpResult, AnyAttr()]
      regs: VarRegion
      valuebyref: OptOpAttr[UnitAttr]
 
-     #irdl_options = [AttrSizedOperandSegments()]
+     irdl_options = [AttrSizedOperandSegments()]
 
 
 @irdl_op_definition
@@ -482,10 +500,12 @@ class Embox(Operation):
      name =  "fir.embox"
      memref: Annotated[Operand, AnyAttr()]
      shape: Annotated[Operand, AnyAttr()]
-     #slice = OptOperandDef(AnyAttr())
-     #typeparams = OptOperandDef(AnyAttr())
+     slice: Annotated[VarOperand, AnyAttr()]
+     typeparams: Annotated[VarOperand, AnyAttr()]
      result_0: Annotated[OpResult, AnyAttr()]
      regs: VarRegion
+
+     irdl_options = [AttrSizedOperandSegments()]
 
 
 @irdl_op_definition
