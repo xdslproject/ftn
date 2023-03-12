@@ -114,7 +114,7 @@ class ArrayType(ParametrizedAttribute, MLIRType):
         if shape is None:
             shape = [1]
         return ArrayType([
-            ArrayAttr.from_list(
+            ArrayAttr(
                 [(IntegerAttr[IntegerType].from_params(d, 32) if isinstance(d, int) else d) for d in shape]),
             referenced_type
         ])
