@@ -130,6 +130,11 @@ class ArrayType(ParametrizedAttribute, MLIRType):
       printer.print(self.type)
       printer.print(">")
 
+    def hasDeferredShape(self):
+      for s in self.shape.data:
+        if isinstance(s, DeferredAttr): return True
+      return False
+
 @irdl_attr_definition
 class CharType(ParametrizedAttribute, MLIRType):
   name = "fir.char"
@@ -164,7 +169,7 @@ class HeapType(ParametrizedAttribute, MLIRType):
 class BoxType(ParametrizedAttribute, MLIRType):
   name = "fir.box"
 
-  type: ParameterDef[HeapType]
+  type: ParameterDef[HeapType | ArrayType]
 
 @irdl_attr_definition
 class ReferenceType(ParametrizedAttribute, MLIRType):
