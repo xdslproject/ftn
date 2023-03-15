@@ -4,7 +4,7 @@ from xdsl.ir import Operation, MLContext, ParametrizedAttribute, MLIRType
 from xdsl.irdl import (Operand, OpResult, AnyAttr, ParameterDef, AnyOf, Annotated, OptOpResult, VarOperand, ParameterDef, OptOperand,
                        VarRegion, irdl_op_definition, irdl_attr_definition, OpAttr, OptOpAttr, VarOpResult, Attribute, AttrSizedOperandSegments)
 from xdsl.dialects.builtin import (StringAttr, IntegerType, Float16Type, Float32Type, Float64Type, ArrayAttr, UnitAttr, IntAttr,
-                                    DenseIntOrFPElementsAttr, AnyIntegerAttr, IntegerAttr, IndexType, SymbolRefAttr)
+                                    DenseIntOrFPElementsAttr, AnyIntegerAttr, IntegerAttr, IndexType, SymbolRefAttr, TupleType)
 from xdsl.printer import Printer
 
 @dataclass
@@ -88,6 +88,26 @@ class Fir:
          self.ctx.register_op(ZeroBits)
 
 @irdl_attr_definition
+class ReferenceType(ParametrizedAttribute, MLIRType):
+      name = "fir.ref"
+      type: ParameterDef[AnyAttr()]
+
+      def print_parameters(self, printer: Printer) -> None:
+        # We need this to pretty print a tuple and its members if
+        # this is referencing one, otherwise just let the type
+        # handle its own printing
+        printer.print("<")
+        if isinstance(self.type, TupleType):
+          printer.print("tuple<")
+          for idx, t in enumerate(self.type.types.data):
+            if idx > 0: printer.print(", ")
+            printer.print(t)
+          printer.print(">")
+        else:
+          printer.print(self.type)
+        printer.print(">")
+
+@irdl_attr_definition
 class DeferredAttr(ParametrizedAttribute, MLIRType):
   name = "fir.deferred"
 
@@ -100,12 +120,17 @@ class LLVMPointerType(ParametrizedAttribute, MLIRType):
 
   type: ParameterDef[AnyOf([IntegerType, Float16Type, Float32Type, Float64Type])]
 
+@irdl_attr_definition
+class NoneType(ParametrizedAttribute, MLIRType):
+  name = "fir.none"
+
 
 @irdl_attr_definition
 class ArrayType(ParametrizedAttribute, MLIRType):
     name = "fir.array"
     shape: ParameterDef[ArrayAttr[AnyIntegerAttr | DeferredAttr]]
-    type: ParameterDef[AnyOf([IntegerType, Float16Type, Float32Type, Float64Type])]
+    type: ParameterDef[AnyOf([IntegerType, Float16Type, Float32Type, Float64Type, ReferenceType])]
+    type2: ParameterDef[AnyOf([IntegerType, Float16Type, Float32Type, Float64Type, ReferenceType, NoneType])]
 
     @staticmethod
     def from_type_and_list(
@@ -116,18 +141,32 @@ class ArrayType(ParametrizedAttribute, MLIRType):
         return ArrayType([
             ArrayAttr(
                 [(IntegerAttr[IntegerType].from_params(d, 32) if isinstance(d, int) else d) for d in shape]),
-            referenced_type
+            referenced_type, NoneType()
+        ])
+
+    @staticmethod
+    def from_two_type(type: ParameterDef, type2: ParameterDef):
+      return ArrayType([
+            ArrayAttr([]),
+            type, type2
         ])
 
     def print_parameters(self, printer: Printer) -> None:
       printer.print("<")
-      for s in self.shape.data:
-        if isinstance(s, DeferredAttr):
-          printer.print_string("?")
-        else:
-          printer.print_string(f"{s.value.data}")
-        printer.print_string("x")
-      printer.print(self.type)
+      if isinstance(self.type2, NoneType):
+        for s in self.shape.data:
+          if isinstance(s, DeferredAttr):
+            printer.print_string("?")
+          else:
+            printer.print_string(f"{s.value.data}")
+          printer.print_string("x")
+        printer.print(self.type)
+      else:
+        printer.print_string("0xtuple<")
+        printer.print(self.type)
+        printer.print_string(", ")
+        printer.print(self.type2)
+        printer.print_string(">")
       printer.print(">")
 
     def hasDeferredShape(self):
@@ -170,11 +209,6 @@ class BoxType(ParametrizedAttribute, MLIRType):
   name = "fir.box"
 
   type: ParameterDef[HeapType | ArrayType]
-
-@irdl_attr_definition
-class ReferenceType(ParametrizedAttribute, MLIRType):
-      name = "fir.ref"
-      type: ParameterDef[AnyOf([IntegerType, Float16Type, Float32Type, Float64Type, ArrayType, BoxType, CharType])]
 
 @irdl_op_definition
 class Absent(Operation):
@@ -570,8 +604,9 @@ class Global(Operation):
      regs : VarRegion
      sym_name: OpAttr[StringAttr]
      symref: OpAttr[SymbolRefAttr]
-     type: OpAttr[AnyOf([IntegerType, Float16Type, Float32Type, Float64Type, ArrayType, BoxType, CharType])]
-     linkName: OpAttr[StringAttr]
+     type: OpAttr[AnyOf([IntegerType, Float16Type, Float32Type, Float64Type, ArrayType, BoxType, CharType, ReferenceType])]
+     linkName: OptOpAttr[StringAttr]
+     constant: OptOpAttr[UnitAttr]
 
 
 @irdl_op_definition
