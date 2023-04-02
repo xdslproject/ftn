@@ -1,6 +1,6 @@
 from dataclasses import dataclass
 from typing import TypeAlias, List, cast, Type, Sequence, Optional
-from xdsl.ir import Operation, MLContext, ParametrizedAttribute, MLIRType
+from xdsl.ir import Operation, MLContext, ParametrizedAttribute, TypeAttribute
 from xdsl.irdl import (Operand, OpResult, AnyAttr, ParameterDef, AnyOf, Annotated, OptOpResult, VarOperand, ParameterDef, OptOperand,
                        VarRegion, irdl_op_definition, irdl_attr_definition, OpAttr, OptOpAttr, VarOpResult, Attribute, AttrSizedOperandSegments)
 from xdsl.dialects.builtin import (StringAttr, IntegerType, Float16Type, Float32Type, Float64Type, ArrayAttr, UnitAttr, IntAttr,
@@ -88,7 +88,7 @@ class Fir:
          self.ctx.register_op(ZeroBits)
 
 @irdl_attr_definition
-class ReferenceType(ParametrizedAttribute, MLIRType):
+class ReferenceType(ParametrizedAttribute, TypeAttribute):
       name = "fir.ref"
       type: ParameterDef[AnyAttr()]
 
@@ -108,25 +108,25 @@ class ReferenceType(ParametrizedAttribute, MLIRType):
         printer.print(">")
 
 @irdl_attr_definition
-class DeferredAttr(ParametrizedAttribute, MLIRType):
+class DeferredAttr(ParametrizedAttribute, TypeAttribute):
   name = "fir.deferred"
 
   def print_parameters(self, printer: Printer) -> None:
       printer.print_string("?")
 
 @irdl_attr_definition
-class LLVMPointerType(ParametrizedAttribute, MLIRType):
+class LLVMPointerType(ParametrizedAttribute, TypeAttribute):
   name = "fir.llvm_ptr"
 
   type: ParameterDef[AnyOf([IntegerType, Float16Type, Float32Type, Float64Type])]
 
 @irdl_attr_definition
-class NoneType(ParametrizedAttribute, MLIRType):
+class NoneType(ParametrizedAttribute, TypeAttribute):
   name = "fir.none"
 
 
 @irdl_attr_definition
-class ArrayType(ParametrizedAttribute, MLIRType):
+class ArrayType(ParametrizedAttribute, TypeAttribute):
     name = "fir.array"
     shape: ParameterDef[ArrayAttr[AnyIntegerAttr | DeferredAttr]]
     type: ParameterDef[AnyOf([IntegerType, Float16Type, Float32Type, Float64Type, ReferenceType])]
@@ -175,7 +175,7 @@ class ArrayType(ParametrizedAttribute, MLIRType):
       return False
 
 @irdl_attr_definition
-class CharType(ParametrizedAttribute, MLIRType):
+class CharType(ParametrizedAttribute, TypeAttribute):
   name = "fir.char"
 
   from_index: ParameterDef[IntAttr]
@@ -188,7 +188,7 @@ class CharType(ParametrizedAttribute, MLIRType):
 
 
 @irdl_attr_definition
-class ShapeType(ParametrizedAttribute, MLIRType):
+class ShapeType(ParametrizedAttribute, TypeAttribute):
   name = "fir.shape"
 
   indexes: ParameterDef[IntAttr]
@@ -199,13 +199,13 @@ class ShapeType(ParametrizedAttribute, MLIRType):
       printer.print(">")
 
 @irdl_attr_definition
-class HeapType(ParametrizedAttribute, MLIRType):
+class HeapType(ParametrizedAttribute, TypeAttribute):
   name = "fir.heap"
 
   type: ParameterDef[ArrayType]
 
 @irdl_attr_definition
-class BoxType(ParametrizedAttribute, MLIRType):
+class BoxType(ParametrizedAttribute, TypeAttribute):
   name = "fir.box"
 
   type: ParameterDef[HeapType | ArrayType]
