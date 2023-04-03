@@ -174,6 +174,9 @@ class ArrayType(ParametrizedAttribute, TypeAttribute):
         if isinstance(s, DeferredAttr): return True
       return False
 
+    def getNumberDims(self):
+      return len(self.shape.data)
+
 @irdl_attr_definition
 class CharType(ParametrizedAttribute, TypeAttribute):
   name = "fir.char"
@@ -541,6 +544,7 @@ class Embox(Operation):
      shape: Annotated[Operand, AnyAttr()]
      slice: Annotated[VarOperand, AnyAttr()]
      typeparams: Annotated[VarOperand, AnyAttr()]
+     sourceBox: Annotated[VarOperand, AnyAttr()]
      result_0: Annotated[OpResult, AnyAttr()]
      regs: VarRegion
 
