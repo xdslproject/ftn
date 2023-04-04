@@ -12,6 +12,16 @@ class Fir:
      ctx: MLContext
 
      def __post_init__(self):
+         self.ctx.register_attr(ReferenceType)
+         self.ctx.register_attr(DeferredAttr)
+         self.ctx.register_attr(LLVMPointerType)
+         self.ctx.register_attr(NoneType)
+         self.ctx.register_attr(ArrayType)
+         self.ctx.register_attr(CharType)
+         self.ctx.register_attr(ShapeType)
+         self.ctx.register_attr(HeapType)
+         self.ctx.register_attr(BoxType)
+         self.ctx.register_attr(BoxCharType)
          self.ctx.register_op(Absent)
          self.ctx.register_op(Addc)
          self.ctx.register_op(AddressOf)
@@ -181,12 +191,22 @@ class ArrayType(ParametrizedAttribute, TypeAttribute):
 class CharType(ParametrizedAttribute, TypeAttribute):
   name = "fir.char"
 
-  from_index: ParameterDef[IntAttr]
-  to_index: ParameterDef[IntAttr]
+  from_index: ParameterDef[IntAttr | DeferredAttr]
+  to_index: ParameterDef[IntAttr | DeferredAttr]
 
   def print_parameters(self, printer: Printer) -> None:
       printer.print("<")
-      printer.print_string(f"{self.from_index.data},{self.to_index.data}")
+      if isinstance(self.from_index, DeferredAttr):
+        printer.print_string("?")
+      else:
+        printer.print_string(f"{self.from_index.data}")
+
+      printer.print_string(",")
+
+      if isinstance(self.to_index, DeferredAttr):
+        printer.print_string("?")
+      else:
+        printer.print_string(f"{self.to_index.data}")
       printer.print(">")
 
 
@@ -212,6 +232,17 @@ class BoxType(ParametrizedAttribute, TypeAttribute):
   name = "fir.box"
 
   type: ParameterDef[HeapType | ArrayType]
+
+@irdl_attr_definition
+class BoxCharType(ParametrizedAttribute, TypeAttribute):
+  name = "fir.boxchar"
+
+  kind: ParameterDef[IntAttr]
+
+  def print_parameters(self, printer: Printer) -> None:
+      printer.print("<")
+      printer.print_string(f"{self.kind.data}")
+      printer.print(">")
 
 @irdl_op_definition
 class Absent(Operation):
