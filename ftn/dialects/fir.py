@@ -1,101 +1,12 @@
 from dataclasses import dataclass
 from typing import TypeAlias, List, cast, Type, Sequence, Optional
-from xdsl.ir import Operation, MLContext, ParametrizedAttribute, TypeAttribute
+from xdsl.ir import MLContext, ParametrizedAttribute, TypeAttribute, Dialect
 from xdsl.irdl import (Operand, OpResult, AnyAttr, ParameterDef, AnyOf, Annotated, OptOpResult, VarOperand, ParameterDef, OptOperand,
-                       VarRegion, irdl_op_definition, irdl_attr_definition, OpAttr, OptOpAttr, VarOpResult, Attribute, AttrSizedOperandSegments)
+                       VarRegion, irdl_op_definition, irdl_attr_definition, OpAttr, OptOpAttr, VarOpResult, Attribute, AttrSizedOperandSegments,
+                       IRDLOperation)
 from xdsl.dialects.builtin import (StringAttr, IntegerType, Float16Type, Float32Type, Float64Type, ArrayAttr, UnitAttr, IntAttr,
                                     DenseIntOrFPElementsAttr, AnyIntegerAttr, IntegerAttr, IndexType, SymbolRefAttr, TupleType)
 from xdsl.printer import Printer
-
-@dataclass
-class Fir:
-     ctx: MLContext
-
-     def __post_init__(self):
-         self.ctx.register_attr(ReferenceType)
-         self.ctx.register_attr(DeferredAttr)
-         self.ctx.register_attr(LLVMPointerType)
-         self.ctx.register_attr(NoneType)
-         self.ctx.register_attr(ArrayType)
-         self.ctx.register_attr(CharType)
-         self.ctx.register_attr(ShapeType)
-         self.ctx.register_attr(HeapType)
-         self.ctx.register_attr(BoxType)
-         self.ctx.register_attr(BoxCharType)
-         self.ctx.register_op(Absent)
-         self.ctx.register_op(Addc)
-         self.ctx.register_op(AddressOf)
-         self.ctx.register_op(Allocmem)
-         self.ctx.register_op(Alloca)
-         self.ctx.register_op(ArrayAccess)
-         self.ctx.register_op(ArrayAmend)
-         self.ctx.register_op(ArrayCoor)
-         self.ctx.register_op(ArrayFetch)
-         self.ctx.register_op(ArrayLoad)
-         self.ctx.register_op(ArrayMergeStore)
-         self.ctx.register_op(ArrayModify)
-         self.ctx.register_op(ArrayUpdate)
-         self.ctx.register_op(BoxAddr)
-         self.ctx.register_op(BoxcharLen)
-         self.ctx.register_op(BoxDims)
-         self.ctx.register_op(BoxElesize)
-         self.ctx.register_op(BoxIsalloc)
-         self.ctx.register_op(BoxIsarray)
-         self.ctx.register_op(BoxIsptr)
-         self.ctx.register_op(BoxprocHost)
-         self.ctx.register_op(BoxRank)
-         self.ctx.register_op(BoxTdesc)
-         self.ctx.register_op(Call)
-         self.ctx.register_op(CharConvert)
-         self.ctx.register_op(Cmpc)
-         self.ctx.register_op(Constc)
-         self.ctx.register_op(Convert)
-         self.ctx.register_op(CoordinateOf)
-         self.ctx.register_op(DtEntry)
-         self.ctx.register_op(Dispatch)
-         self.ctx.register_op(DispatchTable)
-         self.ctx.register_op(Divc)
-         self.ctx.register_op(DoLoop)
-         self.ctx.register_op(Emboxchar)
-         self.ctx.register_op(Embox)
-         self.ctx.register_op(Emboxproc)
-         self.ctx.register_op(ExtractValue)
-         self.ctx.register_op(FieldIndex)
-         self.ctx.register_op(End)
-         self.ctx.register_op(Freemem)
-         self.ctx.register_op(Gentypedesc)
-         self.ctx.register_op(GlobalLen)
-         self.ctx.register_op(Global)
-         self.ctx.register_op(HasValue)
-         self.ctx.register_op(If)
-         self.ctx.register_op(InsertOnRange)
-         self.ctx.register_op(InsertValue)
-         self.ctx.register_op(IsPresent)
-         self.ctx.register_op(IterateWhile)
-         self.ctx.register_op(LenParamIndex)
-         self.ctx.register_op(Load)
-         self.ctx.register_op(Mulc)
-         self.ctx.register_op(Negc)
-         self.ctx.register_op(NoReassoc)
-         self.ctx.register_op(Rebox)
-         self.ctx.register_op(Result)
-         self.ctx.register_op(SaveResult)
-         self.ctx.register_op(SelectCase)
-         self.ctx.register_op(Select)
-         self.ctx.register_op(SelectRank)
-         self.ctx.register_op(SelectType)
-         self.ctx.register_op(Shape)
-         self.ctx.register_op(ShapeShift)
-         self.ctx.register_op(Shift)
-         self.ctx.register_op(Slice)
-         self.ctx.register_op(Store)
-         self.ctx.register_op(StringLit)
-         self.ctx.register_op(Subc)
-         self.ctx.register_op(Unboxchar)
-         self.ctx.register_op(Unboxproc)
-         self.ctx.register_op(Undefined)
-         self.ctx.register_op(Unreachable)
-         self.ctx.register_op(ZeroBits)
 
 @irdl_attr_definition
 class ReferenceType(ParametrizedAttribute, TypeAttribute):
@@ -133,7 +44,6 @@ class LLVMPointerType(ParametrizedAttribute, TypeAttribute):
 @irdl_attr_definition
 class NoneType(ParametrizedAttribute, TypeAttribute):
   name = "fir.none"
-
 
 @irdl_attr_definition
 class ArrayType(ParametrizedAttribute, TypeAttribute):
@@ -245,14 +155,14 @@ class BoxCharType(ParametrizedAttribute, TypeAttribute):
       printer.print(">")
 
 @irdl_op_definition
-class Absent(Operation):
+class Absent(IRDLOperation):
      name =  "fir.absent"
      intype: Annotated[OpResult,AnyAttr()]
      regs: VarRegion
 
 
 @irdl_op_definition
-class Addc(Operation):
+class Addc(IRDLOperation):
      name =  "fir.addc"
      lhs : Annotated[Operand, AnyAttr()]
      rhs : Annotated[Operand, AnyAttr()]
@@ -261,7 +171,7 @@ class Addc(Operation):
 
 
 @irdl_op_definition
-class AddressOf(Operation):
+class AddressOf(IRDLOperation):
      name =  "fir.address_of"
      symbol: OpAttr[SymbolRefAttr]
      resTy: Annotated[OpResult, AnyAttr()]
@@ -269,7 +179,7 @@ class AddressOf(Operation):
 
 
 @irdl_op_definition
-class Allocmem(Operation):
+class Allocmem(IRDLOperation):
      name =  "fir.allocmem"
      in_type: OpAttr[AnyAttr()]
      uniq_name: OptOpAttr[StringAttr]
@@ -283,7 +193,7 @@ class Allocmem(Operation):
 
 
 @irdl_op_definition
-class Alloca(Operation):
+class Alloca(IRDLOperation):
      name =  "fir.alloca"
      in_type: OpAttr[AnyAttr()]
      uniq_name: OptOpAttr[StringAttr]
@@ -298,7 +208,7 @@ class Alloca(Operation):
 
 
 @irdl_op_definition
-class ArrayAccess(Operation):
+class ArrayAccess(IRDLOperation):
      name =  "fir.array_access"
      sequence: Annotated[Operand, AnyAttr()]
      indices: Annotated[Operand, AnyAttr()]
@@ -308,7 +218,7 @@ class ArrayAccess(Operation):
 
 
 @irdl_op_definition
-class ArrayAmend(Operation):
+class ArrayAmend(IRDLOperation):
      name =  "fir.array_amend"
      sequence: Annotated[Operand, AnyAttr()]
      memref: Annotated[Operand, AnyAttr()]
@@ -317,7 +227,7 @@ class ArrayAmend(Operation):
 
 
 @irdl_op_definition
-class ArrayCoor(Operation):
+class ArrayCoor(IRDLOperation):
      name =  "fir.array_coor"
      memref : Annotated[Operand, AnyAttr()]
      shape : Annotated[Operand, AnyAttr()]
@@ -329,7 +239,7 @@ class ArrayCoor(Operation):
 
 
 @irdl_op_definition
-class ArrayFetch(Operation):
+class ArrayFetch(IRDLOperation):
      name =  "fir.array_fetch"
      sequence: Annotated[Operand, AnyAttr()]
      indices: Annotated[Operand, AnyAttr()]
@@ -339,7 +249,7 @@ class ArrayFetch(Operation):
 
 
 @irdl_op_definition
-class ArrayLoad(Operation):
+class ArrayLoad(IRDLOperation):
      name =  "fir.array_load"
      memref: Annotated[Operand, AnyAttr()]
      shape: Annotated[Operand, AnyAttr()]
@@ -350,7 +260,7 @@ class ArrayLoad(Operation):
 
 
 @irdl_op_definition
-class ArrayMergeStore(Operation):
+class ArrayMergeStore(IRDLOperation):
      name =  "fir.array_merge_store"
      original: Annotated[Operand, AnyAttr()]
      sequence: Annotated[Operand, AnyAttr()]
@@ -361,7 +271,7 @@ class ArrayMergeStore(Operation):
 
 
 @irdl_op_definition
-class ArrayModify(Operation):
+class ArrayModify(IRDLOperation):
      name =  "fir.array_modify"
      sequence: Annotated[Operand, AnyAttr()]
      indices: Annotated[Operand, AnyAttr()]
@@ -372,7 +282,7 @@ class ArrayModify(Operation):
 
 
 @irdl_op_definition
-class ArrayUpdate(Operation):
+class ArrayUpdate(IRDLOperation):
      name =  "fir.array_update"
      sequence: Annotated[Operand, AnyAttr()]
      merge: Annotated[Operand, AnyAttr()]
@@ -383,7 +293,7 @@ class ArrayUpdate(Operation):
 
 
 @irdl_op_definition
-class BoxAddr(Operation):
+class BoxAddr(IRDLOperation):
      name =  "fir.box_addr"
      val: Annotated[Operand, AnyAttr()]
      result_0: Annotated[OpResult, AnyAttr()]
@@ -391,7 +301,7 @@ class BoxAddr(Operation):
 
 
 @irdl_op_definition
-class BoxcharLen(Operation):
+class BoxcharLen(IRDLOperation):
      name =  "fir.boxchar_len"
      val: Annotated[Operand, AnyAttr()]
      result_0: Annotated[OpResult, AnyAttr()]
@@ -399,7 +309,7 @@ class BoxcharLen(Operation):
 
 
 @irdl_op_definition
-class BoxDims(Operation):
+class BoxDims(IRDLOperation):
      name =  "fir.box_dims"
      val: Annotated[Operand, AnyAttr()]
      dim: Annotated[Operand, AnyAttr()]
@@ -410,7 +320,7 @@ class BoxDims(Operation):
 
 
 @irdl_op_definition
-class BoxElesize(Operation):
+class BoxElesize(IRDLOperation):
      name =  "fir.box_elesize"
      val: Annotated[Operand, AnyAttr()]
      result_0: Annotated[OpResult, AnyAttr()]
@@ -418,7 +328,7 @@ class BoxElesize(Operation):
 
 
 @irdl_op_definition
-class BoxIsalloc(Operation):
+class BoxIsalloc(IRDLOperation):
      name =  "fir.box_isalloc"
      val: Annotated[Operand, AnyAttr()]
      result_0: Annotated[OpResult, AnyAttr()]
@@ -426,7 +336,7 @@ class BoxIsalloc(Operation):
 
 
 @irdl_op_definition
-class BoxIsarray(Operation):
+class BoxIsarray(IRDLOperation):
      name =  "fir.box_isarray"
      val: Annotated[Operand, AnyAttr()]
      result_0: Annotated[OpResult, AnyAttr()]
@@ -434,7 +344,7 @@ class BoxIsarray(Operation):
 
 
 @irdl_op_definition
-class BoxIsptr(Operation):
+class BoxIsptr(IRDLOperation):
      name =  "fir.box_isptr"
      val: Annotated[Operand, AnyAttr()]
      result_0: Annotated[OpResult, AnyAttr()]
@@ -442,7 +352,7 @@ class BoxIsptr(Operation):
 
 
 @irdl_op_definition
-class BoxprocHost(Operation):
+class BoxprocHost(IRDLOperation):
      name =  "fir.boxproc_host"
      val: Annotated[Operand, AnyAttr()]
      result_0: Annotated[OpResult, AnyAttr()]
@@ -450,7 +360,7 @@ class BoxprocHost(Operation):
 
 
 @irdl_op_definition
-class BoxRank(Operation):
+class BoxRank(IRDLOperation):
      name =  "fir.box_rank"
      val: Annotated[Operand, AnyAttr()]
      result_0: Annotated[OpResult, AnyAttr()]
@@ -458,7 +368,7 @@ class BoxRank(Operation):
 
 
 @irdl_op_definition
-class BoxTdesc(Operation):
+class BoxTdesc(IRDLOperation):
      name =  "fir.box_tdesc"
      val: Annotated[Operand, AnyAttr()]
      result_0: Annotated[OpResult, AnyAttr()]
@@ -466,7 +376,7 @@ class BoxTdesc(Operation):
 
 
 @irdl_op_definition
-class Call(Operation):
+class Call(IRDLOperation):
      name =  "fir.call"
      callee: OpAttr[AnyAttr()]
      result_0: Annotated[OptOpResult, AnyAttr()]
@@ -475,7 +385,7 @@ class Call(Operation):
 
 
 @irdl_op_definition
-class CharConvert(Operation):
+class CharConvert(IRDLOperation):
      name =  "fir.char_convert"
      _from: Annotated[Operand, AnyAttr()]
      count: Annotated[Operand, AnyAttr()]
@@ -484,7 +394,7 @@ class CharConvert(Operation):
 
 
 @irdl_op_definition
-class Cmpc(Operation):
+class Cmpc(IRDLOperation):
      name =  "fir.cmpc"
      lhs: Annotated[Operand, AnyAttr()]
      rhs: Annotated[Operand, AnyAttr()]
@@ -493,14 +403,14 @@ class Cmpc(Operation):
 
 
 @irdl_op_definition
-class Constc(Operation):
+class Constc(IRDLOperation):
      name =  "fir.constc"
      result_0: Annotated[OpResult, AnyAttr()]
      regs: VarRegion
 
 
 @irdl_op_definition
-class Convert(Operation):
+class Convert(IRDLOperation):
      name =  "fir.convert"
      value: Annotated[Operand, AnyAttr()]
      res: Annotated[OpResult, AnyAttr()]
@@ -508,7 +418,7 @@ class Convert(Operation):
 
 
 @irdl_op_definition
-class CoordinateOf(Operation):
+class CoordinateOf(IRDLOperation):
      name =  "fir.coordinate_of"
      baseType: OpAttr[AnyAttr()]
      ref: Annotated[Operand, AnyAttr()]
@@ -518,13 +428,13 @@ class CoordinateOf(Operation):
 
 
 @irdl_op_definition
-class DtEntry(Operation):
+class DtEntry(IRDLOperation):
      name =  "fir.dt_entry"
      regs: VarRegion
 
 
 @irdl_op_definition
-class Dispatch(Operation):
+class Dispatch(IRDLOperation):
      name =  "fir.dispatch"
      object: Annotated[Operand, AnyAttr()]
      args: Annotated[Operand, AnyAttr()]
@@ -533,13 +443,13 @@ class Dispatch(Operation):
 
 
 @irdl_op_definition
-class DispatchTable(Operation):
+class DispatchTable(IRDLOperation):
      name =  "fir.dispatch_table"
      regs: VarRegion
 
 
 @irdl_op_definition
-class Divc(Operation):
+class Divc(IRDLOperation):
      name =  "fir.divc"
      lhs: Annotated[Operand, AnyAttr()]
      rhs: Annotated[Operand, AnyAttr()]
@@ -548,7 +458,7 @@ class Divc(Operation):
 
 
 @irdl_op_definition
-class DoLoop(Operation):
+class DoLoop(IRDLOperation):
      name =  "fir.do_loop"
      lowerBound: Annotated[Operand, AnyAttr()]
      upperBound: Annotated[Operand, AnyAttr()]
@@ -560,7 +470,7 @@ class DoLoop(Operation):
 
 
 @irdl_op_definition
-class Emboxchar(Operation):
+class Emboxchar(IRDLOperation):
      name =  "fir.emboxchar"
      memref: Annotated[Operand, AnyAttr()]
      len: Annotated[Operand, AnyAttr()]
@@ -569,7 +479,7 @@ class Emboxchar(Operation):
 
 
 @irdl_op_definition
-class Embox(Operation):
+class Embox(IRDLOperation):
      name =  "fir.embox"
      memref: Annotated[Operand, AnyAttr()]
      shape: Annotated[Operand, AnyAttr()]
@@ -583,7 +493,7 @@ class Embox(Operation):
 
 
 @irdl_op_definition
-class Emboxproc(Operation):
+class Emboxproc(IRDLOperation):
      name =  "fir.emboxproc"
      func: Annotated[Operand, AnyAttr()]
      host: Annotated[Operand, AnyAttr()]
@@ -592,7 +502,7 @@ class Emboxproc(Operation):
 
 
 @irdl_op_definition
-class ExtractValue(Operation):
+class ExtractValue(IRDLOperation):
      name =  "fir.extract_value"
      adt: Annotated[Operand, AnyAttr()]
      res: Annotated[OpResult, AnyAttr()]
@@ -600,7 +510,7 @@ class ExtractValue(Operation):
 
 
 @irdl_op_definition
-class FieldIndex(Operation):
+class FieldIndex(IRDLOperation):
      name =  "fir.field_index"
      typeparams: Annotated[Operand, AnyAttr()]
      res: Annotated[OpResult, AnyAttr()]
@@ -608,33 +518,33 @@ class FieldIndex(Operation):
 
 
 @irdl_op_definition
-class End(Operation):
+class End(IRDLOperation):
      name =  "fir.end"
      regs: VarRegion
 
 
 @irdl_op_definition
-class Freemem(Operation):
+class Freemem(IRDLOperation):
      name =  "fir.freemem"
      heapref: Annotated[Operand, AnyAttr()]
      regs: VarRegion
 
 
 @irdl_op_definition
-class Gentypedesc(Operation):
+class Gentypedesc(IRDLOperation):
      name =  "fir.gentypedesc"
      res: Annotated[OpResult, AnyAttr()]
      regs: VarRegion
 
 
 @irdl_op_definition
-class GlobalLen(Operation):
+class GlobalLen(IRDLOperation):
      name =  "fir.global_len"
      regs: VarRegion
 
 
 @irdl_op_definition
-class Global(Operation):
+class Global(IRDLOperation):
      name =  "fir.global"
      regs : VarRegion
      sym_name: OpAttr[StringAttr]
@@ -645,21 +555,21 @@ class Global(Operation):
 
 
 @irdl_op_definition
-class HasValue(Operation):
+class HasValue(IRDLOperation):
      name =  "fir.has_value"
      resval: Annotated[Operand, AnyAttr()]
      regs: VarRegion
 
 
 @irdl_op_definition
-class If(Operation):
+class If(IRDLOperation):
      name =  "fir.if"
      condition: Annotated[Operand, AnyAttr()]
      regs: VarRegion
 
 
 @irdl_op_definition
-class InsertOnRange(Operation):
+class InsertOnRange(IRDLOperation):
      name =  "fir.insert_on_range"
      seq: Annotated[Operand, AnyAttr()]
      val: Annotated[Operand, AnyAttr()]
@@ -668,7 +578,7 @@ class InsertOnRange(Operation):
 
 
 @irdl_op_definition
-class InsertValue(Operation):
+class InsertValue(IRDLOperation):
      name =  "fir.insert_value"
      adt: Annotated[Operand, AnyAttr()]
      val: Annotated[Operand, AnyAttr()]
@@ -677,7 +587,7 @@ class InsertValue(Operation):
 
 
 @irdl_op_definition
-class IsPresent(Operation):
+class IsPresent(IRDLOperation):
      name =  "fir.is_present"
      val: Annotated[Operand, AnyAttr()]
      result_0: Annotated[OpResult, AnyAttr()]
@@ -685,7 +595,7 @@ class IsPresent(Operation):
 
 
 @irdl_op_definition
-class IterateWhile(Operation):
+class IterateWhile(IRDLOperation):
      name =  "fir.iterate_while"
      lowerBound: Annotated[Operand, AnyAttr()]
      upperBound: Annotated[Operand, AnyAttr()]
@@ -697,7 +607,7 @@ class IterateWhile(Operation):
 
 
 @irdl_op_definition
-class LenParamIndex(Operation):
+class LenParamIndex(IRDLOperation):
      name =  "fir.len_param_index"
      typeparams: Annotated[Operand, AnyAttr()]
      res: Annotated[OpResult, AnyAttr()]
@@ -705,7 +615,7 @@ class LenParamIndex(Operation):
 
 
 @irdl_op_definition
-class Load(Operation):
+class Load(IRDLOperation):
      name =  "fir.load"
      memref: Annotated[Operand, AnyAttr()]
      res: Annotated[OpResult, AnyAttr()]
@@ -713,7 +623,7 @@ class Load(Operation):
 
 
 @irdl_op_definition
-class Mulc(Operation):
+class Mulc(IRDLOperation):
      name =  "fir.mulc"
      lhs: Annotated[Operand, AnyAttr()]
      rhs: Annotated[Operand, AnyAttr()]
@@ -722,7 +632,7 @@ class Mulc(Operation):
 
 
 @irdl_op_definition
-class Negc(Operation):
+class Negc(IRDLOperation):
      name =  "fir.negc"
      operand: Annotated[Operand, AnyAttr()]
      result: Annotated[OpResult, AnyAttr()]
@@ -730,7 +640,7 @@ class Negc(Operation):
 
 
 @irdl_op_definition
-class NoReassoc(Operation):
+class NoReassoc(IRDLOperation):
      name =  "fir.no_reassoc"
      val: Annotated[Operand, AnyAttr()]
      res: Annotated[OpResult, AnyAttr()]
@@ -738,7 +648,7 @@ class NoReassoc(Operation):
 
 
 @irdl_op_definition
-class Rebox(Operation):
+class Rebox(IRDLOperation):
      name =  "fir.rebox"
      box: Annotated[Operand, AnyAttr()]
      shape: Annotated[Operand, AnyAttr()]
@@ -748,14 +658,14 @@ class Rebox(Operation):
 
 
 @irdl_op_definition
-class Result(Operation):
+class Result(IRDLOperation):
   name =  "fir.result"
   regs : VarRegion
   _results: Annotated[OptOperand, AnyAttr()]
 
 
 @irdl_op_definition
-class SaveResult(Operation):
+class SaveResult(IRDLOperation):
      name =  "fir.save_result"
      value: Annotated[Operand, AnyAttr()]
      memref: Annotated[Operand, AnyAttr()]
@@ -765,7 +675,7 @@ class SaveResult(Operation):
 
 
 @irdl_op_definition
-class SelectCase(Operation):
+class SelectCase(IRDLOperation):
      name =  "fir.select_case"
      selector: Annotated[Operand, AnyAttr()]
      compareArgs: Annotated[Operand, AnyAttr()]
@@ -774,7 +684,7 @@ class SelectCase(Operation):
 
 
 @irdl_op_definition
-class Select(Operation):
+class Select(IRDLOperation):
      name =  "fir.select"
      selector: Annotated[Operand, AnyAttr()]
      compareArgs: Annotated[Operand, AnyAttr()]
@@ -783,7 +693,7 @@ class Select(Operation):
 
 
 @irdl_op_definition
-class SelectRank(Operation):
+class SelectRank(IRDLOperation):
      name =  "fir.select_rank"
      selector: Annotated[Operand, AnyAttr()]
      compareArgs: Annotated[Operand, AnyAttr()]
@@ -792,7 +702,7 @@ class SelectRank(Operation):
 
 
 @irdl_op_definition
-class SelectType(Operation):
+class SelectType(IRDLOperation):
      name =  "fir.select_type"
      selector: Annotated[Operand, AnyAttr()]
      compareArgs: Annotated[Operand, AnyAttr()]
@@ -801,7 +711,7 @@ class SelectType(Operation):
 
 
 @irdl_op_definition
-class Shape(Operation):
+class Shape(IRDLOperation):
      name =  "fir.shape"
      extents: Annotated[VarOperand,AnyAttr()]
      result_0: Annotated[OpResult, AnyAttr()]
@@ -809,7 +719,7 @@ class Shape(Operation):
 
 
 @irdl_op_definition
-class ShapeShift(Operation):
+class ShapeShift(IRDLOperation):
      name =  "fir.shape_shift"
      pairs: Annotated[Operand, AnyAttr()]
      result_0: Annotated[OpResult, AnyAttr()]
@@ -817,7 +727,7 @@ class ShapeShift(Operation):
 
 
 @irdl_op_definition
-class Shift(Operation):
+class Shift(IRDLOperation):
      name =  "fir.shift"
      origins: Annotated[Operand, AnyAttr()]
      result_0: Annotated[OpResult, AnyAttr()]
@@ -825,7 +735,7 @@ class Shift(Operation):
 
 
 @irdl_op_definition
-class Slice(Operation):
+class Slice(IRDLOperation):
      name =  "fir.slice"
      triples: Annotated[Operand, AnyAttr()]
      fields: Annotated[Operand, AnyAttr()]
@@ -835,7 +745,7 @@ class Slice(Operation):
 
 
 @irdl_op_definition
-class Store(Operation):
+class Store(IRDLOperation):
      name =  "fir.store"
      value: Annotated[Operand, AnyAttr()]
      memref: Annotated[Operand, AnyAttr()]
@@ -843,7 +753,7 @@ class Store(Operation):
 
 
 @irdl_op_definition
-class StringLit(Operation):
+class StringLit(IRDLOperation):
      name =  "fir.string_lit"
      size: OpAttr[IntegerAttr]
      value: OpAttr[StringAttr]
@@ -851,7 +761,7 @@ class StringLit(Operation):
 
 
 @irdl_op_definition
-class Subc(Operation):
+class Subc(IRDLOperation):
      name =  "fir.subc"
      lhs: Annotated[Operand, AnyAttr()]
      rhs: Annotated[Operand, AnyAttr()]
@@ -860,7 +770,7 @@ class Subc(Operation):
 
 
 @irdl_op_definition
-class Unboxchar(Operation):
+class Unboxchar(IRDLOperation):
      name =  "fir.unboxchar"
      boxchar: Annotated[Operand, AnyAttr()]
      result_0: Annotated[OpResult, AnyAttr()]
@@ -869,7 +779,7 @@ class Unboxchar(Operation):
 
 
 @irdl_op_definition
-class Unboxproc(Operation):
+class Unboxproc(IRDLOperation):
      name =  "fir.unboxproc"
      boxproc: Annotated[Operand, AnyAttr()]
      result_0: Annotated[OpResult, AnyAttr()]
@@ -878,21 +788,109 @@ class Unboxproc(Operation):
 
 
 @irdl_op_definition
-class Undefined(Operation):
+class Undefined(IRDLOperation):
      name =  "fir.undefined"
      intype: Annotated[OpResult, AnyAttr()]
      regs: VarRegion
 
 
 @irdl_op_definition
-class Unreachable(Operation):
+class Unreachable(IRDLOperation):
      name =  "fir.unreachable"
      regs: VarRegion
 
 
 @irdl_op_definition
-class ZeroBits(Operation):
+class ZeroBits(IRDLOperation):
      name =  "fir.zero_bits"
      intype: Annotated[OpResult, AnyAttr()]
      regs: VarRegion
 
+
+FIR= Dialect([
+    Absent,
+    Addc,
+    AddressOf,
+    Allocmem,
+    Alloca,
+    ArrayAccess,
+    ArrayAmend,
+    ArrayCoor,
+    ArrayFetch,
+    ArrayLoad,
+    ArrayMergeStore,
+    ArrayModify,
+    ArrayUpdate,
+    BoxAddr,
+    BoxcharLen,
+    BoxDims,
+    BoxElesize,
+    BoxIsalloc,
+    BoxIsarray,
+    BoxIsptr,
+    BoxprocHost,
+    BoxRank,
+    BoxTdesc,
+    Call,
+    CharConvert,
+    Cmpc,
+    Constc,
+    Convert,
+    CoordinateOf,
+    DtEntry,
+    Dispatch,
+    DispatchTable,
+    Divc,
+    DoLoop,
+    Emboxchar,
+    Embox,
+    Emboxproc,
+    ExtractValue,
+    FieldIndex,
+    End,
+    Freemem,
+    Gentypedesc,
+    GlobalLen,
+    Global,
+    HasValue,
+    If,
+    InsertOnRange,
+    InsertValue,
+    IsPresent,
+    IterateWhile,
+    LenParamIndex,
+    Load,
+    Mulc,
+    Negc,
+    NoReassoc,
+    Rebox,
+    Result,
+    SaveResult,
+    SelectCase,
+    Select,
+    SelectRank,
+    SelectType,
+    Shape,
+    ShapeShift,
+    Shift,
+    Slice,
+    Store,
+    StringLit,
+    Subc,
+    Unboxchar,
+    Unboxproc,
+    Undefined,
+    Unreachable,
+    ZeroBits,
+], [
+    ReferenceType,
+    DeferredAttr,
+    LLVMPointerType,
+    NoneType,
+    ArrayType,
+    CharType,
+    ShapeType,
+    HeapType,
+    BoxType,
+    BoxCharType,
+])
