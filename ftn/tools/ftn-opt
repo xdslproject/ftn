@@ -1,0 +1,81 @@
+#!/usr/bin/env python3.10
+
+import argparse
+import ast, os, glob
+from io import IOBase
+
+from xdsl.ir import MLContext
+from xdsl.dialects.builtin import ModuleOp
+
+from ftn.transforms.fir_to_stencil import FIRToStencil
+
+from util.semantic_error import SemanticError
+
+from pathlib import Path
+
+from typing import Callable, Dict, List
+
+from xdsl.xdsl_opt_main import xDSLOptMain
+
+class FtnOptMain(xDSLOptMain):
+
+    def register_all_passes(self):
+        super().register_all_passes()
+        self.register_pass(FIRToStencil)
+
+    def register_all_targets(self):
+        super().register_all_targets()
+
+    def setup_pipeline(self):
+      super().setup_pipeline()
+
+    def register_all_arguments(self, arg_parser: argparse.ArgumentParser):
+      super().register_all_arguments(arg_parser)
+
+    def register_all_dialects(self):
+        super().register_all_dialects()
+
+    @staticmethod
+    def get_passes_as_dict(
+    ) -> Dict[str, Callable[[MLContext, ModuleOp], None]]:
+        """Add all passes that can be called by psy-opt in a dictionary."""
+
+        pass_dictionary = {}
+
+        passes = FtnOptMain.passes_native
+
+        for pass_function in passes:
+            pass_dictionary[pass_function.__name__.replace(
+                "_", "-")] = pass_function
+
+        return pass_dictionary
+
+    def get_passes_as_list(native=False, integrated=False) -> List[str]:
+        """Add all passes that can be called by psy-opt in a dictionary."""
+
+        pass_list = []
+
+        passes = FtnOptMain.passes_native
+
+        for pass_function in passes:
+            pass_list.append(pass_function.__name__.replace("_", "-"))
+
+        return pass_list
+
+    def register_all_frontends(self):
+        super().register_all_frontends()
+
+def __main__():
+    ftn_main = FtnOptMain()
+
+    try:
+        ftn_main.run()
+    except SyntaxError as e:
+        print(e.get_message())
+        exit(0)
+    except SemanticError as e:
+        print("Semantic error: %s" % str(e))
+        exit(0)
+
+if __name__ == "__main__":
+    __main__()
