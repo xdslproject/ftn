@@ -254,11 +254,12 @@ class DetachCoordOperations(Visitor):
     for index_res in coordinateof_op.coor:
       self.traverse(index_res.owner)
 
-class GatherStoreValueOperations(Visitor):
+class LocateStoreToStencilOperationsAndGenerate(Visitor):
   # Will check if a store is keyed by loops and will be used for stencil, i.e.
   # a(i,j) where i and j are loop variables then this is true, else false
   def __init__(self, loop_description):
     self.loop_description=loop_description
+    self.stencil_generations=[]
 
   def check_if_store_keyed_by_loops(self, store_op):
     if isa(store_op.memref.owner, fir.CoordinateOf):
@@ -335,6 +336,8 @@ class GatherStoreValueOperations(Visitor):
         else:
           ops.append(op)
     ops.reverse()
+    # Add in the stencil return at the end of the block
+    ops.append(stencil.ReturnOp.get([ops[-1]]))
     return ops
 
   def generate_stencil_var_store(store_op, stencil_apply_op):
@@ -356,7 +359,7 @@ class GatherStoreValueOperations(Visitor):
       store_ub_indexes.append(dim_size-2)
     external_load_op=stencil.ExternalLoadOp.get(alloca_op.results[0], stencil.FieldType(field_bounds, el_type))
     cast_op=stencil.CastOp.get(external_load_op.results[0], stencil.StencilBoundsAttr(field_bounds), external_load_op.results[0].typ)
-    store_op=stencil.StoreOp.get(stencil_apply_op.results[0], cast_op.results[0], store_lb_indexes, store_ub_indexes)
+    store_op=stencil.StoreOp.get(stencil_apply_op.results[0], cast_op.results[0], stencil.IndexAttr.get(*store_lb_indexes), stencil.IndexAttr.get(*store_ub_indexes))
     external_store_op=stencil.ExternalStoreOp.create(operands=[external_load_op.results[0], alloca_op.results[0]])
 
     return [external_load_op, cast_op, store_op, external_store_op]
@@ -379,7 +382,7 @@ class GatherStoreValueOperations(Visitor):
       stencil_read_ops=[]
       # Now create stencil load ops and also grab the load SSA result
       for idx, (read_var, alloc_a) in enumerate(read_data_discover.read_vars.items()):
-        ops, ssa=GatherStoreValueOperations.generate_stencil_var_load(alloc_a)
+        ops, ssa=LocateStoreToStencilOperationsAndGenerate.generate_stencil_var_load(alloc_a)
         block_ops.append(ssa)
         block_types.append(ssa.typ)
         indexed_read_var_names[read_var]=idx
@@ -406,12 +409,31 @@ class GatherStoreValueOperations(Visitor):
       apply_op=stencil.ApplyOp.get(block_ops, block, stencil_temptypes)
 
       # Now create the stencil.store to store the result of stencil.apply
-      store_ops=GatherStoreValueOperations.generate_stencil_var_store(store_op, apply_op)
+      store_ops=LocateStoreToStencilOperationsAndGenerate.generate_stencil_var_store(store_op, apply_op)
       DetachCoordOperations().traverse(store_op.memref.owner)
       store_op.detach()
 
-      return stencil_read_ops, apply_op, store_ops
+      self.stencil_generations.append((stencil_loops, stencil_read_ops + [apply_op] + store_ops))
 
+class FindTopLevelApplicableStencilLoop(Visitor):
+  # This is the first loop that drives the stencil, therefore the stencil should be added just before this
+  def __init__(self, stencil_loops):
+    self.stencil_loops=stencil_loops
+    self.top_loop=None
+
+  def traverse_do_loop(self, doloop_op:fir.DoLoop):
+    if self.top_loop is not None: return
+    # Traverse a loop to grab out the description of it
+    store_op=list(doloop_op.regions[0].block.args[1].uses)[0].operation
+    assert isa(store_op, fir.Store)
+    assert isa(store_op.memref.op, fir.Alloca)
+    loop_name=store_op.memref.op.bindc_name.data
+    if loop_name in self.stencil_loops:
+      if self.top_loop is None:
+        self.top_loop=doloop_op
+        return
+    for op in doloop_op.regions[0].block.ops:
+      self.traverse(op)
 
 @dataclass
 class FIRToStencil(ModulePass):
@@ -424,9 +446,10 @@ class FIRToStencil(ModulePass):
     loop_gather=GatherLoops()
     loop_gather.traverse(module)
 
-    data_access_gather=GatherStoreValueOperations(loop_gather.loop_description)
-    data_access_gather.traverse(module)
-    #exit(0)
-
-
-
+    stencil_generator=LocateStoreToStencilOperationsAndGenerate(loop_gather.loop_description)
+    stencil_generator.traverse(module)
+    for stencil_generation in stencil_generator.stencil_generations:
+      find_top_level_group=FindTopLevelApplicableStencilLoop(stencil_generation[0].keys())
+      find_top_level_group.traverse(module)
+      tl=find_top_level_group.top_loop
+      tl.parent.insert_ops_before(stencil_generation[1], tl)
