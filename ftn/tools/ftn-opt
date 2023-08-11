@@ -8,6 +8,7 @@ from xdsl.ir import MLContext
 from xdsl.dialects.builtin import ModuleOp
 
 from ftn.transforms.fir_to_stencil import FIRToStencil
+from ftn.transforms.extract_stencil import ExtractStencil
 
 from util.semantic_error import SemanticError
 
@@ -22,6 +23,7 @@ class FtnOptMain(xDSLOptMain):
     def register_all_passes(self):
         super().register_all_passes()
         self.register_pass(FIRToStencil)
+        self.register_pass(ExtractStencil)
 
     def register_all_targets(self):
         super().register_all_targets()
@@ -31,6 +33,12 @@ class FtnOptMain(xDSLOptMain):
 
     def register_all_arguments(self, arg_parser: argparse.ArgumentParser):
       super().register_all_arguments(arg_parser)
+      arg_parser.add_argument(
+            "--output-module-files",
+            default=False,
+            action="store_true",
+            help="Outputs the generated module files on a module by module basis",
+        )
 
     def register_all_dialects(self):
         super().register_all_dialects()
@@ -65,11 +73,40 @@ class FtnOptMain(xDSLOptMain):
     def register_all_frontends(self):
         super().register_all_frontends()
 
+def _output_modules_to_file_for_target(module, target, psy_main):
+  psy_main.args.target=target
+  i=0
+  # This will generate output for every sub module that is part of the
+  # top level module
+  for op in module.regions[0].blocks[0].ops:
+    if isinstance(op, ModuleOp):
+      module_contents=psy_main.output_resulting_program(op)
+      f = open("generated/module_"+str(i)+"."+target, "w")
+      f.write(module_contents)
+      f.close()
+      i+=1
+
+def _empty_generate_dir():
+  if not os.path.isdir("generated"):
+      Path("generated").mkdir(parents=True, exist_ok=True)
+
+  files = glob.glob('generated/*')
+  for f in files:
+    os.remove(f)
+
 def __main__():
     ftn_main = FtnOptMain()
 
     try:
         ftn_main.run()
+        if ftn_main.args.output_module_files:
+          chunks, file_extension = ftn_main.prepare_input()
+          assert len(chunks) == 1
+          module=ftn_main.parse_chunk(chunks[0], file_extension)
+          ftn_main.apply_passes(module)
+          contents = ftn_main.output_resulting_program(module)
+          _empty_generate_dir()
+          _output_modules_to_file_for_target(module, ftn_main.args.target, ftn_main)
     except SyntaxError as e:
         print(e.get_message())
         exit(0)
