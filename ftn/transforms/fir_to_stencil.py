@@ -435,6 +435,38 @@ class FindTopLevelApplicableStencilLoop(Visitor):
     for op in doloop_op.regions[0].block.ops:
       self.traverse(op)
 
+class RemoveNoReassoc(RewritePattern):
+  @op_type_rewrite_pattern
+  def match_and_rewrite(self, op: fir.NoReassoc, rewriter: PatternRewriter, /):
+    op.results[0].replace_by(op.val)
+    op.detach()
+
+class RemoveUnusedLoops(RewritePattern):
+
+  def remove_operation(op):
+    if isa(op, fir.Convert):
+      if op.value.owner.parent is not None:
+        op.value.owner.detach()
+    op.detach()
+
+  @op_type_rewrite_pattern
+  def match_and_rewrite(self, op: fir.DoLoop, rewriter: PatternRewriter, /):
+    num_ops=len(op.regions[0].block.ops)
+    if num_ops <= 6:
+      # 6 is the base number of operations added in
+      for lop in op.regions[0].block.ops:
+        lop.detach()
+
+      for res in op.results:
+        for use in res.uses:
+          use.operation.detach()
+
+      RemoveUnusedLoops.remove_operation(op.lowerBound.owner)
+      RemoveUnusedLoops.remove_operation(op.upperBound.owner)
+      RemoveUnusedLoops.remove_operation(op.step.owner)
+      RemoveUnusedLoops.remove_operation(op.initArgs.owner)
+      op.detach()
+
 @dataclass
 class FIRToStencil(ModulePass):
   """
@@ -453,3 +485,10 @@ class FIRToStencil(ModulePass):
       find_top_level_group.traverse(module)
       tl=find_top_level_group.top_loop
       tl.parent.insert_ops_before(stencil_generation[1], tl)
+
+    walker = PatternRewriteWalker(GreedyRewritePatternApplier([
+              RemoveUnusedLoops(), RemoveNoReassoc()
+    ]),
+                                   walk_regions_first=True)
+    walker.rewrite_module(module)
+
