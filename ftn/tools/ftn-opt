@@ -8,7 +8,7 @@ from xdsl.ir import MLContext
 from xdsl.dialects.builtin import ModuleOp
 
 from ftn.transforms.fir_to_stencil import FIRToStencil
-from ftn.transforms.extract_stencil import ExtractStencil
+from psy.extract_stencil import ExtractStencil
 
 from util.semantic_error import SemanticError
 
