@@ -9,6 +9,7 @@ from xdsl.dialects.builtin import ModuleOp
 
 from ftn.transforms.fir_to_stencil import FIRToStencil
 from psy.extract_stencil import ExtractStencil
+from psy.infer_gpu_data_transfer import InferGPUDataTransfer
 
 from util.semantic_error import SemanticError
 
@@ -24,6 +25,7 @@ class FtnOptMain(xDSLOptMain):
         super().register_all_passes()
         self.register_pass(FIRToStencil)
         self.register_pass(ExtractStencil)
+        self.register_pass(InferGPUDataTransfer)
 
     def register_all_targets(self):
         super().register_all_targets()
