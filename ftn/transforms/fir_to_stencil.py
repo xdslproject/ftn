@@ -24,10 +24,12 @@ class GetArrayAccessValue(Visitor):
     CONSTANT = 1
     VARIABLE = 2
     EXPRESSION = 3
+    SPECIAL = 4
 
   class ArithOp(Enum):
     SUB = 1
     ADD = 2
+    MUL = 3
 
   class ExpressionDescription:
     def __init__(self, lhs, lhs_t, rhs=None, rhs_t=None, arith_operation=None):
@@ -36,24 +38,44 @@ class GetArrayAccessValue(Visitor):
       self.lhs_type=lhs_t
       self.rhs=rhs
       self.rhs_type=rhs_t
+      self.has_special=False
 
-  def __init__(self):
+  def __init__(self, array_heap_sizes, array_name):
     self.expression=None
     self.expression_t=None
+    self.has_special=False
+    if array_name in array_heap_sizes.keys():
+      self.heap_dim_sizes=array_heap_sizes[array_name]
 
   def get_offset(self):
     if self.expression_t == GetArrayAccessValue.SideType.EXPRESSION:
-      return GetArrayAccessValue.calc_offset(self.expression)
+      if self.has_special:
+        return GetArrayAccessValue.calc_nested_offsets(self.expression)
+      else:
+        return GetArrayAccessValue.calc_offset(self.expression)
     elif self.expression_t == GetArrayAccessValue.SideType.VARIABLE:
       return 0
     else:
       return expression.lhs
+
+  def calc_nested_offsets(expression):
+    if (expression.arith_operation == GetArrayAccessValue.ArithOp.ADD and
+        expression.lhs_type == GetArrayAccessValue.SideType.EXPRESSION and
+        expression.rhs_type == GetArrayAccessValue.SideType.EXPRESSION):
+      a=GetArrayAccessValue.calc_nested_offsets(expression.lhs)
+      b=GetArrayAccessValue.calc_nested_offsets(expression.rhs)
+      return a+b
+    else:
+      return [GetArrayAccessValue.calc_offset(expression)]
+
 
   def calc_offset(expression):
     if expression.lhs_type == GetArrayAccessValue.SideType.EXPRESSION:
       lhs=GetArrayAccessValue.calc_offset(expression.lhs)
     elif expression.lhs_type == GetArrayAccessValue.SideType.VARIABLE:
       lhs=0
+    elif expression.lhs_type == GetArrayAccessValue.SideType.SPECIAL:
+      lhs=expression.lhs
     else:
       lhs=expression.lhs
 
@@ -62,6 +84,8 @@ class GetArrayAccessValue(Visitor):
         rhs=GetArrayAccessValue.calc_offset(expression.rhs)
       elif expression.rhs_type == GetArrayAccessValue.SideType.VARIABLE:
         rhs=0
+      elif expression.rhs_type == GetArrayAccessValue.SideType.SPECIAL:
+        rhs=expression.rhs
       else:
         rhs=expression.rhs
     else:
@@ -72,6 +96,8 @@ class GetArrayAccessValue(Visitor):
         return lhs-rhs
       elif expression.arith_operation == GetArrayAccessValue.ArithOp.ADD:
         return lhs+rhs
+      elif expression.arith_operation == GetArrayAccessValue.ArithOp.MUL:
+        return lhs*rhs
       else:
         assert False
     else:
@@ -93,7 +119,7 @@ class GetArrayAccessValue(Visitor):
 
   def traverse_constant(self, constant_op: arith.Constant):
     # Grabs out constant value
-    assert constant_op.value.typ == builtin.i32 or constant_op.value.typ == builtin.i64
+    assert constant_op.value.typ == builtin.i32 or constant_op.value.typ == builtin.i64 or isa(constant_op.value.typ, builtin.IndexType)
     self.expression=constant_op.value.value.data
     self.expression_t=GetArrayAccessValue.SideType.CONSTANT
 
@@ -112,6 +138,9 @@ class GetArrayAccessValue(Visitor):
   def traverse_addi(self, addi_op: arith.Addi):
     self.handle_arith_op(addi_op, GetArrayAccessValue.ArithOp.ADD)
 
+  def traverse_muli(self, addi_op: arith.Muli):
+    self.handle_arith_op(addi_op, GetArrayAccessValue.ArithOp.MUL)
+
   def traverse_convert(self, convert_op: fir.Convert):
     # We ignore converts apart from visiting the children
     self.traverse(convert_op.value.owner)
@@ -119,8 +148,28 @@ class GetArrayAccessValue(Visitor):
   def traverse_load(self, load_op: fir.Load):
     # Signifies a variable
     assert isa(load_op.memref.op, fir.Alloca)
-    self.expression=load_op.memref.op.bindc_name.data
-    self.expression_t=GetArrayAccessValue.SideType.VARIABLE
+    alloc_op=load_op.memref.op
+    if hasattr(alloc_op, "bindc_name") and alloc_op.bindc_name is not None:
+      # Stack allocated
+      self.expression=alloc_op.bindc_name.data
+      self.expression_t=GetArrayAccessValue.SideType.VARIABLE
+    else:
+      # Heap allocated, convert ext (top size) and lb (lower bound) variables
+      # into constants as we know these already from previous pass
+      name=alloc_op.uniq_name.data
+      if ".ext" in name:
+        index=int(name.split(".ext")[1])
+        self.expression=1#"ext-"+str(index)
+        self.expression_t=GetArrayAccessValue.SideType.SPECIAL
+        self.has_special=True
+      elif ".lb" in name:
+        # Hard code 1 as starting offset
+        self.expression=0#"lb"
+        self.expression_t=GetArrayAccessValue.SideType.SPECIAL
+        self.has_special=True
+      else:
+        self.expression=name
+        self.expression_t=GetArrayAccessValue.SideType.VARIABLE
 
 class LoopDescription():
   # Describes a loop, with its lower and upper bound along with the iterator
@@ -170,6 +219,16 @@ class LocateReadUniqueDataNames(Visitor):
        array_name=coordinateof_op.ref.owner.bindc_name.data
        if array_name not in self.read_vars.keys():
          self.read_vars[array_name]=coordinateof_op.ref.owner
+      elif isa(coordinateof_op.ref.owner, fir.Convert):
+        # This is heap allocated, there is no bindc_name on the
+        # data allocation Alloca
+        convert_op=coordinateof_op.ref.owner
+        assert isa(convert_op.value.owner, fir.Load)
+        alloca_op=convert_op.value.owner.memref.owner
+        assert isa(alloca_op, fir.Alloca)
+        array_name=alloca_op.uniq_name.data
+        if array_name not in self.read_vars.keys():
+         self.read_vars[array_name]=alloca_op
       else:
         assert False
 
@@ -187,6 +246,9 @@ class GetStoreCalculationContributedOperations(Visitor):
 
   def traverse_subi(self, subi_op:arith.Subi):
     self.handle_binary_op(subi_op)
+
+  def traverse_muli(self, muli_op:arith.Muli):
+    self.handle_binary_op(muli_op)
 
   def traverse_addi(self, addi_op:arith.Addi):
     self.handle_binary_op(addi_op)
@@ -229,12 +291,16 @@ class DetachCoordOperations(Visitor):
   # us to detach the operation itself and then other operations which contribute to it
   # but now are worthless
   def handle_binary_op(self, bin_op):
-    bin_op.detach()
+    if bin_op.parent is not None:
+      bin_op.detach()
     self.traverse(bin_op.lhs.owner)
     self.traverse(bin_op.rhs.owner)
 
   def traverse_subi(self, subi_op:arith.Subi):
     self.handle_binary_op(subi_op)
+
+  def traverse_muli(self, muli_op:arith.Muli):
+    self.handle_binary_op(muli_op)
 
   def traverse_addi(self, addi_op:arith.Addi):
     self.handle_binary_op(addi_op)
@@ -244,22 +310,27 @@ class DetachCoordOperations(Visitor):
     self.traverse(convert_op.value.owner)
 
   def traverse_load(self, load_op:fir.Load):
-    load_op.detach()
+    if load_op.parent is not None:
+      load_op.detach()
 
   def traverse_constant(self, constant_op:arith.Constant):
-    constant_op.detach()
+    if constant_op.parent is not None:
+      constant_op.detach()
 
   def traverse_coordinate_of(self, coordinateof_op:fir.CoordinateOf):
     coordinateof_op.detach()
     for index_res in coordinateof_op.coor:
       self.traverse(index_res.owner)
+    if not isa(coordinateof_op.ref, fir.Alloca):
+      self.traverse(coordinateof_op.ref.owner)
 
 class LocateStoreToStencilOperationsAndGenerate(Visitor):
   # Will check if a store is keyed by loops and will be used for stencil, i.e.
   # a(i,j) where i and j are loop variables then this is true, else false
-  def __init__(self, loop_description):
+  def __init__(self, loop_description, heap_allocated_array_sizes):
     self.loop_description=loop_description
     self.stencil_generations=[]
+    self.heap_allocated_array_sizes=heap_allocated_array_sizes
 
   def check_if_store_keyed_by_loops(self, store_op):
     if isa(store_op.memref.owner, fir.CoordinateOf):
@@ -270,22 +341,9 @@ class LocateStoreToStencilOperationsAndGenerate(Visitor):
     else:
       return False
 
-  def generate_stencil_var_load(alloca_op):
-    # Generates the stencil load operations and result SSA for an array based on its FIR allocation
-    el_type=alloca_op.in_type.type
-    lb=stencil.IndexAttr.get(*([-1]*len(alloca_op.in_type.shape)))
-    ub=[]
-    field_bounds=[]
-    for dim in alloca_op.in_type.shape:
-      # TODO: handle if deferred (allocatable)
-      dim_size=dim.value.data
-      field_bounds.append((-1, dim_size-1))
-      ub.append(dim_size-1)
-    external_load_op=stencil.ExternalLoadOp.get(alloca_op.results[0], stencil.FieldType(field_bounds, el_type))
-    cast_op=stencil.CastOp.get(external_load_op.results[0], stencil.StencilBoundsAttr(field_bounds), external_load_op.results[0].typ)
-    load_op=stencil.LoadOp.get(cast_op.results[0], lb, ub)
-
-    return [external_load_op, cast_op, load_op], load_op.results[0]
+  def get_nested_type(in_type, search_type):
+    if isinstance(in_type, search_type): return in_type
+    return LocateStoreToStencilOperationsAndGenerate.get_nested_type(in_type.type, search_type)
 
   def getLoopsThatIndexStore(self, store_op):
     # Get the loops that will index a store operations, i.e. if I have
@@ -297,8 +355,21 @@ class LocateStoreToStencilOperationsAndGenerate(Visitor):
     indexed_loops={}
     all_var_names=[]
     coord_op=store_op.memref.owner
+
+    if isa(coord_op.ref.owner, fir.Alloca):
+      # Stack allocated
+      alloca=coord_op.ref.owner
+      array_name=alloca.bindc_name.data
+    else:
+      # Heap allocated
+      convert_op=coord_op.ref.owner
+      assert isa(convert_op.value.owner, fir.Load)
+      alloca=convert_op.value.owner.memref.owner
+      assert isa(alloca, fir.Alloca)
+      array_name=alloca.uniq_name.data
+
     for index_res in coord_op.coor:
-      gaav=GetArrayAccessValue()
+      gaav=GetArrayAccessValue(self.heap_allocated_array_sizes, array_name)
       gaav.traverse(index_res.owner)
       var_names=gaav.get_var_names()
       for var_name in var_names:
@@ -318,16 +389,32 @@ class LocateStoreToStencilOperationsAndGenerate(Visitor):
         op.detach()
         if isa(op, fir.Load):
           if isa(op.memref.owner, fir.CoordinateOf):
-            alloca=op.memref.owner.ref.owner
-            array_name=alloca.bindc_name.data
-            block_idx=indexed_read_var_names[array_name]
+            if isa(op.memref.owner.ref.owner, fir.Alloca):
+              # Stack allocated
+              alloca=op.memref.owner.ref.owner
+              array_name=alloca.bindc_name.data
+              offsets=[]
+              for index_res in op.memref.owner.coor:
+                gaav=GetArrayAccessValue(self.heap_allocated_array_sizes, array_name)
+                gaav.traverse(index_res.owner)
+                # Plus one here as FIR adds a minus one to zero index loops
+                offsets.append(gaav.get_offset()+1)
 
-            offsets=[]
-            for index_res in op.memref.owner.coor:
-              gaav=GetArrayAccessValue()
-              gaav.traverse(index_res.owner)
-              # Plus one here as FIR adds a minus one to zero index loops
-              offsets.append(gaav.get_offset()+1)
+            else:
+              # Heap allocated
+              convert_op=op.memref.owner.ref.owner
+              assert isa(convert_op.value.owner, fir.Load)
+              alloca=convert_op.value.owner.memref.owner
+              assert isa(alloca, fir.Alloca)
+              array_name=alloca.uniq_name.data
+
+              assert len(op.memref.owner.coor) == 1
+              gaav=GetArrayAccessValue(self.heap_allocated_array_sizes, array_name)
+              gaav.traverse(op.memref.owner.coor[0].owner)
+              # No need to plus one here as the lower bound is set to zero so this is not subtracted
+              offsets=gaav.get_offset()
+
+            block_idx=indexed_read_var_names[array_name]
 
             access_op=stencil.AccessOp.get(block_args[block_idx], offsets, None)
             op.results[0].replace_by(access_op.results[0])
@@ -340,29 +427,128 @@ class LocateStoreToStencilOperationsAndGenerate(Visitor):
     ops.append(stencil.ReturnOp.get([ops[-1]]))
     return ops
 
-  def generate_stencil_var_store(store_op, stencil_apply_op):
+  def get_nested_parent_type(in_type, search_type):
+    if not hasattr(in_type, "type"): return None
+    if isinstance(in_type.type, search_type): return in_type
+    return LocateStoreToStencilOperationsAndGenerate.get_nested_parent_type(in_type.type, search_type)
+
+  def rebuild_deferred_fir_array_with_bounds(in_type, array_sizes):
+    array_type=LocateStoreToStencilOperationsAndGenerate.get_nested_type(in_type, fir.SequenceType)
+    new_shape=[builtin.IntegerAttr(size, 64) for size in array_sizes]
+    new_array=fir.SequenceType(array_type.type, new_shape)
+
+    to_add=new_array
+    parent_type=fir.SequenceType
+    while True:
+      parent=LocateStoreToStencilOperationsAndGenerate.get_nested_parent_type(in_type, parent_type)
+      if parent is None: break
+      parent_type=type(parent)
+      to_add=parent_type([to_add])
+
+    return to_add
+
+  def generate_stencil_var_load(self, alloca_op):
+    # Generates the stencil load operations and result SSA for an array based on its FIR allocation
+
+    array_type=LocateStoreToStencilOperationsAndGenerate.get_nested_type(alloca_op.in_type, fir.SequenceType)
+
+    el_type=array_type.type
+    lb=stencil.IndexAttr.get(*([-1]*len(array_type.shape)))
+    ub=[]
+    field_bounds=[]
+
+    needs_conversion_cast=False
+    fortran_array_sizes=[]
+    for index, dim in enumerate(array_type.shape):
+      if isa(dim, fir.DeferredAttr):
+        # Deferred size, heap allocated
+        array_name=alloca_op.uniq_name.data
+        assert array_name in self.heap_allocated_array_sizes.keys()
+        dim_size=self.heap_allocated_array_sizes[array_name][index]
+        needs_conversion_cast=True
+      else:
+        # Explicit size, stack allocated
+        dim_size=dim.value.data
+      fortran_array_sizes.append(dim_size)
+      field_bounds.append((-1, dim_size-1))
+      ub.append(dim_size-1)
+
+    ops=[]
+    if needs_conversion_cast:
+      explicit_size_type=LocateStoreToStencilOperationsAndGenerate.rebuild_deferred_fir_array_with_bounds(alloca_op.results[0].typ, fortran_array_sizes)
+      unreconciled_conv_op=builtin.UnrealizedConversionCastOp.create(operands=[alloca_op.results[0]], result_types=[explicit_size_type])
+      ops+=[unreconciled_conv_op]
+      in_data=unreconciled_conv_op.results[0]
+    else:
+      in_data=alloca_op.results[0]
+
+    field_bounds.reverse()
+    ub.reverse()
+
+    external_load_op=stencil.ExternalLoadOp.get(in_data, stencil.FieldType(field_bounds, el_type))
+    cast_op=stencil.CastOp.get(external_load_op.results[0], stencil.StencilBoundsAttr(field_bounds), external_load_op.results[0].typ)
+    load_op=stencil.LoadOp.get(cast_op.results[0], lb, ub)
+    ops+=[external_load_op, cast_op, load_op]
+
+    return ops, load_op.results[0]
+
+  def generate_stencil_var_store(self, store_op, stencil_apply_op):
     # Generates the stencil operations for the stencil.store to store the results of the
     # stencil.apply operation
     alloca_op=store_op.memref.owner.ref.owner
+    if not isa(alloca_op, fir.Alloca):
+      # Heap allocated
+      convert_op=store_op.memref.owner.ref.owner
+      assert isa(convert_op.value.owner, fir.Load)
+      alloca_op=convert_op.value.owner.memref.owner
     assert isa(alloca_op, fir.Alloca)
-    el_type=alloca_op.in_type.type
-    lb=stencil.IndexAttr.get(*([-1]*len(alloca_op.in_type.shape)))
-    store_lb_indexes=stencil.IndexAttr.get(*([0] * len(alloca_op.in_type.shape)))
+
+    array_type=LocateStoreToStencilOperationsAndGenerate.get_nested_type(alloca_op.in_type, fir.SequenceType)
+
+    el_type=array_type.type
+
+    lb=stencil.IndexAttr.get(*([-1]*len(array_type.shape)))
+    store_lb_indexes=stencil.IndexAttr.get(*([0] * len(array_type.shape)))
     ub=[]
     store_ub_indexes=[]
     field_bounds=[]
-    for dim in alloca_op.in_type.shape:
-      # TODO: handle if deferred (allocatable)
-      dim_size=dim.value.data
+
+    needs_conversion_cast=False
+    fortran_array_sizes=[]
+    for index, dim in enumerate(array_type.shape):
+      if isa(dim, fir.DeferredAttr):
+        # Deferred size, heap allocated
+        array_name=alloca_op.uniq_name.data
+        assert array_name in self.heap_allocated_array_sizes.keys()
+        dim_size=self.heap_allocated_array_sizes[array_name][index]
+        needs_conversion_cast=True
+      else:
+        # Explicit size, stack allocated
+        dim_size=dim.value.data
+      fortran_array_sizes.append(dim_size)
       field_bounds.append((-1, dim_size-1))
       ub.append(dim_size-1)
       store_ub_indexes.append(dim_size-2)
-    external_load_op=stencil.ExternalLoadOp.get(alloca_op.results[0], stencil.FieldType(field_bounds, el_type))
+
+    ops=[]
+    if needs_conversion_cast:
+      explicit_size_type=LocateStoreToStencilOperationsAndGenerate.rebuild_deferred_fir_array_with_bounds(alloca_op.results[0].typ, fortran_array_sizes)
+      unreconciled_conv_op=builtin.UnrealizedConversionCastOp.create(operands=[alloca_op.results[0]], result_types=[explicit_size_type])
+      ops+=[unreconciled_conv_op]
+      in_data=unreconciled_conv_op.results[0]
+    else:
+      in_data=alloca_op.results[0]
+
+    field_bounds.reverse()
+    ub.reverse()
+    store_ub_indexes.reverse()
+
+    external_load_op=stencil.ExternalLoadOp.get(in_data, stencil.FieldType(field_bounds, el_type))
     cast_op=stencil.CastOp.get(external_load_op.results[0], stencil.StencilBoundsAttr(field_bounds), external_load_op.results[0].typ)
     store_op=stencil.StoreOp.get(stencil_apply_op.results[0], cast_op.results[0], stencil.IndexAttr.get(*store_lb_indexes), stencil.IndexAttr.get(*store_ub_indexes))
     external_store_op=stencil.ExternalStoreOp.create(operands=[external_load_op.results[0], alloca_op.results[0]])
-
-    return [external_load_op, cast_op, store_op, external_store_op]
+    ops+=[external_load_op, cast_op, store_op, external_store_op]
+    return ops
 
   def traverse_store(self, store_op:fir.Store):
     # This drives our transformation, where we look at each store and if it can be transformed into a stencil
@@ -382,7 +568,7 @@ class LocateStoreToStencilOperationsAndGenerate(Visitor):
       stencil_read_ops=[]
       # Now create stencil load ops and also grab the load SSA result
       for idx, (read_var, alloc_a) in enumerate(read_data_discover.read_vars.items()):
-        ops, ssa=LocateStoreToStencilOperationsAndGenerate.generate_stencil_var_load(alloc_a)
+        ops, ssa=self.generate_stencil_var_load(alloc_a)
         block_ops.append(ssa)
         block_types.append(ssa.typ)
         indexed_read_var_names[read_var]=idx
@@ -409,7 +595,7 @@ class LocateStoreToStencilOperationsAndGenerate(Visitor):
       apply_op=stencil.ApplyOp.get(block_ops, block, stencil_temptypes)
 
       # Now create the stencil.store to store the result of stencil.apply
-      store_ops=LocateStoreToStencilOperationsAndGenerate.generate_stencil_var_store(store_op, apply_op)
+      store_ops=self.generate_stencil_var_store(store_op, apply_op)
       DetachCoordOperations().traverse(store_op.memref.owner)
       store_op.detach()
 
@@ -467,6 +653,28 @@ class RemoveUnusedLoops(RewritePattern):
       RemoveUnusedLoops.remove_operation(op.initArgs.owner)
       op.detach()
 
+class FindAllocatableArraySizes(Visitor):
+  def __init__(self):
+    self.array_sizes={}
+
+  def traverse_allocmem(self, allocmem_op:fir.Allocmem):
+    uses_list=list(allocmem_op.results[0].uses)
+    assert isa(uses_list[0].operation, fir.Store)
+    assert isa(uses_list[0].operation.memref.owner, fir.Alloca)
+    uniq_name=uses_list[0].operation.memref.owner.uniq_name.data
+    arr_size=[]
+    for dim_r in allocmem_op.shape:
+      select_op=dim_r.owner
+      assert isa(select_op, arith.Select)
+      convert_op=select_op.lhs.owner
+      assert isa(convert_op, fir.Convert)
+      constant_op=convert_op.value.owner
+      assert isa(constant_op, arith.Constant)
+      assert constant_op.value.typ == builtin.i32 or constant_op.value.typ == builtin.i64
+      arr_size.append(constant_op.value.value.data)
+    self.array_sizes[uniq_name]=arr_size
+
+
 @dataclass
 class FIRToStencil(ModulePass):
   """
@@ -478,7 +686,10 @@ class FIRToStencil(ModulePass):
     loop_gather=GatherLoops()
     loop_gather.traverse(module)
 
-    stencil_generator=LocateStoreToStencilOperationsAndGenerate(loop_gather.loop_description)
+    allocatable_array_size_finder=FindAllocatableArraySizes()
+    allocatable_array_size_finder.traverse(module)
+
+    stencil_generator=LocateStoreToStencilOperationsAndGenerate(loop_gather.loop_description, allocatable_array_size_finder.array_sizes)
     stencil_generator.traverse(module)
     for stencil_generation in stencil_generator.stencil_generations:
       find_top_level_group=FindTopLevelApplicableStencilLoop(stencil_generation[0].keys())
@@ -491,4 +702,6 @@ class FIRToStencil(ModulePass):
     ]),
                                    walk_regions_first=True)
     walker.rewrite_module(module)
+
+    #exit(0)
 
