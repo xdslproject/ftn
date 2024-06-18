@@ -675,7 +675,7 @@ class FindAllocatableArraySizes(Visitor):
     self.array_sizes[uniq_name]=arr_size
 
 
-@dataclass
+@dataclass(frozen=True)
 class FIRToStencil(ModulePass):
   """
   This is the entry point for the transformation pass which will then apply the rewriter
