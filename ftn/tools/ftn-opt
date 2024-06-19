@@ -20,6 +20,7 @@ from typing import Callable, Dict, List
 
 from xdsl.xdsl_opt_main import xDSLOptMain
 
+
 class FtnOptMain(xDSLOptMain):
 
     def register_all_passes(self):
