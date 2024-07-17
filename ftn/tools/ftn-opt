@@ -8,6 +8,7 @@ from xdsl.ir import MLContext
 from xdsl.dialects.builtin import ModuleOp
 
 from ftn.transforms.fir_to_stencil import FIRToStencil
+from ftn.transforms.rewrite_fir_to_standard import RewriteFIRToStandard
 from psy.extract_stencil import ExtractStencil
 from psy.infer_gpu_data_transfer import InferGPUDataTransfer
 
@@ -19,13 +20,16 @@ from typing import Callable, Dict, List
 
 from xdsl.xdsl_opt_main import xDSLOptMain
 
+
 class FtnOptMain(xDSLOptMain):
 
     def register_all_passes(self):
         super().register_all_passes()
-        self.register_pass(FIRToStencil)
-        self.register_pass(ExtractStencil)
-        self.register_pass(InferGPUDataTransfer)
+        self.register_pass("fir-to-stencil", lambda: FIRToStencil)
+        self.register_pass("extract-stencil", lambda: ExtractStencil)
+        self.register_pass("infer-gpu-data-transfer", lambda: InferGPUDataTransfer)
+        self.register_pass("rewrite-fir-to-standard", lambda: RewriteFIRToStandard)
+
 
     def register_all_targets(self):
         super().register_all_targets()
