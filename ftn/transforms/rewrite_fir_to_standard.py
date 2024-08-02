@@ -4,7 +4,7 @@ from dataclasses import dataclass
 from xdsl.dialects.experimental import fir, hlfir
 from dataclasses import dataclass, field
 from typing import Dict, Optional
-from xdsl.ir import SSAValue
+from xdsl.ir import SSAValue, BlockArgument
 from xdsl.utils.hints import isa
 from xdsl.ir import Operation, SSAValue, OpResult, Attribute, MLContext, Block, Region
 
@@ -13,7 +13,7 @@ from xdsl.pattern_rewriter import (RewritePattern, PatternRewriter,
                                    PatternRewriteWalker,
                                    GreedyRewritePatternApplier)
 from xdsl.passes import ModulePass
-from xdsl.dialects import builtin, func, llvm, arith, memref
+from xdsl.dialects import builtin, func, llvm, arith, memref, scf
 
 @dataclass
 class SSAValueCtx:
@@ -39,6 +39,9 @@ class SSAValueCtx:
             raise Exception()
         else:
             self.dictionary[identifier] = ssa_value
+
+    def contains(self, identifier):
+        return identifier in self.dictionary
 
 def translate_program(input_module: builtin.ModuleOp) -> builtin.ModuleOp:
     # create an empty global context
@@ -66,15 +69,20 @@ def translate_function(ctx: SSAValueCtx, fn: func.FuncOp):
     new_block = Block(arg_types=arg_types)
     ops_list=[]
     for op in block.ops:
-      ops_list+=translate_op(ctx, op)
+      ops_list+=translate_stmt(ctx, op)
 
     new_block.add_ops(ops_list)
     body.add_block(new_block)
 
-  new_func=func.FuncOp(fn.sym_name, fn.function_type, body, fn.sym_visibility, arg_attrs=fn.arg_attrs, res_attrs=fn.res_attrs)
+  fn_name=fn.sym_name
+
+  if fn_name.data == "_QQmain":
+    fn_name="main"
+
+  new_func=func.FuncOp(fn_name, fn.function_type, body, fn.sym_visibility, arg_attrs=fn.arg_attrs, res_attrs=fn.res_attrs)
   return new_func
 
-def translate_op(ctx: SSAValueCtx, op: Operation):
+def translate_stmt(ctx: SSAValueCtx, op: Operation):
   ops = try_translate_stmt(ctx, op)
   if ops is not None:
     return ops
@@ -84,6 +92,8 @@ def translate_op(ctx: SSAValueCtx, op: Operation):
 def try_translate_stmt(ctx: SSAValueCtx, op: Operation):
   if isa(op, hlfir.DeclareOp):
     return translate_declare(ctx, op)
+  elif isa(op, fir.DoLoop):
+    return translate_do_loop(ctx, op)
   elif isa(op, fir.Alloca):
     # Ignore this, as will handle with the declaration
     return []
@@ -104,14 +114,23 @@ def try_translate_stmt(ctx: SSAValueCtx, op: Operation):
     return translate_return(ctx, op)
   elif isa(op, hlfir.AssignOp):
     return translate_assign(ctx, op)
+  elif isa(op, fir.Store):
+    # Used internally by some ops still, e.g. to store loop bounds per iteration
+    return translate_store(ctx, op)
+  elif isa(op, fir.Result):
+    return translate_result(ctx, op)
   else:
     return None
 
-def translate_expr(ctx: SSAValueCtx, op: Operation):
-  ops = try_translate_expr(ctx, op)
-  if ops is not None:
-    return ops
-  raise Exception(f"Could not translate `{op}' as an expression")
+def translate_expr(ctx: SSAValueCtx, ssa_value: SSAValue):
+  if isa(ssa_value, BlockArgument):
+    return []
+  else:
+    ops = try_translate_expr(ctx, ssa_value.owner)
+    if ops is not None:
+      return ops
+
+    raise Exception(f"Could not translate `{ssa_value.owner}' as an expression")
 
 def try_translate_expr(ctx: SSAValueCtx, op: Operation):
   if isa(op, arith.Constant):
@@ -129,11 +148,15 @@ def try_translate_expr(ctx: SSAValueCtx, op: Operation):
     return translate_load(ctx, op)
   elif isa(op, fir.Convert):
     return translate_convert(ctx, op)
+  elif isa(op, fir.DoLoop):
+    # Do loop can be either an expression or statement
+    return translate_do_loop(ctx, op)
   else:
     return None
 
 def translate_convert(ctx: SSAValueCtx, op: fir.Convert):
-  value_ops=translate_expr(ctx, op.value.owner)
+  if ctx.contains(op.results[0]): return []
+  value_ops=translate_expr(ctx, op.value)
   in_type=op.value.type
   out_type=op.results[0].type
   new_conv=None
@@ -151,7 +174,8 @@ def translate_convert(ctx: SSAValueCtx, op: fir.Convert):
     new_conv=arith.TruncFOp(ctx[op.value], out_type)
     ctx[op.results[0]]=new_conv.results[0]
 
-  if isa(in_type, builtin.IndexType) and isa(out_type, builtin.IntegerType):
+  if ((isa(in_type, builtin.IndexType) and isa(out_type, builtin.IntegerType)) or
+        (isa(in_type, builtin.IntegerType) and isa(out_type, builtin.IndexType))):
     new_conv=arith.IndexCastOp(ctx[op.value], out_type)
     ctx[op.results[0]]=new_conv.results[0]
 
@@ -184,16 +208,34 @@ def translate_convert(ctx: SSAValueCtx, op: fir.Convert):
   assert new_conv is not None
   return value_ops+new_conv
 
-
 def translate_load(ctx: SSAValueCtx, op: fir.Load):
+  if ctx.contains(op.results[0]): return []
   zero_val=arith.Constant.create(properties={"value": builtin.IntegerAttr.from_index_int_value(0)},
                                            result_types=[builtin.IndexType()])
   load_op=memref.Load.get(ctx[op.memref], [zero_val])
   ctx[op.results[0]]=load_op.results[0]
   return [zero_val, load_op]
 
+def translate_result(ctx: SSAValueCtx, op: fir.Result):
+  ops_list=[]
+  ssa_list=[]
+  for operand in op.operands:
+    expr_ops=translate_expr(ctx, operand)
+    ops_list+=expr_ops
+    ssa_list.append(ctx[operand])
+  yield_op=scf.Yield(*ssa_list)
+  return ops_list+[yield_op]
+
+def translate_store(ctx: SSAValueCtx, op: hlfir.AssignOp):
+  expr_ops=translate_expr(ctx, op.value)
+  zero_val=arith.Constant.create(properties={"value": builtin.IntegerAttr.from_index_int_value(0)},
+                                             result_types=[builtin.IndexType()])
+  assert isa(op.memref.owner, hlfir.DeclareOp)
+  storage_op=memref.Store.get(ctx[op.value], ctx[op.memref], [zero_val])
+  return expr_ops+[zero_val, storage_op]
+
 def translate_assign(ctx: SSAValueCtx, op: hlfir.AssignOp):
-  expr_ops=translate_expr(ctx, op.lhs.owner)
+  expr_ops=translate_expr(ctx, op.lhs)
   if isa(op.rhs.owner, hlfir.DeclareOp):
     zero_val=arith.Constant.create(properties={"value": builtin.IntegerAttr.from_index_int_value(0)},
                                              result_types=[builtin.IndexType()])
@@ -204,7 +246,7 @@ def translate_assign(ctx: SSAValueCtx, op: hlfir.AssignOp):
     ops_list=[]
     indexes_ssa=[]
     for index in op.rhs.owner.indices:
-      ops=translate_expr(ctx, index.owner)
+      ops=translate_expr(ctx, index)
       ops_list+=ops
       if not isa(ctx[index].type, builtin.IndexType):
         assert isa(ctx[index].type, builtin.IntegerType)
@@ -220,9 +262,56 @@ def translate_assign(ctx: SSAValueCtx, op: hlfir.AssignOp):
     assert False
 
 def translate_constant(ctx: SSAValueCtx, op: arith.Constant):
+  if ctx.contains(op.results[0]): return []
   new_const=arith.Constant(op.value, op.results[0].type)
   ctx[op.results[0]]=new_const.results[0]
   return [new_const]
+
+def translate_do_loop(ctx: SSAValueCtx, op: fir.DoLoop):
+  if ctx.contains(op.results[1]):
+    for fir_result in op.results[1:]:
+      assert ctx.contains(fir_result)
+    return []
+
+  lower_bound_ops=translate_expr(ctx, op.lowerBound)
+  upper_bound_ops=translate_expr(ctx, op.upperBound)
+  step_ops=translate_expr(ctx, op.step)
+  initarg_ops=translate_expr(ctx, op.initArgs)
+
+  assert len(op.regions)==1
+  assert len(op.regions[0].blocks)==1
+
+  arg_types=[]
+  for arg in op.regions[0].blocks[0].args:
+    arg_types.append(arg.type)
+
+  new_block = Block(arg_types=arg_types)
+
+  for fir_arg, std_arg in zip(op.regions[0].blocks[0].args, new_block.args):
+    ctx[fir_arg]=std_arg
+
+  loop_body_ops=[]
+  for loop_op in op.regions[0].blocks[0].ops:
+    loop_body_ops+=translate_stmt(ctx, loop_op)
+
+  # The fir result has both the index and iterargs, whereas the yield has only
+  # the iterargs. Therefore need to rebuild the yield with the first argument (the index)
+  # removed from it
+  yield_op=loop_body_ops[-1]
+  assert isa(yield_op, scf.Yield)
+  new_yieldop=scf.Yield(*yield_op.arguments[1:])
+  del loop_body_ops[-1]
+  loop_body_ops.append(new_yieldop)
+
+  new_block.add_ops(loop_body_ops)
+
+  scf_for_loop=scf.For(ctx[op.lowerBound], ctx[op.upperBound], ctx[op.step], [ctx[op.initArgs]], new_block)
+
+  for index, scf_result in enumerate(scf_for_loop.results):
+    ctx[op.results[index+1]]=scf_result
+
+  return lower_bound_ops+upper_bound_ops+step_ops+initarg_ops+[scf_for_loop]
+
 
 def translate_return(ctx: SSAValueCtx, op: func.Return):
   ssa_to_return=[]
@@ -282,8 +371,9 @@ def define_scalar_var(ctx: SSAValueCtx, op: hlfir.DeclareOp):
   return [memref_alloca_op]
 
 def translate_float_binary_arithmetic(ctx: SSAValueCtx, op: Operation):
-  lhs_ops=translate_expr(ctx, op.lhs.owner)
-  rhs_ops=translate_expr(ctx, op.rhs.owner)
+  if ctx.contains(op.results[0]): return []
+  lhs_ops=translate_expr(ctx, op.lhs)
+  rhs_ops=translate_expr(ctx, op.rhs)
   lhs_ssa=ctx[op.lhs]
   rhs_ssa=ctx[op.rhs]
   fast_math_attr=op.fastmath
@@ -314,8 +404,9 @@ def translate_float_binary_arithmetic(ctx: SSAValueCtx, op: Operation):
   return lhs_ops+rhs_ops+[bin_arith_op]
 
 def translate_integer_binary_arithmetic(ctx: SSAValueCtx, op: Operation):
-  lhs_ops=translate_expr(ctx, op.lhs.owner)
-  rhs_ops=translate_expr(ctx, op.rhs.owner)
+  if ctx.contains(op.results[0]): return []
+  lhs_ops=translate_expr(ctx, op.lhs)
+  rhs_ops=translate_expr(ctx, op.rhs)
   lhs_ssa=ctx[op.lhs]
   rhs_ssa=ctx[op.rhs]
   bin_arith_op=None
