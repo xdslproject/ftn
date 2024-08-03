@@ -244,6 +244,8 @@ def try_translate_stmt(program_state: ProgramState, ctx: SSAValueCtx, op: Operat
     return translate_result(program_state, ctx, op)
   elif isa(op, fir.Call):
     return translate_call(program_state, ctx, op)
+  elif isa(op, fir.Freemem):
+    return translate_freemem(program_state, ctx, op)
   else:
     return None
 
@@ -365,6 +367,13 @@ def translate_load(program_state: ProgramState, ctx: SSAValueCtx, op: fir.Load):
   else:
     assert False
 
+def translate_freemem(program_state: ProgramState, ctx: SSAValueCtx, op: fir.Freemem):
+  assert isa(op.heapref.owner, fir.BoxAddr)
+  assert isa(op.heapref.owner.val.owner, fir.Load)
+  memref_ssa=op.heapref.owner.val.owner.memref
+  dealloc_op=memref.Dealloc.get(ctx[memref_ssa])
+  return [dealloc_op]
+
 def translate_result(program_state: ProgramState, ctx: SSAValueCtx, op: fir.Result):
   ops_list=[]
   ssa_list=[]
@@ -375,20 +384,115 @@ def translate_result(program_state: ProgramState, ctx: SSAValueCtx, op: fir.Resu
   yield_op=scf.Yield(*ssa_list)
   return ops_list+[yield_op]
 
-def translate_store(program_state: ProgramState, ctx: SSAValueCtx, op: hlfir.AssignOp):
-  expr_ops=translate_expr(program_state, ctx, op.value)
-  zero_val=arith.Constant.create(properties={"value": builtin.IntegerAttr.from_index_int_value(0)},
-                                             result_types=[builtin.IndexType()])
-  assert isa(op.memref.owner, hlfir.DeclareOp)
-  storage_op=memref.Store.get(ctx[op.value], ctx[op.memref], [zero_val])
-  return expr_ops+[zero_val, storage_op]
+def extract_array_size_integer(op):
+  # This is for array size, they are often converted from
+  # integer to index, so work back to find the original integer
+  if isa(op, fir.Convert):
+    assert isa(op.results[0].type, builtin.IndexType)
+    assert isa(op.value.type, builtin.IntegerType)
+    return op.value.owner
+  return op
+
+def translate_store(program_state: ProgramState, ctx: SSAValueCtx, op: fir.Store):
+  # This is used for internal program components, such as loop indexes and storing
+  # allocated memory to an allocatable
+  if isa(op.value.owner, fir.Embox):
+    # This is a allocating memory for an allocatable array
+    if isa(op.value.owner.memref.owner, fir.Allocmem):
+      assert isa(op.value.owner.memref.owner.results[0].type, fir.HeapType)
+      assert isa(op.value.owner.memref.owner.results[0].type.type, fir.SequenceType)
+      base_type=op.value.owner.memref.owner.results[0].type.type.type
+      for dim_shape in op.value.owner.memref.owner.results[0].type.type.shape.data:
+        assert isa(dim_shape, fir.DeferredAttr)
+
+      default_start_idx_mode=isa(op.value.owner.shape, fir.Shape)
+
+      dim_sizes=[]
+      dim_starts=[]
+      dim_ends=[]
+      for shape in op.value.owner.memref.owner.shape:
+        print(type(shape.owner))
+        assert isa(shape.owner, arith.Select)
+        # Flang adds a guard to ensure that non-negative size is used, hence select
+        # the actual provided size is the lhs
+        size_op=extract_array_size_integer(shape.owner.lhs.owner)
+        if isa(size_op, arith.Constant):
+          # Default sized
+          dim_sizes.append(size_op.value.value.data)
+        elif isa(size_op, arith.Addi):
+          # Start dim is offset, this does the substract, then add one
+          # so we need to work back to calculate
+          assert isa(size_op.rhs.owner, arith.Constant)
+          assert size_op.rhs.owner.value.value.data == 1
+          assert isa(size_op.lhs.owner, arith.Subi)
+          upper_bound_op=extract_array_size_integer(size_op.lhs.owner.lhs.owner)
+          assert isa(upper_bound_op, arith.Constant)
+          upper_bound=upper_bound_op.value.value.data
+          lower_bound_op=extract_array_size_integer(size_op.lhs.owner.rhs.owner)
+          assert isa(lower_bound_op, arith.Constant)
+          lower_bound=lower_bound_op.value.value.data
+          dim_starts.append(lower_bound)
+          dim_ends.append(upper_bound)
+          dim_sizes.append((upper_bound-lower_bound)+1)
+        else:
+          assert False
+
+      if default_start_idx_mode:
+        assert len(dim_starts) == 0
+        dim_starts=[1]*len(dim_sizes)
+        dim_ends=dim_sizes
+
+      assert len(dim_sizes) == len(dim_starts) == len(dim_ends)
+
+      dim_ssas=[]
+      ops_list=[]
+      for dim_size in dim_sizes:
+        # For now don't pop in the zero index guard that Flang has (might want to add later)
+        size_constant=arith.Constant.create(properties={"value": builtin.IntegerAttr.from_index_int_value(dim_size)},
+                                               result_types=[builtin.IndexType()])
+        ops_list.append(size_constant)
+        dim_ssas.append(size_constant.results[0])
+
+        # Now create memref, passing -1 as shape will make this deferred size
+        memref_allocation_op=memref_alloca_op=memref.Alloc.get(base_type, shape=[-1]*len(dim_ssas), dynamic_sizes=dim_ssas)
+        ops_list.append(memref_allocation_op)
+        ctx[op.memref.owner.results[0]]=memref_allocation_op.results[0]
+        ctx[op.memref.owner.results[1]]=memref_allocation_op.results[0]
+
+        fn_name=program_state.getCurrentFnState().fn_name
+        array_name=op.memref.owner.uniq_name.data
+        assert fn_name+"E" in array_name
+        array_name=array_name.split(fn_name+"E")[1]
+        # Store information about the array - the size, and lower and upper bounds as we need this when accessing elements
+        program_state.getCurrentFnState().array_info[array_name]=ArrayDescription(array_name, dim_sizes, dim_starts, dim_ends)
+
+        return ops_list
+    elif isa(op.value.owner.memref.owner, fir.ZeroBits):
+      pass
+    else:
+      assert False
+
+  else:
+    expr_ops=translate_expr(program_state, ctx, op.value)
+    zero_val=arith.Constant.create(properties={"value": builtin.IntegerAttr.from_index_int_value(0)},
+                                               result_types=[builtin.IndexType()])
+    assert isa(op.memref.owner, hlfir.DeclareOp)
+    storage_op=memref.Store.get(ctx[op.value], ctx[op.memref], [zero_val])
+    return expr_ops+[zero_val, storage_op]
 
 def array_access_components(program_state: ProgramState, ctx: SSAValueCtx, op:hlfir.DesignateOp):
   # This will generate the required operations and SSA for index accesses to an array, whether
   # this is storage or loading in the wider context. It will offset depending upon the logical
   # start index to the physical start index of 0
   fn_name=program_state.getCurrentFnState().fn_name
-  array_name=op.memref.owner.uniq_name.data
+  if isa(op.memref.owner, hlfir.DeclareOp):
+    array_name=op.memref.owner.uniq_name.data
+  elif isa(op.memref.owner, fir.Load):
+    assert isa(op.memref.owner.memref.owner, hlfir.DeclareOp)
+    array_name=op.memref.owner.memref.owner.uniq_name.data
+  else:
+    assert False
+
   assert fn_name+"E" in array_name
   array_name=array_name.split(fn_name+"E")[1]
 
@@ -428,10 +532,15 @@ def translate_assign(program_state: ProgramState, ctx: SSAValueCtx, op: hlfir.As
   elif isa(op.rhs.owner, hlfir.DesignateOp):
     # Array value
     assert op.rhs.owner.indices is not None
-    assert isa(op.rhs.owner.memref.owner, hlfir.DeclareOp)
     ops_list, indexes_ssa=array_access_components(program_state, ctx, op.rhs.owner)
+    if isa(op.rhs.owner.memref.owner, hlfir.DeclareOp):
+      memref_reference=op.rhs.owner.memref
+    elif isa(op.rhs.owner.memref.owner, fir.Load):
+      memref_reference=op.rhs.owner.memref.owner.memref
+    else:
+      assert False
 
-    storage_op=memref.Store.get(ctx[op.lhs], ctx[op.rhs.owner.memref], indexes_ssa)
+    storage_op=memref.Store.get(ctx[op.lhs], ctx[memref_reference], indexes_ssa)
     ops_list.append(storage_op)
     return expr_ops+ops_list
   else:
@@ -528,7 +637,6 @@ def translate_do_loop(program_state: ProgramState, ctx: SSAValueCtx, op: fir.DoL
 
   return lower_bound_ops+upper_bound_ops+step_ops+initarg_ops+[scf_for_loop]
 
-
 def translate_return(program_state: ProgramState, ctx: SSAValueCtx, op: func.Return):
   ssa_to_return=[]
   for arg in op.arguments:
@@ -537,6 +645,10 @@ def translate_return(program_state: ProgramState, ctx: SSAValueCtx, op: func.Ret
   return [new_return]
 
 def translate_declare(program_state: ProgramState, ctx: SSAValueCtx, op: hlfir.DeclareOp):
+  if isa(op.results[0].type, fir.ReferenceType) and isa(op.results[0].type.type, fir.BoxType):
+    # This is an allocatable array, we will handle this on the allocation
+    return []
+
   if op.shape is None:
     return define_scalar_var(program_state, ctx, op)
   else:
