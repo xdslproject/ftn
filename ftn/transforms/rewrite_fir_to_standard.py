@@ -1,5 +1,6 @@
 from abc import ABC
 from enum import Enum
+import itertools
 from typing import TypeVar, cast
 from dataclasses import dataclass
 from xdsl.dialects.experimental import fir, hlfir
@@ -519,28 +520,65 @@ def translate_declare(program_state: ProgramState, ctx: SSAValueCtx, op: hlfir.D
   if op.shape is None:
     return define_scalar_var(program_state, ctx, op)
   else:
-    dims=gather_static_shape_dims(op.shape.owner)
-    static_size=dims_has_static_size(dims)
+    if isa(op.shape.owner, fir.Shape):
+      dim_sizes, dim_starts, dim_ends=gather_static_shape_dims_from_shape(op.shape.owner)
+    elif isa(op.shape.owner, fir.ShapeShift):
+      dim_sizes, dim_starts, dim_ends=gather_static_shape_dims_from_shapeshift(op.shape.owner)
+    else:
+      assert False
+    static_size=dims_has_static_size(dim_sizes)
     if static_size:
-      return define_stack_array_var(program_state, ctx, op, dims)
+      return define_stack_array_var(program_state, ctx, op, dim_sizes, dim_starts, dim_ends)
+    else:
+      assert False
 
 def dims_has_static_size(dims):
   for dim in dims:
     if dim is None: return False
   return True
 
-def gather_static_shape_dims(shape_op: fir.Shape):
-  dims=[]
+def gather_static_shape_dims_from_shape(shape_op: fir.Shape):
+  # fir.Shape is for default, 1 indexed arrays
+  dim_sizes=[]
+  dim_starts=[]
   assert shape_op.extents is not None
   for extent in shape_op.extents:
     if isa(extent.owner, arith.Constant):
       assert isa(extent.owner.result.type, builtin.IndexType)
-      dims.append(extent.owner.value.value.data)
+      dim_sizes.append(extent.owner.value.value.data)
     else:
-      dims.append(None)
-  return dims
+      dim_sizes.append(None)
+  dim_starts=[1]*len(dim_sizes)
+  return dim_sizes, dim_starts, dim_sizes
 
-def define_stack_array_var(program_state: ProgramState, ctx: SSAValueCtx, op: hlfir.DeclareOp, static_dims):
+def gather_static_shape_dims_from_shapeshift(shape_op: fir.ShapeShift):
+  # fir.ShapeShift is for arrays indexed on a value other than 1
+  dim_sizes=[]
+  dim_starts=[]
+  dim_ends=[]
+  assert shape_op.pairs is not None
+  for low_arg, high_arg in itertools.pairwise(shape_op.pairs):
+    if isa(low_arg.owner, arith.Constant):
+      assert isa(low_arg.owner.result.type, builtin.IndexType)
+      dim_starts.append(low_arg.owner.value.value.data)
+    else:
+      dim_starts.append(None)
+
+    if isa(high_arg.owner, arith.Constant):
+      assert isa(high_arg.owner.result.type, builtin.IndexType)
+      dim_sizes.append(high_arg.owner.value.value.data)
+    else:
+      dim_sizes.append(None)
+
+    if dim_starts[-1] is not None and dim_sizes[-1] is not None:
+      dim_ends.append((dim_sizes[-1]+dim_starts[-1])-1)
+    else:
+      dim_ends.append(None)
+
+  return dim_sizes, dim_starts, dim_sizes
+
+def define_stack_array_var(program_state: ProgramState, ctx: SSAValueCtx,
+      op: hlfir.DeclareOp, dim_sizes: list, dim_starts: list, dim_ends: list):
   if ctx.contains(op.results[0]):
     assert ctx.contains(op.results[1])
     return []
@@ -551,7 +589,7 @@ def define_stack_array_var(program_state: ProgramState, ctx: SSAValueCtx, op: hl
   fir_array_type=op.memref.owner.results[0].type.type
   assert isa(fir_array_type, fir.SequenceType)
   # Ensure collected dimensions and the addressof type dimensions are consistent
-  for type_size, dim_size in zip(fir_array_type.shape, static_dims):
+  for type_size, dim_size in zip(fir_array_type.shape, dim_sizes):
     assert isa(type_size.type, builtin.IntegerType)
     assert type_size.value.data == dim_size
 
@@ -560,9 +598,9 @@ def define_stack_array_var(program_state: ProgramState, ctx: SSAValueCtx, op: hl
   assert fn_name+"E" in array_name
   array_name=array_name.split(fn_name+"E")[1]
   # Store information about the array - the size, and lower and upper bounds as we need this when accessing elements
-  program_state.getCurrentFnState().array_info[array_name]=ArrayDescription(array_name, static_dims, [1]*len(static_dims), static_dims)
+  program_state.getCurrentFnState().array_info[array_name]=ArrayDescription(array_name, dim_sizes, dim_starts, dim_ends)
 
-  memref_alloca_op=memref.Alloca.get(fir_array_type.type, shape=static_dims)
+  memref_alloca_op=memref.Alloca.get(fir_array_type.type, shape=dim_sizes)
   ctx[op.results[0]] = memref_alloca_op.results[0]
   ctx[op.results[1]] = memref_alloca_op.results[0]
   return [memref_alloca_op]
