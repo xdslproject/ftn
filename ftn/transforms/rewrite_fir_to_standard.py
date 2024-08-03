@@ -344,13 +344,26 @@ def translate_load(program_state: ProgramState, ctx: SSAValueCtx, op: fir.Load):
   if isa(ctx[op.memref], BlockArgument) and not isa(ctx[op.memref].type, memref.MemRefType):
     ctx[op.results[0]]=ctx[op.memref]
     return []
-  else:
+  elif isa(op.memref.owner, hlfir.DeclareOp):
+    # Scalar value
     assert isa(ctx[op.memref].type, memref.MemRefType)
     zero_val=arith.Constant.create(properties={"value": builtin.IntegerAttr.from_index_int_value(0)},
                                              result_types=[builtin.IndexType()])
     load_op=memref.Load.get(ctx[op.memref], [zero_val])
     ctx[op.results[0]]=load_op.results[0]
     return [zero_val, load_op]
+  elif isa(op.memref.owner, hlfir.DesignateOp):
+    # Array value
+    assert op.memref.owner.indices is not None
+    assert isa(op.memref.owner.memref.owner, hlfir.DeclareOp)
+    ops_list, indexes_ssa=array_access_components(program_state, ctx, op.memref.owner)
+
+    load_op=memref.Load.get(ctx[op.memref.owner.memref], indexes_ssa)
+    ops_list.append(load_op)
+    ctx[op.results[0]]=load_op.results[0]
+    return ops_list
+  else:
+    assert False
 
 def translate_result(program_state: ProgramState, ctx: SSAValueCtx, op: fir.Result):
   ops_list=[]
@@ -370,6 +383,40 @@ def translate_store(program_state: ProgramState, ctx: SSAValueCtx, op: hlfir.Ass
   storage_op=memref.Store.get(ctx[op.value], ctx[op.memref], [zero_val])
   return expr_ops+[zero_val, storage_op]
 
+def array_access_components(program_state: ProgramState, ctx: SSAValueCtx, op:hlfir.DesignateOp):
+  # This will generate the required operations and SSA for index accesses to an array, whether
+  # this is storage or loading in the wider context. It will offset depending upon the logical
+  # start index to the physical start index of 0
+  fn_name=program_state.getCurrentFnState().fn_name
+  array_name=op.memref.owner.uniq_name.data
+  assert fn_name+"E" in array_name
+  array_name=array_name.split(fn_name+"E")[1]
+
+  ops_list=[]
+  indexes_ssa=[]
+  for idx, index in enumerate(op.indices):
+    ops=translate_expr(program_state, ctx, index)
+    ops_list+=ops
+    if not isa(ctx[index].type, builtin.IndexType):
+      assert isa(ctx[index].type, builtin.IntegerType)
+      convert_op=arith.IndexCastOp(ctx[index], builtin.IndexType())
+      ops_list.append(convert_op)
+      index_ssa=convert_op.results[0]
+    else:
+      index_ssa=ctx[index]
+    dim_start=program_state.getCurrentFnState().array_info[array_name].dim_starts[idx]
+    assert dim_start >= 0
+    if dim_start > 0:
+      # If zero start then we are good, otherwise need to zero index this
+      offset_const=arith.Constant.create(properties={"value": builtin.IntegerAttr.from_index_int_value(dim_start)},
+                                           result_types=[builtin.IndexType()])
+      subtract_op=arith.Subi(index_ssa, offset_const)
+      ops_list+=[offset_const, subtract_op]
+      indexes_ssa.append(subtract_op.results[0])
+    else:
+      indexes_ssa.append(index_ssa)
+  return ops_list, indexes_ssa
+
 def translate_assign(program_state: ProgramState, ctx: SSAValueCtx, op: hlfir.AssignOp):
   expr_ops=translate_expr(program_state, ctx, op.lhs)
   if isa(op.rhs.owner, hlfir.DeclareOp):
@@ -382,35 +429,8 @@ def translate_assign(program_state: ProgramState, ctx: SSAValueCtx, op: hlfir.As
     # Array value
     assert op.rhs.owner.indices is not None
     assert isa(op.rhs.owner.memref.owner, hlfir.DeclareOp)
+    ops_list, indexes_ssa=array_access_components(program_state, ctx, op.rhs.owner)
 
-    fn_name=program_state.getCurrentFnState().fn_name
-    array_name=op.rhs.owner.memref.owner.uniq_name.data
-    assert fn_name+"E" in array_name
-    array_name=array_name.split(fn_name+"E")[1]
-
-    ops_list=[]
-    indexes_ssa=[]
-    for idx, index in enumerate(op.rhs.owner.indices):
-      ops=translate_expr(program_state, ctx, index)
-      ops_list+=ops
-      if not isa(ctx[index].type, builtin.IndexType):
-        assert isa(ctx[index].type, builtin.IntegerType)
-        convert_op=arith.IndexCastOp(ctx[index], builtin.IndexType())
-        ops_list.append(convert_op)
-        index_ssa=convert_op.results[0]
-      else:
-        index_ssa=ctx[index]
-      dim_start=program_state.getCurrentFnState().array_info[array_name].dim_starts[idx]
-      assert dim_start >= 0
-      if dim_start > 0:
-        # If zero start then we are good, otherwise need to zero index this
-        offset_const=arith.Constant.create(properties={"value": builtin.IntegerAttr.from_index_int_value(dim_start)},
-                                             result_types=[builtin.IndexType()])
-        subtract_op=arith.Subi(index_ssa, offset_const)
-        ops_list+=[offset_const, subtract_op]
-        indexes_ssa.append(subtract_op.results[0])
-      else:
-        indexes_ssa.append(index_ssa)
     storage_op=memref.Store.get(ctx[op.lhs], ctx[op.rhs.owner.memref], indexes_ssa)
     ops_list.append(storage_op)
     return expr_ops+ops_list
