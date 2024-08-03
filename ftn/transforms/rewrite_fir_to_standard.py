@@ -59,14 +59,24 @@ def translate_program(input_module: builtin.ModuleOp) -> builtin.ModuleOp:
     body.add_block(block)
     return builtin.ModuleOp(body)
 
+# TODO - would be cool to not have memref if its intent in
 def translate_function(ctx: SSAValueCtx, fn: func.FuncOp):
   body = Region()
   for block in fn.body.blocks:
     arg_types=[]
     for arg in fn.args:
-      arg_types.append(arg.type)
+      fir_type=arg.type
+      if isa(fir_type, fir.ReferenceType):
+        mrt=memref.MemRefType(fir_type.type, [1], builtin.NoneAttr(), builtin.NoneAttr())
+        arg_types.append(mrt)
+      else:
+        arg_types.append(arg.type)
 
     new_block = Block(arg_types=arg_types)
+
+    for fir_arg, std_arg in zip(block.args, new_block.args):
+      ctx[fir_arg]=std_arg
+
     ops_list=[]
     for op in block.ops:
       ops_list+=translate_stmt(ctx, op)
@@ -79,7 +89,9 @@ def translate_function(ctx: SSAValueCtx, fn: func.FuncOp):
   if fn_name.data == "_QQmain":
     fn_name="main"
 
-  new_func=func.FuncOp(fn_name, fn.function_type, body, fn.sym_visibility, arg_attrs=fn.arg_attrs, res_attrs=fn.res_attrs)
+  new_fn_type=builtin.FunctionType.from_lists(arg_types, [])
+
+  new_func=func.FuncOp(fn_name, new_fn_type, body, fn.sym_visibility, arg_attrs=fn.arg_attrs, res_attrs=fn.res_attrs)
   return new_func
 
 def translate_stmt(ctx: SSAValueCtx, op: Operation):
@@ -119,6 +131,8 @@ def try_translate_stmt(ctx: SSAValueCtx, op: Operation):
     return translate_store(ctx, op)
   elif isa(op, fir.Result):
     return translate_result(ctx, op)
+  elif isa(op, fir.Call):
+    return translate_call(ctx, op)
   else:
     return None
 
@@ -151,6 +165,9 @@ def try_translate_expr(ctx: SSAValueCtx, op: Operation):
   elif isa(op, fir.DoLoop):
     # Do loop can be either an expression or statement
     return translate_do_loop(ctx, op)
+  elif isa(op, hlfir.DeclareOp):
+    # Ignore as handled by the statement
+    return []
   else:
     return None
 
@@ -267,6 +284,17 @@ def translate_constant(ctx: SSAValueCtx, op: arith.Constant):
   ctx[op.results[0]]=new_const.results[0]
   return [new_const]
 
+def translate_call(ctx: SSAValueCtx, op: fir.Call):
+  arg_ops=[]
+  for arg in op.args:
+    arg_ops+=translate_expr(ctx, arg)
+
+  arg_ssa=[]
+  for arg in op.args:
+    arg_ssa.append(ctx[arg])
+  call_op=func.Call(op.callee, arg_ssa, [])
+  return arg_ops+[call_op]
+
 def translate_do_loop(ctx: SSAValueCtx, op: fir.DoLoop):
   if ctx.contains(op.results[1]):
     for fir_result in op.results[1:]:
@@ -346,7 +374,9 @@ def gather_static_shape_dims(shape_op: fir.Shape):
   return dims
 
 def define_stack_array_var(ctx: SSAValueCtx, op: hlfir.DeclareOp, static_dims):
-  assert isa(op.memref.owner, fir.AddressOf)
+  # It might either allocate from a global or an alloca in fir, but both can be
+  # handled the same
+  assert isa(op.memref.owner, fir.AddressOf) or isa(op.memref.owner, fir.Alloca)
   assert isa(op.memref.owner.results[0].type, fir.ReferenceType)
   fir_array_type=op.memref.owner.results[0].type.type
   assert isa(fir_array_type, fir.SequenceType)
@@ -361,14 +391,19 @@ def define_stack_array_var(ctx: SSAValueCtx, op: hlfir.DeclareOp, static_dims):
   return [memref_alloca_op]
 
 def define_scalar_var(ctx: SSAValueCtx, op: hlfir.DeclareOp):
-  allocation_op=op.memref.owner
-  assert isa(allocation_op, fir.Alloca)
-  assert isa(allocation_op.results[0].type, fir.ReferenceType)
-  assert allocation_op.results[0].type.type == allocation_op.in_type
-  memref_alloca_op=memref.Alloca.get(allocation_op.in_type)
-  ctx[op.results[0]] = memref_alloca_op.results[0]
-  ctx[op.results[1]] = memref_alloca_op.results[0]
-  return [memref_alloca_op]
+  if isa(op.memref, OpResult):
+    allocation_op=op.memref.owner
+    assert isa(allocation_op, fir.Alloca)
+    assert isa(allocation_op.results[0].type, fir.ReferenceType)
+    assert allocation_op.results[0].type.type == allocation_op.in_type
+    memref_alloca_op=memref.Alloca.get(allocation_op.in_type)
+    ctx[op.results[0]] = memref_alloca_op.results[0]
+    ctx[op.results[1]] = memref_alloca_op.results[0]
+    return [memref_alloca_op]
+  elif isa(op.memref, BlockArgument):
+    ctx[op.results[0]] = ctx[op.memref]
+    ctx[op.results[1]] = ctx[op.memref]
+    return []
 
 def translate_float_binary_arithmetic(ctx: SSAValueCtx, op: Operation):
   if ctx.contains(op.results[0]): return []
