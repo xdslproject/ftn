@@ -166,8 +166,7 @@ def try_translate_expr(ctx: SSAValueCtx, op: Operation):
     # Do loop can be either an expression or statement
     return translate_do_loop(ctx, op)
   elif isa(op, hlfir.DeclareOp):
-    # Ignore as handled by the statement
-    return []
+    return translate_declare(ctx, op)
   else:
     return None
 
@@ -374,6 +373,9 @@ def gather_static_shape_dims(shape_op: fir.Shape):
   return dims
 
 def define_stack_array_var(ctx: SSAValueCtx, op: hlfir.DeclareOp, static_dims):
+  if ctx.contains(op.results[0]):
+    assert ctx.contains(op.results[1])
+    return []
   # It might either allocate from a global or an alloca in fir, but both can be
   # handled the same
   assert isa(op.memref.owner, fir.AddressOf) or isa(op.memref.owner, fir.Alloca)
@@ -391,6 +393,9 @@ def define_stack_array_var(ctx: SSAValueCtx, op: hlfir.DeclareOp, static_dims):
   return [memref_alloca_op]
 
 def define_scalar_var(ctx: SSAValueCtx, op: hlfir.DeclareOp):
+  if ctx.contains(op.results[0]):
+    assert ctx.contains(op.results[1])
+    return []
   if isa(op.memref, OpResult):
     allocation_op=op.memref.owner
     assert isa(allocation_op, fir.Alloca)
