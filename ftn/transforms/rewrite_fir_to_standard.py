@@ -41,10 +41,11 @@ class ArgumentDefinition:
     self.arg_type=arg_type
 
 class FunctionDefinition:
-  def __init__(self, name, return_type):
+  def __init__(self, name, return_type, is_definition_only):
     self.name=name
     self.return_type=return_type
     self.args=[]
+    self.is_definition_only=is_definition_only
 
   def add_arg_def(self, arg_def):
     self.args.append(arg_def)
@@ -98,19 +99,21 @@ class GatherFunctionInformation(Visitor):
     return_type=None
     if len(func_op.function_type.outputs.data) > 0:
       return_type=func_op.function_type.outputs.data[0]
-    fn_def=FunctionDefinition(fn_name, return_type)
-    assert len(func_op.body.blocks) == 1
-    for block_arg in func_op.body.blocks[0].args:
-      declare_op=self.get_declare_from_arg_uses(block_arg.uses)
-      assert declare_op is not None
-      is_scalar=declare_op.shape is None
-      arg_type=declare_op.results[0].type
-      arg_name=declare_op.uniq_name.data
-      assert fn_name+"E" in arg_name
-      arg_name=arg_name.split(fn_name+"E")[1]
-      arg_intent=self.map_ftn_attrs_to_intent(declare_op.fortran_attrs)
-      arg_def=ArgumentDefinition(arg_name, is_scalar, arg_type, arg_intent)
-      fn_def.add_arg_def(arg_def)
+    fn_def=FunctionDefinition(fn_name, return_type, len(func_op.body.blocks) == 0)
+    if len(func_op.body.blocks) != 0:
+      # This has concrete implementation (e.g. is not a function definition)
+      assert len(func_op.body.blocks) == 1
+      for block_arg in func_op.body.blocks[0].args:
+        declare_op=self.get_declare_from_arg_uses(block_arg.uses)
+        assert declare_op is not None
+        is_scalar=declare_op.shape is None
+        arg_type=declare_op.results[0].type
+        arg_name=declare_op.uniq_name.data
+        assert fn_name+"E" in arg_name
+        arg_name=arg_name.split(fn_name+"E")[1]
+        arg_intent=self.map_ftn_attrs_to_intent(declare_op.fortran_attrs)
+        arg_def=ArgumentDefinition(arg_name, is_scalar, arg_type, arg_intent)
+        fn_def.add_arg_def(arg_def)
     self.program_state.addFunctionDefinition(fn_name, fn_def)
 
 @dataclass
