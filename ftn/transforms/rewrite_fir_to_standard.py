@@ -238,22 +238,28 @@ def translate_function(program_state: ProgramState, ctx: SSAValueCtx, fn: func.F
     # This is the definition of an external function, need to resolve input types
     arg_types=[]
     for t in fn.function_type.inputs.data:
-      if isa(t, fir.ReferenceType):
-        arg_types.append(llvm.LLVMPointerType.typed(t.type))
-      else:
-        arg_types.append(t)
+      arg_types.append(convert_fir_type_to_standard_if_needed(t))
+
+  # Perform some conversion on return types to standard
+  return_types=[]
+  for rt in fn.function_type.outputs.data:
+    return_types.append(convert_fir_type_to_standard_if_needed(rt))
 
   fn_name=fn.sym_name
 
   if fn_name.data == "_QQmain":
     fn_name="main"
 
-  # For now use the functions output types directly, this should be OK but might need
-  # to change fir.ref etc to the standard counterparts in future
-  new_fn_type=builtin.FunctionType.from_lists(arg_types, fn.function_type.outputs.data)
+  new_fn_type=builtin.FunctionType.from_lists(arg_types, return_types)
 
   new_func=func.FuncOp(fn_name, new_fn_type, body, fn.sym_visibility, arg_attrs=fn.arg_attrs, res_attrs=fn.res_attrs)
   return new_func
+
+def convert_fir_type_to_standard_if_needed(fir_type):
+  if isa(fir_type, fir.ReferenceType):
+    return llvm.LLVMPointerType.opaque()
+  else:
+    return fir_type
 
 def translate_stmt(program_state: ProgramState, ctx: SSAValueCtx, op: Operation):
   ops = try_translate_stmt(program_state, ctx, op)
@@ -340,8 +346,19 @@ def try_translate_expr(program_state: ProgramState, ctx: SSAValueCtx, op: Operat
     return translate_call(program_state, ctx, op)
   elif isa(op, fir.StringLit):
     return translate_string_literal(program_state, ctx, op)
+  elif isa(op, fir.AddressOf):
+    return translate_address_of(program_state, ctx, op)
   else:
     return None
+
+def translate_address_of(program_state: ProgramState, ctx: SSAValueCtx, op: fir.AddressOf):
+  if ctx.contains(op.results[0]): return []
+
+  assert isa(op.results[0].type, fir.ReferenceType)
+  global_lookup=llvm.AddressOfOp(op.symbol, llvm.LLVMPointerType.opaque())
+
+  ctx[op.results[0]]=global_lookup.results[0]
+  return [global_lookup]
 
 def translate_string_literal(program_state: ProgramState, ctx: SSAValueCtx, op: fir.StringLit):
   str_type=llvm.LLVMArrayType.from_size_and_type(op.size.value.data, builtin.IntegerType(8))
@@ -415,6 +432,16 @@ def translate_convert(program_state: ProgramState, ctx: SSAValueCtx, op: fir.Con
       # They are the same, ignore and use the input directly
       new_conv=[]
       ctx[op.results[0]]=ctx[op.value]
+
+  if isa(in_type, fir.ReferenceType) and isa(out_type, fir.ReferenceType):
+    # Converting to an LLVM pointer
+    assert isa(out_type.type, builtin.IntegerType) and out_type.type.width.data == 8
+    # The element type is an LLVM array, we hard code this to be size 1 here which is OK as it just needs to
+    # grab the starting pointer to this
+    get_element_ptr=llvm.GEPOp(ctx[op.value], [0,0], result_type=llvm.LLVMPointerType.opaque(),
+                      pointee_type=llvm.LLVMArrayType.from_size_and_type(1, builtin.IntegerType(8)))
+    ctx[op.results[0]]=get_element_ptr.results[0]
+    new_conv=[get_element_ptr]
 
   assert new_conv is not None
   return value_ops+new_conv
@@ -800,7 +827,7 @@ def translate_call(program_state: ProgramState, ctx: SSAValueCtx, op: fir.Call):
   return_types=[]
   return_ssas=[]
   for ret in op.results:
-    return_types.append(ret.type)
+    return_types.append(convert_fir_type_to_standard_if_needed(ret.type))
     return_ssas.append(ret)
 
   call_op=func.Call(op.callee, arg_ssa, return_types)
@@ -963,13 +990,20 @@ def define_scalar_var(program_state: ProgramState, ctx: SSAValueCtx, op: hlfir.D
     return []
   if isa(op.memref, OpResult):
     allocation_op=op.memref.owner
-    assert isa(allocation_op, fir.Alloca)
-    assert isa(allocation_op.results[0].type, fir.ReferenceType)
-    assert allocation_op.results[0].type.type == allocation_op.in_type
-    memref_alloca_op=memref.Alloca.get(allocation_op.in_type)
-    ctx[op.results[0]] = memref_alloca_op.results[0]
-    ctx[op.results[1]] = memref_alloca_op.results[0]
-    return [memref_alloca_op]
+    if isa(allocation_op, fir.Alloca):
+      assert isa(allocation_op.results[0].type, fir.ReferenceType)
+      assert allocation_op.results[0].type.type == allocation_op.in_type
+      memref_alloca_op=memref.Alloca.get(allocation_op.in_type)
+      ctx[op.results[0]] = memref_alloca_op.results[0]
+      ctx[op.results[1]] = memref_alloca_op.results[0]
+      return [memref_alloca_op]
+    elif isa(allocation_op, fir.AddressOf):
+      expr_ops=translate_expr(program_state, ctx, op.memref)
+      ctx[op.results[0]] = ctx[allocation_op.results[0]]
+      ctx[op.results[1]] = ctx[allocation_op.results[0]]
+      return expr_ops
+    else:
+      assert False
   elif isa(op.memref, BlockArgument):
     ctx[op.results[0]] = ctx[op.memref]
     ctx[op.results[1]] = ctx[op.memref]
