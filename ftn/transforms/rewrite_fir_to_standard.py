@@ -393,6 +393,10 @@ def extract_array_size_integer(op):
     return op.value.owner
   return op
 
+def create_index_constant(val: int):
+  return arith.Constant.create(properties={"value": builtin.IntegerAttr.from_index_int_value(val)},
+                                               result_types=[builtin.IndexType()])
+
 def translate_store(program_state: ProgramState, ctx: SSAValueCtx, op: fir.Store):
   # This is used for internal program components, such as loop indexes and storing
   # allocated memory to an allocatable
@@ -405,13 +409,14 @@ def translate_store(program_state: ProgramState, ctx: SSAValueCtx, op: fir.Store
       for dim_shape in op.value.owner.memref.owner.results[0].type.type.shape.data:
         assert isa(dim_shape, fir.DeferredAttr)
 
-      default_start_idx_mode=isa(op.value.owner.shape, fir.Shape)
+      default_start_idx_mode=isa(op.value.owner.shape.owner, fir.Shape)
 
       dim_sizes=[]
       dim_starts=[]
       dim_ends=[]
+      dim_ssas=[]
+      ops_list=[]
       for shape in op.value.owner.memref.owner.shape:
-        print(type(shape.owner))
         assert isa(shape.owner, arith.Select)
         # Flang adds a guard to ensure that non-negative size is used, hence select
         # the actual provided size is the lhs
@@ -419,6 +424,9 @@ def translate_store(program_state: ProgramState, ctx: SSAValueCtx, op: fir.Store
         if isa(size_op, arith.Constant):
           # Default sized
           dim_sizes.append(size_op.value.value.data)
+          const_op=create_index_constant(size_op.value.value.data)
+          ops_list.append(const_op)
+          dim_ssas.append(const_op.results[0])
         elif isa(size_op, arith.Addi):
           # Start dim is offset, this does the substract, then add one
           # so we need to work back to calculate
@@ -434,6 +442,25 @@ def translate_store(program_state: ProgramState, ctx: SSAValueCtx, op: fir.Store
           dim_starts.append(lower_bound)
           dim_ends.append(upper_bound)
           dim_sizes.append((upper_bound-lower_bound)+1)
+          const_op=create_index_constant((upper_bound-lower_bound)+1)
+          ops_list.append(const_op)
+          dim_ssas.append(const_op.results[0])
+        elif isa(size_op, fir.Load):
+          # Sized based off a variable rather than constant, therefore need
+          # to load this and convert to an index if it is an integer
+          var_ssa=ctx[size_op.memref]
+          zero_index_op=create_index_constant(0)
+          load_op=memref.Load.get(var_ssa, [zero_index_op])
+          ops_list+=[zero_index_op, load_op]
+          if not isa(load_op.results[0].type, builtin.IndexType):
+            assert isa(load_op.results[0].type, builtin.IntegerType)
+            convert_op=arith.IndexCastOp(load_op.results[0], builtin.IndexType())
+            ops_list.append(convert_op)
+            dim_ssas.append(convert_op.results[0])
+            dim_sizes.append(convert_op.results[0])
+          else:
+            dim_ssas.append(load_op.results[0])
+            dim_sizes.append(load_op.results[0])
         else:
           assert False
 
@@ -444,29 +471,20 @@ def translate_store(program_state: ProgramState, ctx: SSAValueCtx, op: fir.Store
 
       assert len(dim_sizes) == len(dim_starts) == len(dim_ends)
 
-      dim_ssas=[]
-      ops_list=[]
-      for dim_size in dim_sizes:
-        # For now don't pop in the zero index guard that Flang has (might want to add later)
-        size_constant=arith.Constant.create(properties={"value": builtin.IntegerAttr.from_index_int_value(dim_size)},
-                                               result_types=[builtin.IndexType()])
-        ops_list.append(size_constant)
-        dim_ssas.append(size_constant.results[0])
+      # Now create memref, passing -1 as shape will make this deferred size
+      memref_allocation_op=memref_alloca_op=memref.Alloc.get(base_type, shape=[-1]*len(dim_ssas), dynamic_sizes=dim_ssas)
+      ops_list.append(memref_allocation_op)
+      ctx[op.memref.owner.results[0]]=memref_allocation_op.results[0]
+      ctx[op.memref.owner.results[1]]=memref_allocation_op.results[0]
 
-        # Now create memref, passing -1 as shape will make this deferred size
-        memref_allocation_op=memref_alloca_op=memref.Alloc.get(base_type, shape=[-1]*len(dim_ssas), dynamic_sizes=dim_ssas)
-        ops_list.append(memref_allocation_op)
-        ctx[op.memref.owner.results[0]]=memref_allocation_op.results[0]
-        ctx[op.memref.owner.results[1]]=memref_allocation_op.results[0]
+      fn_name=program_state.getCurrentFnState().fn_name
+      array_name=op.memref.owner.uniq_name.data
+      assert fn_name+"E" in array_name
+      array_name=array_name.split(fn_name+"E")[1]
+      # Store information about the array - the size, and lower and upper bounds as we need this when accessing elements
+      program_state.getCurrentFnState().array_info[array_name]=ArrayDescription(array_name, dim_sizes, dim_starts, dim_ends)
 
-        fn_name=program_state.getCurrentFnState().fn_name
-        array_name=op.memref.owner.uniq_name.data
-        assert fn_name+"E" in array_name
-        array_name=array_name.split(fn_name+"E")[1]
-        # Store information about the array - the size, and lower and upper bounds as we need this when accessing elements
-        program_state.getCurrentFnState().array_info[array_name]=ArrayDescription(array_name, dim_sizes, dim_starts, dim_ends)
-
-        return ops_list
+      return ops_list
     elif isa(op.value.owner.memref.owner, fir.ZeroBits):
       pass
     else:
