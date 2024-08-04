@@ -384,7 +384,7 @@ def translate_result(program_state: ProgramState, ctx: SSAValueCtx, op: fir.Resu
   yield_op=scf.Yield(*ssa_list)
   return ops_list+[yield_op]
 
-def extract_array_size_integer(op):
+def remove_array_size_convert(op):
   # This is for array size, they are often converted from
   # integer to index, so work back to find the original integer
   if isa(op, fir.Convert):
@@ -396,6 +396,36 @@ def extract_array_size_integer(op):
 def create_index_constant(val: int):
   return arith.Constant.create(properties={"value": builtin.IntegerAttr.from_index_int_value(val)},
                                                result_types=[builtin.IndexType()])
+
+def generate_var_dim_size_load(ctx: SSAValueCtx, op: fir.Load):
+  # Generates operations to load the size of a dimension from a variable
+  # and ensure that it is typed as an index
+  var_ssa=ctx[op.memref]
+  zero_index_op=create_index_constant(0)
+  load_op=memref.Load.get(var_ssa, [zero_index_op])
+  ops_list=[zero_index_op, load_op]
+  if not isa(load_op.results[0].type, builtin.IndexType):
+    assert isa(load_op.results[0].type, builtin.IntegerType)
+    convert_op=arith.IndexCastOp(load_op.results[0], builtin.IndexType())
+    ops_list.append(convert_op)
+    return convert_op.results[0], ops_list
+  else:
+    return load_op.results[0], ops_list
+
+def handle_array_size_lu_bound(ctx: SSAValueCtx, bound_op: Operation):
+  # Handles extracting the literal size of a lower or upper array size bound
+  # or the corresponding ssa and ops if it is driven by a variable
+  bound_val=load_ssa=load_ops=None
+  bound_op=remove_array_size_convert(bound_op)
+  if isa(bound_op, arith.Constant):
+    bound_val=bound_op.value.value.data
+  elif isa(bound_op, fir.Load):
+    load_ssa, load_ops=generate_var_dim_size_load(ctx, bound_op)
+  else:
+    assert False
+
+  return bound_val, load_ssa, load_ops
+
 
 def translate_store(program_state: ProgramState, ctx: SSAValueCtx, op: fir.Store):
   # This is used for internal program components, such as loop indexes and storing
@@ -420,7 +450,7 @@ def translate_store(program_state: ProgramState, ctx: SSAValueCtx, op: fir.Store
         assert isa(shape.owner, arith.Select)
         # Flang adds a guard to ensure that non-negative size is used, hence select
         # the actual provided size is the lhs
-        size_op=extract_array_size_integer(shape.owner.lhs.owner)
+        size_op=remove_array_size_convert(shape.owner.lhs.owner)
         if isa(size_op, arith.Constant):
           # Default sized
           dim_sizes.append(size_op.value.value.data)
@@ -433,34 +463,59 @@ def translate_store(program_state: ProgramState, ctx: SSAValueCtx, op: fir.Store
           assert isa(size_op.rhs.owner, arith.Constant)
           assert size_op.rhs.owner.value.value.data == 1
           assert isa(size_op.lhs.owner, arith.Subi)
-          upper_bound_op=extract_array_size_integer(size_op.lhs.owner.lhs.owner)
-          assert isa(upper_bound_op, arith.Constant)
-          upper_bound=upper_bound_op.value.value.data
-          lower_bound_op=extract_array_size_integer(size_op.lhs.owner.rhs.owner)
-          assert isa(lower_bound_op, arith.Constant)
-          lower_bound=lower_bound_op.value.value.data
-          dim_starts.append(lower_bound)
-          dim_ends.append(upper_bound)
-          dim_sizes.append((upper_bound-lower_bound)+1)
-          const_op=create_index_constant((upper_bound-lower_bound)+1)
-          ops_list.append(const_op)
-          dim_ssas.append(const_op.results[0])
+
+          upper_bound_val, upper_load_ssa, upper_load_ops=handle_array_size_lu_bound(ctx, size_op.lhs.owner.lhs.owner)
+          if upper_bound_val is not None:
+            assert upper_load_ssa is None
+            assert upper_load_ops is None
+            dim_starts.append(upper_bound_val)
+          else:
+            assert upper_load_ssa is not None
+            assert upper_load_ops is not None
+            ops_list+=upper_load_ops
+            dim_starts.append(upper_load_ssa)
+
+          lower_bound_val, lower_load_ssa, lower_load_ops=handle_array_size_lu_bound(ctx, size_op.lhs.owner.rhs.owner)
+          if lower_bound_val is not None:
+            assert lower_load_ssa is None
+            assert lower_load_ops is None
+            dim_ends.append(lower_bound_val)
+          else:
+            assert lower_load_ssa is not None
+            assert lower_load_ops is not None
+            ops_list+=lower_load_ops
+            dim_ends.append(lower_load_ssa)
+
+          if lower_bound_val is not None and upper_bound_val is not None:
+            # Constant based on literal dimension size, we know the value so put in directly
+            dim_sizes.append((upper_bound_val-lower_bound_val)+1)
+            const_op=create_index_constant((upper_bound_val-lower_bound_val)+1)
+            ops_list.append(const_op)
+            dim_ssas.append(const_op.results[0])
+          else:
+            if upper_load_ssa is None:
+              upper_const_op=create_index_constant(upper_bound_val)
+              ops_list.append(upper_const_op)
+              upper_load_ssa=upper_const_op.results[0]
+            if lower_load_ssa is None:
+              lower_const_op=create_index_constant(lower_bound_val)
+              ops_list.append(lower_const_op)
+              lower_load_ssa=lower_const_op.results[0]
+
+            one_const_op=create_index_constant(1)
+            sub_op=arith.Subi(upper_load_ssa, lower_load_ssa)
+            add_op=arith.Addi(sub_op, one_const_op)
+            ops_list+=[one_const_op, sub_op, add_op]
+            dim_ssas.append(add_op.results[0])
+            dim_sizes.append(add_op.results[0])
+
         elif isa(size_op, fir.Load):
           # Sized based off a variable rather than constant, therefore need
           # to load this and convert to an index if it is an integer
-          var_ssa=ctx[size_op.memref]
-          zero_index_op=create_index_constant(0)
-          load_op=memref.Load.get(var_ssa, [zero_index_op])
-          ops_list+=[zero_index_op, load_op]
-          if not isa(load_op.results[0].type, builtin.IndexType):
-            assert isa(load_op.results[0].type, builtin.IntegerType)
-            convert_op=arith.IndexCastOp(load_op.results[0], builtin.IndexType())
-            ops_list.append(convert_op)
-            dim_ssas.append(convert_op.results[0])
-            dim_sizes.append(convert_op.results[0])
-          else:
-            dim_ssas.append(load_op.results[0])
-            dim_sizes.append(load_op.results[0])
+          load_ssa, load_ops=generate_var_dim_size_load(ctx, size_op)
+          ops_list+=load_ops
+          dim_ssas.append(load_ssa)
+          dim_sizes.append(load_ssa)
         else:
           assert False
 
@@ -527,16 +582,24 @@ def array_access_components(program_state: ProgramState, ctx: SSAValueCtx, op:hl
     else:
       index_ssa=ctx[index]
     dim_start=program_state.getCurrentFnState().array_info[array_name].dim_starts[idx]
-    assert dim_start >= 0
-    if dim_start > 0:
-      # If zero start then we are good, otherwise need to zero index this
-      offset_const=arith.Constant.create(properties={"value": builtin.IntegerAttr.from_index_int_value(dim_start)},
-                                           result_types=[builtin.IndexType()])
-      subtract_op=arith.Subi(index_ssa, offset_const)
-      ops_list+=[offset_const, subtract_op]
+    if isa(dim_start, int):
+      assert dim_start >= 0
+      if dim_start > 0:
+        # If zero start then we are good, otherwise need to zero index this
+        offset_const=arith.Constant.create(properties={"value": builtin.IntegerAttr.from_index_int_value(dim_start)},
+                                             result_types=[builtin.IndexType()])
+        subtract_op=arith.Subi(index_ssa, offset_const)
+        ops_list+=[offset_const, subtract_op]
+        indexes_ssa.append(subtract_op.results[0])
+      else:
+        indexes_ssa.append(index_ssa)
+    elif isa(dim_start, OpResult):
+      # This is not a constant literal in the code, therefore use the variable that drives this
+      subtract_op=arith.Subi(index_ssa, dim_start)
+      ops_list.append(subtract_op)
       indexes_ssa.append(subtract_op.results[0])
     else:
-      indexes_ssa.append(index_ssa)
+      assert False
   return ops_list, indexes_ssa
 
 def translate_assign(program_state: ProgramState, ctx: SSAValueCtx, op: hlfir.AssignOp):
