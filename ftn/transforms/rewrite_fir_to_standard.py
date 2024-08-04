@@ -577,16 +577,21 @@ def generate_var_dim_size_load(ctx: SSAValueCtx, op: fir.Load):
   # Generates operations to load the size of a dimension from a variable
   # and ensure that it is typed as an index
   var_ssa=ctx[op.memref]
-  zero_index_op=create_index_constant(0)
-  load_op=memref.Load.get(var_ssa, [zero_index_op])
-  ops_list=[zero_index_op, load_op]
-  if not isa(load_op.results[0].type, builtin.IndexType):
-    assert isa(load_op.results[0].type, builtin.IntegerType)
-    convert_op=arith.IndexCastOp(load_op.results[0], builtin.IndexType())
+  ops_list=[]
+  if isa(var_ssa.type, builtin.MemRefType):
+    # If this is a memref then we need to load it to
+    # retrieve the index value
+    zero_index_op=create_index_constant(0)
+    load_op=memref.Load.get(var_ssa, [zero_index_op])
+    ops_list+=[zero_index_op, load_op]
+    var_ssa=load_op.results[0]
+  if not isa(var_ssa.type, builtin.IndexType):
+    assert isa(var_ssa.type, builtin.IntegerType)
+    convert_op=arith.IndexCastOp(var_ssa, builtin.IndexType())
     ops_list.append(convert_op)
     return convert_op.results[0], ops_list
   else:
-    return load_op.results[0], ops_list
+    return var_ssa, ops_list
 
 def handle_array_size_lu_bound(ctx: SSAValueCtx, bound_op: Operation):
   # Handles extracting the literal size of a lower or upper array size bound
