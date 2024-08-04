@@ -203,7 +203,9 @@ def translate_function(program_state: ProgramState, ctx: SSAValueCtx, fn: func.F
   if fn_name.data == "_QQmain":
     fn_name="main"
 
-  new_fn_type=builtin.FunctionType.from_lists(arg_types, [])
+  # For now use the functions output types directly, this should be OK but might need
+  # to change fir.ref etc to the standard counterparts in future
+  new_fn_type=builtin.FunctionType.from_lists(arg_types, fn.function_type.outputs.data)
 
   new_func=func.FuncOp(fn_name, new_fn_type, body, fn.sym_visibility, arg_attrs=fn.arg_attrs, res_attrs=fn.res_attrs)
   return new_func
@@ -287,6 +289,8 @@ def try_translate_expr(program_state: ProgramState, ctx: SSAValueCtx, op: Operat
     return translate_declare(program_state, ctx, op)
   elif isa(op, arith.Cmpi) or isa(op, arith.Cmpf):
     return translate_cmp(program_state, ctx, op)
+  elif isa(op, fir.Call):
+    return translate_call(program_state, ctx, op)
   else:
     return None
 
@@ -724,6 +728,8 @@ def handle_call_argument(program_state: ProgramState, ctx: SSAValueCtx, fn_name:
     return translate_expr(program_state, ctx, arg)
 
 def translate_call(program_state: ProgramState, ctx: SSAValueCtx, op: fir.Call):
+  if ctx.contains(op.results[0]): return []
+
   fn_name=op.callee.string_value()
   if "_QP" in fn_name:
     fn_name=fn_name.split("_QP")[1]
@@ -736,7 +742,18 @@ def translate_call(program_state: ProgramState, ctx: SSAValueCtx, op: fir.Call):
   arg_ssa=[]
   for arg in op.args:
     arg_ssa.append(ctx[arg])
-  call_op=func.Call(op.callee, arg_ssa, [])
+
+  return_types=[]
+  return_ssas=[]
+  for ret in op.results:
+    return_types.append(ret.type)
+    return_ssas.append(ret)
+
+  call_op=func.Call(op.callee, arg_ssa, return_types)
+
+  for idx, ret_ssa in enumerate(return_ssas):
+    ctx[ret_ssa]=call_op.results[idx]
+
   return arg_ops+[call_op]
 
 def translate_do_loop(program_state: ProgramState, ctx: SSAValueCtx, op: fir.DoLoop):
@@ -786,10 +803,12 @@ def translate_do_loop(program_state: ProgramState, ctx: SSAValueCtx, op: fir.DoL
 
 def translate_return(program_state: ProgramState, ctx: SSAValueCtx, op: func.Return):
   ssa_to_return=[]
+  args_ops=[]
   for arg in op.arguments:
+    args_ops+=translate_expr(program_state, ctx, arg)
     ssa_to_return.append(ctx[arg])
   new_return=func.Return(*ssa_to_return)
-  return [new_return]
+  return args_ops+[new_return]
 
 def translate_declare(program_state: ProgramState, ctx: SSAValueCtx, op: hlfir.DeclareOp):
   if isa(op.results[0].type, fir.ReferenceType) and isa(op.results[0].type.type, fir.BoxType):
