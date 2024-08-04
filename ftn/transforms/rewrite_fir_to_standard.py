@@ -132,8 +132,10 @@ class GatherFunctionInformation(Visitor):
         is_scalar=declare_op.shape is None
         arg_type=declare_op.results[0].type
         arg_name=declare_op.uniq_name.data
-        assert fn_name+"E" in arg_name
-        arg_name=arg_name.split(fn_name+"E")[1]
+        # This is a bit strange, in a module we have modulenamePprocname, however
+        # flang then uses modulenameFprocname for array literal string names
+        assert fn_name.replace("P", "F")+"E" in arg_name
+        arg_name=arg_name.split(fn_name.replace("P", "F")+"E")[1]
         arg_intent=self.map_ftn_attrs_to_intent(declare_op.fortran_attrs)
         arg_def=ArgumentDefinition(arg_name, is_scalar, arg_type, arg_intent)
         fn_def.add_arg_def(arg_def)
@@ -352,8 +354,20 @@ def try_translate_expr(program_state: ProgramState, ctx: SSAValueCtx, op: Operat
     return translate_string_literal(program_state, ctx, op)
   elif isa(op, fir.AddressOf):
     return translate_address_of(program_state, ctx, op)
+  elif isa(op, hlfir.NoReassocOp) or isa(op, fir.NoReassoc):
+    return translate_reassoc(program_state, ctx, op)
   else:
     return None
+
+def translate_reassoc(program_state: ProgramState, ctx: SSAValueCtx, op: fir.NoReassoc | hlfir.NoReassocOp):
+  if ctx.contains(op.results[0]): return []
+  if isa(op, fir.NoReassoc):
+    expr_list=translate_expr(program_state, ctx, op.val)
+  elif isa(op, hlfir.NoReassocOp):
+    expr_list=translate_expr(program_state, ctx, op.var)
+
+  ctx[op.results[0]]=ctx[op.var]
+  return expr_list
 
 def translate_address_of(program_state: ProgramState, ctx: SSAValueCtx, op: fir.AddressOf):
   if ctx.contains(op.results[0]): return []
@@ -512,10 +526,17 @@ def translate_load(program_state: ProgramState, ctx: SSAValueCtx, op: fir.Load):
   elif isa(op.memref.owner, hlfir.DesignateOp):
     # Array value
     assert op.memref.owner.indices is not None
-    assert isa(op.memref.owner.memref.owner, hlfir.DeclareOp)
+    assert isa(op.memref.owner.memref.owner, hlfir.DeclareOp) or isa(op.memref.owner.memref.owner, fir.Load)
     ops_list, indexes_ssa=array_access_components(program_state, ctx, op.memref.owner)
 
-    load_op=memref.Load.get(ctx[op.memref.owner.memref], indexes_ssa)
+    if isa(op.memref.owner.memref.owner, hlfir.DeclareOp):
+      src_ssa=op.memref.owner.memref
+    elif isa(op.memref.owner.memref.owner, fir.Load):
+      src_ssa=op.memref.owner.memref.owner.memref
+    else:
+      assert False
+
+    load_op=memref.Load.get(ctx[src_ssa], indexes_ssa)
     ops_list.append(load_op)
     ctx[op.results[0]]=load_op.results[0]
     return ops_list
@@ -689,8 +710,8 @@ def translate_store(program_state: ProgramState, ctx: SSAValueCtx, op: fir.Store
 
       fn_name=program_state.getCurrentFnState().fn_name
       array_name=op.memref.owner.uniq_name.data
-      assert fn_name+"E" in array_name
-      array_name=array_name.split(fn_name+"E")[1]
+      assert fn_name.replace("P", "F")+"E" in array_name
+      array_name=array_name.split(fn_name.replace("P", "F")+"E")[1]
       # Store information about the array - the size, and lower and upper bounds as we need this when accessing elements
       program_state.getCurrentFnState().array_info[array_name]=ArrayDescription(array_name, dim_sizes, dim_starts, dim_ends)
 
@@ -721,8 +742,8 @@ def array_access_components(program_state: ProgramState, ctx: SSAValueCtx, op:hl
   else:
     assert False
 
-  assert fn_name+"E" in array_name
-  array_name=array_name.split(fn_name+"E")[1]
+  assert fn_name.replace("P", "F")+"E" in array_name
+  array_name=array_name.split(fn_name.replace("P", "F")+"E")[1]
 
   ops_list=[]
   indexes_ssa=[]
@@ -976,8 +997,8 @@ def define_stack_array_var(program_state: ProgramState, ctx: SSAValueCtx,
 
   fn_name=program_state.getCurrentFnState().fn_name
   array_name=op.uniq_name.data
-  assert fn_name+"E" in array_name
-  array_name=array_name.split(fn_name+"E")[1]
+  assert fn_name.replace("P", "F")+"E" in array_name
+  array_name=array_name.split(fn_name.replace("P", "F")+"E")[1]
   # Store information about the array - the size, and lower and upper bounds as we need this when accessing elements
   program_state.getCurrentFnState().array_info[array_name]=ArrayDescription(array_name, dim_sizes, dim_starts, dim_ends)
 
