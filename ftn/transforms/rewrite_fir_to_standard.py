@@ -50,11 +50,19 @@ class FunctionDefinition:
   def add_arg_def(self, arg_def):
     self.args.append(arg_def)
 
+class GlobalFIRComponent:
+  def __init__(self, sym_name, type, fir_mlir):
+    self.sym_name=sym_name
+    self.type=type
+    self.fir_mlir=fir_mlir
+    self.standard_mlir=None
+
 class ProgramState:
   def __init__(self):
     self.function_definitions={}
     self.global_state=ComponentState()
     self.function_state=None
+    self.fir_global_constants={}
 
   def addFunctionDefinition(self, name, fn_def):
     assert name not in self.function_definitions.keys()
@@ -70,6 +78,15 @@ class ProgramState:
 
   def leaveFunction(self):
     self.function_state=None
+
+class GatherFIRGlobals(Visitor):
+  def __init__(self, program_state):
+    self.program_state=program_state
+
+  def traverse_global(self, global_op: fir.Global):
+    if global_op.constant is not None:
+      gfir=GlobalFIRComponent(global_op.sym_name.data, global_op.type, global_op)
+      self.program_state.fir_global_constants[global_op.sym_name.data]=gfir
 
 class GatherFunctionInformation(Visitor):
   def __init__(self, program_state):
@@ -154,11 +171,28 @@ def translate_program(program_state: ProgramState, input_module: builtin.ModuleO
         fn_op=translate_function(program_state, global_ctx, fn)
         block.add_op(fn_op)
       elif isa(fn, fir.Global):
-        pass
+        global_op=translate_global(program_state, global_ctx, fn)
+        if global_op is not None:
+          block.add_op(global_op)
       else:
         assert False
     body.add_block(block)
     return builtin.ModuleOp(body)
+
+def translate_global(program_state, global_ctx, global_op: fir.Global):
+  # For now just support global strings
+  if isa(global_op.type, fir.CharacterType):
+    assert len(global_op.regions) == 1
+    assert len(global_op.regions[0].blocks) == 1
+    ops_list=[]
+    for op in global_op.regions[0].blocks[0].ops:
+      ops_list+=translate_stmt(program_state, global_ctx, op)
+    assert len(ops_list)==1
+    rebuilt_global=llvm.GlobalOp(ops_list[0].global_type, global_op.sym_name, ops_list[0].linkage,
+                      ops_list[0].addr_space.value.data, True, value=ops_list[0].value, unnamed_addr=ops_list[0].unnamed_addr.value.data)
+    return rebuilt_global
+  else:
+    return None
 
 def translate_function(program_state: ProgramState, ctx: SSAValueCtx, fn: func.FuncOp):
   fn_name=fn.sym_name.data
@@ -166,37 +200,48 @@ def translate_function(program_state: ProgramState, ctx: SSAValueCtx, fn: func.F
     fn_name=fn_name.split("_QP")[1]
 
   body = Region()
-  for block in fn.body.blocks:
+  if len(fn.body.blocks) > 0:
+    # This is a function with a body, the input types come from the block as
+    # we will manipulate these to pass constants if possible
+    for block in fn.body.blocks:
+      arg_types=[]
+      for idx, arg in enumerate(fn.args):
+        fir_type=arg.type
+        if (program_state.function_definitions[fn_name].args[idx].is_scalar and
+            program_state.function_definitions[fn_name].args[idx].intent == ArgIntent.IN):
+          # This is a scalar in, therefore it's just the constant type (don't encode as a memref)
+          if isa(fir_type, fir.ReferenceType):
+            arg_types.append(fir_type.type)
+          else:
+            arg_types.append(arg.type)
+        else:
+          if isa(fir_type, fir.ReferenceType):
+            mrt=memref.MemRefType(fir_type.type, [1], builtin.NoneAttr(), builtin.NoneAttr())
+            arg_types.append(mrt)
+          else:
+            arg_types.append(arg.type)
+
+      new_block = Block(arg_types=arg_types)
+
+      for fir_arg, std_arg in zip(block.args, new_block.args):
+        ctx[fir_arg]=std_arg
+
+      program_state.enterFunction(fn_name)
+      ops_list=[]
+      for op in block.ops:
+        ops_list+=translate_stmt(program_state, ctx, op)
+      program_state.leaveFunction()
+
+      new_block.add_ops(ops_list)
+      body.add_block(new_block)
+  else:
+    # This is the definition of an external function, need to resolve input types
     arg_types=[]
-    for idx, arg in enumerate(fn.args):
-      fir_type=arg.type
-      if (program_state.function_definitions[fn_name].args[idx].is_scalar and
-          program_state.function_definitions[fn_name].args[idx].intent == ArgIntent.IN):
-        # This is a scalar in, therefore it's just the constant type (don't encode as a memref)
-        if isa(fir_type, fir.ReferenceType):
-          arg_types.append(fir_type.type)
-        else:
-          arg_types.append(arg.type)
+    for t in fn.function_type.inputs.data:
+      if isa(t, fir.ReferenceType):
+        arg_types.append(llvm.LLVMPointerType.typed(t.type))
       else:
-        if isa(fir_type, fir.ReferenceType):
-          mrt=memref.MemRefType(fir_type.type, [1], builtin.NoneAttr(), builtin.NoneAttr())
-          arg_types.append(mrt)
-        else:
-          arg_types.append(arg.type)
-
-    new_block = Block(arg_types=arg_types)
-
-    for fir_arg, std_arg in zip(block.args, new_block.args):
-      ctx[fir_arg]=std_arg
-
-    program_state.enterFunction(fn_name)
-    ops_list=[]
-    for op in block.ops:
-      ops_list+=translate_stmt(program_state, ctx, op)
-    program_state.leaveFunction()
-
-    new_block.add_ops(ops_list)
-    body.add_block(new_block)
+        arg_types.append(t)
 
   fn_name=fn.sym_name
 
@@ -227,6 +272,8 @@ def try_translate_stmt(program_state: ProgramState, ctx: SSAValueCtx, op: Operat
     return []
   elif isa(op, arith.Constant):
     return []
+  elif isa(op, fir.HasValue):
+    return translate_expr(program_state, ctx, op.resval)
   elif isa(op, fir.Load):
     return []
   elif (isa(op, arith.Addi) or isa(op, arith.Subi) or isa(op, arith.Muli) or isa(op, arith.DivUI) or isa(op, arith.DivSI) or
@@ -291,8 +338,15 @@ def try_translate_expr(program_state: ProgramState, ctx: SSAValueCtx, op: Operat
     return translate_cmp(program_state, ctx, op)
   elif isa(op, fir.Call):
     return translate_call(program_state, ctx, op)
+  elif isa(op, fir.StringLit):
+    return translate_string_literal(program_state, ctx, op)
   else:
     return None
+
+def translate_string_literal(program_state: ProgramState, ctx: SSAValueCtx, op: fir.StringLit):
+  str_type=llvm.LLVMArrayType.from_size_and_type(op.size.value.data, builtin.IntegerType(8))
+  str_global_op=llvm.GlobalOp(str_type, "temporary_identifier", "internal", 0, True, value=op.value, unnamed_addr=0)
+  return [str_global_op]
 
 def translate_cmp(program_state: ProgramState, ctx: SSAValueCtx, op: arith.Cmpi | arith.Cmpf):
   if ctx.contains(op.results[0]): return []
@@ -1022,5 +1076,7 @@ class RewriteFIRToStandard(ModulePass):
     program_state=ProgramState()
     fn_visitor=GatherFunctionInformation(program_state)
     fn_visitor.traverse(input_module)
+    global_visitor=GatherFIRGlobals(program_state)
+    global_visitor.traverse(input_module)
     res_module = translate_program(program_state, input_module)
     res_module.regions[0].move_blocks(input_module.regions[0])
