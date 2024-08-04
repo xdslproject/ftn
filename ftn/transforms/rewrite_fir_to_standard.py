@@ -809,7 +809,7 @@ def handle_call_argument(program_state: ProgramState, ctx: SSAValueCtx, fn_name:
     return translate_expr(program_state, ctx, arg)
 
 def translate_call(program_state: ProgramState, ctx: SSAValueCtx, op: fir.Call):
-  if ctx.contains(op.results[0]): return []
+  if len(op.results) > 0 and ctx.contains(op.results[0]): return []
 
   fn_name=op.callee.string_value()
   if "_QP" in fn_name:
