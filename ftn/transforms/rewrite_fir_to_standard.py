@@ -21,6 +21,14 @@ from xdsl.dialects import builtin, func, llvm, arith, memref, scf
 
 ArgIntent = Enum('ArgIntent', ['IN', 'OUT', 'INOUT', 'UNKNOWN'])
 
+def clean_func_name(func_name: str):
+  if "_QP" in func_name:
+    return func_name.split("_QP")[1]
+  elif "_QM" in func_name:
+    return func_name.split("_QM")[1]
+  else:
+    return func_name
+
 class ArrayDescription:
   def __init__(self, name, dim_sizes, dim_starts, dim_ends):
     self.name=name
@@ -110,9 +118,7 @@ class GatherFunctionInformation(Visitor):
     return ArgIntent.UNKNOWN
 
   def traverse_func_op(self, func_op: func.FuncOp):
-    fn_name=func_op.sym_name.data
-    if "_QP" in fn_name:
-      fn_name=fn_name.split("_QP")[1]
+    fn_name=clean_func_name(func_op.sym_name.data)
     return_type=None
     if len(func_op.function_type.outputs.data) > 0:
       return_type=func_op.function_type.outputs.data[0]
@@ -195,9 +201,7 @@ def translate_global(program_state, global_ctx, global_op: fir.Global):
     return None
 
 def translate_function(program_state: ProgramState, ctx: SSAValueCtx, fn: func.FuncOp):
-  fn_name=fn.sym_name.data
-  if "_QP" in fn_name:
-    fn_name=fn_name.split("_QP")[1]
+  fn_name=clean_func_name(fn.sym_name.data)
 
   body = Region()
   if len(fn.body.blocks) > 0:
@@ -811,9 +815,7 @@ def handle_call_argument(program_state: ProgramState, ctx: SSAValueCtx, fn_name:
 def translate_call(program_state: ProgramState, ctx: SSAValueCtx, op: fir.Call):
   if len(op.results) > 0 and ctx.contains(op.results[0]): return []
 
-  fn_name=op.callee.string_value()
-  if "_QP" in fn_name:
-    fn_name=fn_name.split("_QP")[1]
+  fn_name=clean_func_name(op.callee.string_value())
 
   arg_ops=[]
   for idx, arg in enumerate(op.args):
