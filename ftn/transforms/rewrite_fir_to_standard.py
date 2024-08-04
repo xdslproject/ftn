@@ -246,6 +246,8 @@ def try_translate_stmt(program_state: ProgramState, ctx: SSAValueCtx, op: Operat
     return translate_call(program_state, ctx, op)
   elif isa(op, fir.Freemem):
     return translate_freemem(program_state, ctx, op)
+  elif isa(op, fir.If):
+    return translate_conditional(program_state, ctx, op)
   else:
     return None
 
@@ -280,8 +282,27 @@ def try_translate_expr(program_state: ProgramState, ctx: SSAValueCtx, op: Operat
     return translate_do_loop(program_state, ctx, op)
   elif isa(op, hlfir.DeclareOp):
     return translate_declare(program_state, ctx, op)
+  elif isa(op, arith.Cmpi) or isa(op, arith.Cmpf):
+    return translate_cmp(program_state, ctx, op)
   else:
     return None
+
+def translate_cmp(program_state: ProgramState, ctx: SSAValueCtx, op: arith.Cmpi | arith.Cmpf):
+  if ctx.contains(op.results[0]): return []
+
+  lhs_expr_ops=translate_expr(program_state, ctx, op.lhs)
+  rhs_expr_ops=translate_expr(program_state, ctx, op.rhs)
+
+  if isa(op, arith.Cmpi):
+    comparison_op=arith.Cmpi(ctx[op.lhs], ctx[op.rhs], op.predicate.value.data)
+  elif isa(op, arith.Cmpf):
+    comparison_op=arith.Cmpf(ctx[op.lhs], ctx[op.rhs], op.predicate.value.data)
+  else:
+    assert False
+
+  ctx[op.results[0]]=comparison_op.results[0]
+  return lhs_expr_ops+rhs_expr_ops+[comparison_op]
+
 
 def translate_convert(program_state: ProgramState, ctx: SSAValueCtx, op: fir.Convert):
   if ctx.contains(op.results[0]): return []
@@ -336,6 +357,48 @@ def translate_convert(program_state: ProgramState, ctx: SSAValueCtx, op: fir.Con
 
   assert new_conv is not None
   return value_ops+new_conv
+
+def handle_conditional_true_or_false_region(program_state: ProgramState, ctx: SSAValueCtx, region: Region):
+  arg_types=[]
+  for arg in region.blocks[0].args:
+    arg_types.append(arg.type)
+
+  new_block = Block(arg_types=arg_types)
+
+  for fir_arg, std_arg in zip(region.blocks[0].args, new_block.args):
+    ctx[fir_arg]=std_arg
+
+  region_body_ops=[]
+  for single_op in region.blocks[0].ops:
+    region_body_ops+=translate_stmt(program_state, ctx, single_op)
+
+  assert isa(region_body_ops[-1], scf.Yield)
+  new_block.add_ops(region_body_ops)
+
+  return new_block
+
+def check_if_condition_is_end_fn_allocatable_automatic_free(condition_op: arith.Cmpi | arith.Cmpf):
+  if isa(condition_op, arith.Cmpi):
+    if isa(condition_op.lhs.owner, fir.Convert):
+      return (isa(condition_op.lhs.owner.value.type, fir.HeapType) and
+                isa(condition_op.lhs.owner.results[0].type, builtin.IntegerType))
+  return False
+
+def translate_conditional(program_state: ProgramState, ctx: SSAValueCtx, op: fir.If):
+  # Each function automatically deallocates scope local allocatable arrays at the end,
+  # check to see if that is the purpose of this conditional. If so then just ignore it
+  is_final_auto_free=check_if_condition_is_end_fn_allocatable_automatic_free(op.condition.owner)
+  if is_final_auto_free: return []
+
+  conditional_expr_ops=translate_expr(program_state, ctx, op.condition)
+
+  true_block=handle_conditional_true_or_false_region(program_state, ctx, op.regions[0])
+  false_block=handle_conditional_true_or_false_region(program_state, ctx, op.regions[1])
+
+  scf_if=scf.If(ctx[op.condition], [], [true_block], [false_block])
+
+  return conditional_expr_ops+[scf_if]
+
 
 def translate_load(program_state: ProgramState, ctx: SSAValueCtx, op: fir.Load):
   if ctx.contains(op.results[0]): return []
