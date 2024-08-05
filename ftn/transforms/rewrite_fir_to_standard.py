@@ -1181,7 +1181,8 @@ def translate_declare(program_state: ProgramState, ctx: SSAValueCtx, op: hlfir.D
     elif isa(op.memref, BlockArgument) and isa(op.results[1].type, fir.ReferenceType):
       shape_expr_list=[]
       for ds in itertools.chain(dim_starts, dim_ends):
-        shape_expr_list+=translate_expr(program_state, ctx, ds)
+        if not isa(ds, int) and ds is not None:
+          shape_expr_list+=translate_expr(program_state, ctx, ds)
       # This is an array passed into a function
       if ctx.contains(op.results[0]): return []
       ctx[op.results[0]]=ctx[op.memref]
