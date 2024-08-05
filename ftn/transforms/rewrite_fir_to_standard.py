@@ -18,6 +18,7 @@ from xdsl.pattern_rewriter import (RewritePattern, PatternRewriter,
                                    GreedyRewritePatternApplier)
 from xdsl.passes import ModulePass
 from xdsl.dialects import builtin, func, llvm, arith, memref, scf
+from xdsl.dialects.experimental import math
 
 ArgIntent = Enum('ArgIntent', ['IN', 'OUT', 'INOUT', 'UNKNOWN'])
 
@@ -397,6 +398,9 @@ def try_translate_expr(program_state: ProgramState, ctx: SSAValueCtx, op: Operat
   elif isa(op, arith.Select):
     return translate_select(program_state, ctx, op)
   else:
+    for math_op in math.Math.operations:
+      # Check to see if this is a math operation
+      return translate_math_operation(program_state, ctx, op)
     return None
 
 def translate_select(program_state: ProgramState, ctx: SSAValueCtx, op: arith.Select):
@@ -745,6 +749,7 @@ def translate_store(program_state: ProgramState, ctx: SSAValueCtx, op: fir.Store
             assert upper_load_ops is not None
             ops_list+=upper_load_ops
             dim_starts.append(upper_load_ssa)
+            ctx[upper_load_ssa]=upper_load_ssa
 
           lower_bound_val, lower_load_ssa, lower_load_ops=handle_array_size_lu_bound(program_state, ctx, size_op.lhs.owner.rhs.owner, size_op.lhs.owner.rhs)
           if lower_bound_val is not None:
@@ -756,6 +761,7 @@ def translate_store(program_state: ProgramState, ctx: SSAValueCtx, op: fir.Store
             assert lower_load_ops is not None
             ops_list+=lower_load_ops
             dim_ends.append(lower_load_ssa)
+            ctx[lower_load_ssa]=lower_load_ssa
 
           if lower_bound_val is not None and upper_bound_val is not None:
             # Constant based on literal dimension size, we know the value so put in directly
@@ -867,6 +873,7 @@ def array_access_components(program_state: ProgramState, ctx: SSAValueCtx, op:hl
     elif isa(dim_start, OpResult):
       # This is not a constant literal in the code, therefore use the variable that drives this
       # which was generated previously, so just link to this
+      assert ctx[dim_start] is not None
       subtract_op=arith.Subi(index_ssa, ctx[dim_start])
       ops_list.append(subtract_op)
       indexes_ssa.append(subtract_op.results[0])
@@ -1290,6 +1297,93 @@ def translate_integer_binary_arithmetic(program_state: ProgramState, ctx: SSAVal
   assert bin_arith_op is not None
   ctx[op.results[0]]=bin_arith_op.results[0]
   return lhs_ops+rhs_ops+[bin_arith_op]
+
+def translate_math_operation(program_state: ProgramState, ctx: SSAValueCtx, op: Operation):
+  if ctx.contains(op.results[0]): return []
+
+  expr_ops=[]
+  if isa(op, math.FmaOp):
+    expr_ops+=translate_expr(program_state, ctx, op.a)
+    expr_ops+=translate_expr(program_state, ctx, op.b)
+    expr_ops+=translate_expr(program_state, ctx, op.c)
+  else:
+    if hasattr(op, 'operand'):
+      expr_ops+=translate_expr(program_state, ctx, op.operand)
+    if hasattr(op, 'lhs'):
+      expr_ops+=translate_expr(program_state, ctx, op.lhs)
+    if hasattr(op, 'rhs'):
+      expr_ops+=translate_expr(program_state, ctx, op.rhs)
+
+  math_op=None
+  if isa(op, math.AbsFOp):
+    math_op=op.__class__(ctx[op.operand], op.fastmath)
+  elif isa(op, math.AbsIOp):
+    math_op=op.__class__(ctx[op.operand])
+  elif isa(op, math.Atan2Op):
+    math_op=op.__class__(ctx[op.lhs], ctx[op.rhs], op.fastmath)
+  elif isa(op, math.AtanOp):
+    math_op=op.__class__(ctx[op.operand], op.fastmath)
+  elif isa(op, math.CbrtOp):
+    math_op=op.__class__(ctx[op.operand], op.fastmath)
+  elif isa(op, math.CeilOp):
+    math_op=op.__class__(ctx[op.operand], op.fastmath)
+  elif isa(op, math.CopySignOp):
+    math_op=op.__class__(ctx[op.lhs], ctx[op.rhs], op.fastmath)
+  elif isa(op, math.CosOp):
+    math_op=op.__class__(ctx[op.operand], op.fastmath)
+  elif isa(op, math.CountLeadingZerosOp):
+    math_op=op.__class__(ctx[op.operand])
+  elif isa(op, math.CountTrailingZerosOp):
+    math_op=op.__class__(ctx[op.operand])
+  elif isa(op, math.CtPopOp):
+    math_op=op.__class__(ctx[op.operand])
+  elif isa(op, math.ErfOp):
+    math_op=op.__class__(ctx[op.operand], op.fastmath)
+  elif isa(op, math.Exp2Op):
+    math_op=op.__class__(ctx[op.operand], op.fastmath)
+  elif isa(op, math.ExpM1Op):
+    math_op=op.__class__(ctx[op.operand], op.fastmath)
+  elif isa(op, math.ExpOp):
+    math_op=op.__class__(ctx[op.operand], op.fastmath)
+  elif isa(op, math.FPowIOp):
+    math_op=op.__class__(ctx[op.lhs], ctx[op.rhs], op.fastmath)
+  elif isa(op, math.FloorOp):
+    math_op=op.__class__(ctx[op.operand], op.fastmath)
+  elif isa(op, math.FmaOp):
+    math_op=op.__class__(ctx[op.operand])
+  elif isa(op, math.IPowIOp):
+    math_op=op.__class__(ctx[op.lhs], ctx[op.rhs])
+  elif isa(op, math.Log10Op):
+    math_op=op.__class__(ctx[op.operand], op.fastmath)
+  elif isa(op, math.Log1pOp):
+    math_op=op.__class__(ctx[op.operand], op.fastmath)
+  elif isa(op, math.Log2Op):
+    math_op=op.__class__(ctx[op.operand], op.fastmath)
+  elif isa(op, math.LogOp):
+    math_op=op.__class__(ctx[op.operand], op.fastmath)
+  elif isa(op, math.PowFOp):
+    math_op=op.__class__(ctx[op.lhs], ctx[op.rhs], op.fastmath)
+  elif isa(op, math.RoundEvenOp):
+    math_op=op.__class__(ctx[op.operand], op.fastmath)
+  elif isa(op, math.RoundOp):
+    math_op=op.__class__(ctx[op.operand], op.fastmath)
+  elif isa(op, math.RsqrtOp):
+    math_op=op.__class__(ctx[op.operand], op.fastmath)
+  elif isa(op, math.SinOp):
+    math_op=op.__class__(ctx[op.operand], op.fastmath)
+  elif isa(op, math.SqrtOp):
+    math_op=op.__class__(ctx[op.operand], op.fastmath)
+  elif isa(op, math.TanOp):
+    math_op=op.__class__(ctx[op.operand], op.fastmath)
+  elif isa(op, math.TanhOp):
+    math_op=op.__class__(ctx[op.operand], op.fastmath)
+  elif isa(op, math.TruncOp):
+    math_op=op.__class__(ctx[op.operand], op.fastmath)
+
+  assert math_op is not None
+  ctx[op.results[0]]=math_op.results[0]
+  return expr_ops+[math_op]
+
 
 @dataclass(frozen=True)
 class RewriteFIRToStandard(ModulePass):
