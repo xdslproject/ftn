@@ -626,7 +626,7 @@ def generate_var_dim_size_load(ctx: SSAValueCtx, op: fir.Load):
   else:
     return var_ssa, ops_list
 
-def handle_array_size_lu_bound(ctx: SSAValueCtx, bound_op: Operation):
+def handle_array_size_lu_bound(program_state: ProgramState, ctx: SSAValueCtx, bound_op: Operation, ssa):
   # Handles extracting the literal size of a lower or upper array size bound
   # or the corresponding ssa and ops if it is driven by a variable
   bound_val=load_ssa=load_ops=None
@@ -636,7 +636,10 @@ def handle_array_size_lu_bound(ctx: SSAValueCtx, bound_op: Operation):
   elif isa(bound_op, fir.Load):
     load_ssa, load_ops=generate_var_dim_size_load(ctx, bound_op)
   else:
-    assert False
+    # Otherwise this is a general expression, therefore translate that and
+    # handle it generally
+    load_ops=translate_expr(program_state, ctx, ssa)
+    load_ssa=load_ops[-1].results[0]
 
   return bound_val, load_ssa, load_ops
 
@@ -678,7 +681,7 @@ def translate_store(program_state: ProgramState, ctx: SSAValueCtx, op: fir.Store
           assert size_op.rhs.owner.value.value.data == 1
           assert isa(size_op.lhs.owner, arith.Subi)
 
-          upper_bound_val, upper_load_ssa, upper_load_ops=handle_array_size_lu_bound(ctx, size_op.lhs.owner.lhs.owner)
+          upper_bound_val, upper_load_ssa, upper_load_ops=handle_array_size_lu_bound(program_state, ctx, size_op.lhs.owner.lhs.owner, size_op.lhs.owner.lhs)
           if upper_bound_val is not None:
             assert upper_load_ssa is None
             assert upper_load_ops is None
@@ -689,7 +692,7 @@ def translate_store(program_state: ProgramState, ctx: SSAValueCtx, op: fir.Store
             ops_list+=upper_load_ops
             dim_starts.append(upper_load_ssa)
 
-          lower_bound_val, lower_load_ssa, lower_load_ops=handle_array_size_lu_bound(ctx, size_op.lhs.owner.rhs.owner)
+          lower_bound_val, lower_load_ssa, lower_load_ops=handle_array_size_lu_bound(program_state, ctx, size_op.lhs.owner.rhs.owner, size_op.lhs.owner.rhs)
           if lower_bound_val is not None:
             assert lower_load_ssa is None
             assert lower_load_ops is None
