@@ -531,11 +531,19 @@ def translate_load(program_state: ProgramState, ctx: SSAValueCtx, op: fir.Load):
     if isa(ctx[op.memref].type, memref.MemRefType):
       # This is held in a memref, it is a variable in the user's code,
       # therefore load it up
-      zero_val=arith.Constant.create(properties={"value": builtin.IntegerAttr.from_index_int_value(0)},
+      assert isa(op.memref.owner.results[0].type, fir.ReferenceType)
+      # Check if this is an entire array we are loading
+      if isa(op.memref.owner.results[0].type.type, fir.BoxType):
+        # If its an entire array, link to the memref, as that will be used directly
+        ctx[op.results[0]]=ctx[op.memref]
+        return []
+      else:
+        # Otherwise assume it is a scalar
+        zero_val=arith.Constant.create(properties={"value": builtin.IntegerAttr.from_index_int_value(0)},
                                                result_types=[builtin.IndexType()])
-      load_op=memref.Load.get(ctx[op.memref], [zero_val])
-      ctx[op.results[0]]=load_op.results[0]
-      return [zero_val, load_op]
+        load_op=memref.Load.get(ctx[op.memref], [zero_val])
+        ctx[op.results[0]]=load_op.results[0]
+        return [zero_val, load_op]
     elif isa(ctx[op.memref].type, llvm.LLVMPointerType):
       # This is referenced by an LLVM pointer, it is because it has been loaded by an addressof
       # operation, most likely because that loads in a global. Regardless, we issue and LLVM
@@ -812,12 +820,34 @@ def translate_assign(program_state: ProgramState, ctx: SSAValueCtx, op: hlfir.As
   expr_lhs_ops=translate_expr(program_state, ctx, op.lhs)
   expr_rhs_ops=translate_expr(program_state, ctx, op.rhs)
   if isa(op.rhs.owner, hlfir.DeclareOp):
-    # Scalar value
+    # Scalar value or assign entire array to another
     if isa(ctx[op.rhs].type, memref.MemRefType):
-      zero_val=arith.Constant.create(properties={"value": builtin.IntegerAttr.from_index_int_value(0)},
-                                               result_types=[builtin.IndexType()])
-      storage_op=memref.Store.get(ctx[op.lhs], ctx[op.rhs], [zero_val])
-      return expr_lhs_ops+expr_rhs_ops+[zero_val, storage_op]
+      assert isa(op.rhs.owner.results[0].type, fir.ReferenceType)
+      if isa(op.rhs.owner.results[0].type.type, fir.BoxType):
+        # This is an array, we must be assigning one array to another, the type will
+        # be fir.box<fir.heap<fir.array<..>>>
+        assert isa(op.rhs.owner.results[0].type.type.type, fir.HeapType)
+        assert isa(op.rhs.owner.results[0].type.type.type.type, fir.SequenceType)
+        assert isa(op.lhs.owner, fir.Load)
+        assert isa(op.lhs.owner.results[0].type, fir.BoxType)
+        assert isa(op.lhs.owner.results[0].type.type, fir.HeapType)
+        assert isa(op.lhs.owner.results[0].type.type.type, fir.SequenceType)
+
+        # Check number of dimensions is the same
+        lhs_dims=op.rhs.owner.results[0].type.type.type.type.shape
+        rhs_dims=op.lhs.owner.results[0].type.type.type.shape
+        assert len(lhs_dims) == len(rhs_dims)
+
+        # Check the base type is the same
+        assert op.lhs.owner.results[0].type.type.type.type == op.rhs.owner.results[0].type.type.type.type.type
+        # We don't check the array sizes are the same, probably should but might need to be dynamic
+        copy_op=memref.CopyOp(ctx[op.rhs], ctx[op.lhs])
+        return expr_lhs_ops+expr_rhs_ops+[copy_op]
+      else:
+        zero_val=arith.Constant.create(properties={"value": builtin.IntegerAttr.from_index_int_value(0)},
+                                                 result_types=[builtin.IndexType()])
+        storage_op=memref.Store.get(ctx[op.lhs], ctx[op.rhs], [zero_val])
+        return expr_lhs_ops+expr_rhs_ops+[zero_val, storage_op]
     elif isa(ctx[op.rhs].type, llvm.LLVMPointerType):
       storage_op=llvm.StoreOp(ctx[op.lhs], ctx[op.rhs])
       return expr_lhs_ops+expr_rhs_ops+[storage_op]
