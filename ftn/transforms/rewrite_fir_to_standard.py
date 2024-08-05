@@ -394,8 +394,23 @@ def try_translate_expr(program_state: ProgramState, ctx: SSAValueCtx, op: Operat
     expr_list=translate_expr(program_state, ctx, op.val)
     ctx[op.results[0]]=ctx[op.val]
     return expr_list
+  elif isa(op, arith.Select):
+    return translate_select(program_state, ctx, op)
   else:
     return None
+
+def translate_select(program_state: ProgramState, ctx: SSAValueCtx, op: arith.Select):
+  if ctx.contains(op.results[0]): return []
+
+  cond_ops_list=translate_expr(program_state, ctx, op.cond)
+  lhs_ops_list=translate_expr(program_state, ctx, op.lhs)
+  rhs_ops_list=translate_expr(program_state, ctx, op.rhs)
+
+  select_op=arith.Select(ctx[op.cond], ctx[op.lhs], ctx[op.rhs])
+
+  ctx[op.results[0]]=select_op.results[0]
+
+  return cond_ops_list+lhs_ops_list+rhs_ops_list+[select_op]
 
 def translate_reassoc(program_state: ProgramState, ctx: SSAValueCtx, op: fir.NoReassoc | hlfir.NoReassocOp):
   if ctx.contains(op.results[0]): return []
@@ -851,7 +866,8 @@ def array_access_components(program_state: ProgramState, ctx: SSAValueCtx, op:hl
         indexes_ssa.append(index_ssa)
     elif isa(dim_start, OpResult):
       # This is not a constant literal in the code, therefore use the variable that drives this
-      subtract_op=arith.Subi(index_ssa, dim_start)
+      # which was generated previously, so just link to this
+      subtract_op=arith.Subi(index_ssa, ctx[dim_start])
       ops_list.append(subtract_op)
       indexes_ssa.append(subtract_op.results[0])
     else:
@@ -1070,6 +1086,9 @@ def translate_declare(program_state: ProgramState, ctx: SSAValueCtx, op: hlfir.D
     if static_size:
       return define_stack_array_var(program_state, ctx, op, dim_sizes, dim_starts, dim_ends)
     elif isa(op.memref, BlockArgument) and isa(op.results[1].type, fir.ReferenceType):
+      shape_expr_list=[]
+      for ds in itertools.chain(dim_starts, dim_ends):
+        shape_expr_list+=translate_expr(program_state, ctx, ds)
       # This is an array passed into a function
       if ctx.contains(op.results[0]): return []
       ctx[op.results[0]]=ctx[op.memref]
@@ -1080,13 +1099,13 @@ def translate_declare(program_state: ProgramState, ctx: SSAValueCtx, op: hlfir.D
       array_name=array_name.split(fn_name.replace("P", "F")+"E")[1]
       # Store information about the array - the size, and lower and upper bounds as we need this when accessing elements
       program_state.getCurrentFnState().array_info[array_name]=ArrayDescription(array_name, dim_sizes, dim_starts, dim_ends)
-      return []
+      return shape_expr_list
     else:
       assert False
 
 def dims_has_static_size(dims):
   for dim in dims:
-    if dim is None: return False
+    if dim is not int: return False
   return True
 
 def gather_static_shape_dims_from_shape(shape_op: fir.Shape):
@@ -1114,15 +1133,15 @@ def gather_static_shape_dims_from_shapeshift(shape_op: fir.ShapeShift):
       assert isa(low_arg.owner.result.type, builtin.IndexType)
       dim_starts.append(low_arg.owner.value.value.data)
     else:
-      dim_starts.append(None)
+      dim_starts.append(low_arg)
 
     if isa(high_arg.owner, arith.Constant):
       assert isa(high_arg.owner.result.type, builtin.IndexType)
       dim_sizes.append(high_arg.owner.value.value.data)
     else:
-      dim_sizes.append(None)
+      dim_sizes.append(high_arg)
 
-    if dim_starts[-1] is not None and dim_sizes[-1] is not None:
+    if dim_starts[-1] is int and dim_sizes[-1] is int:
       dim_ends.append((dim_sizes[-1]+dim_starts[-1])-1)
     else:
       dim_ends.append(None)
