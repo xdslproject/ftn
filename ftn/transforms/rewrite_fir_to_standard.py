@@ -17,8 +17,9 @@ from xdsl.pattern_rewriter import (RewritePattern, PatternRewriter,
                                    PatternRewriteWalker,
                                    GreedyRewritePatternApplier)
 from xdsl.passes import ModulePass
-from xdsl.dialects import builtin, func, llvm, arith, memref, scf
+from xdsl.dialects import builtin, func, llvm, arith, memref, scf, cf
 from xdsl.dialects.experimental import math
+from ftn.dialects import ftn_relative_cf
 
 ArgIntent = Enum('ArgIntent', ['IN', 'OUT', 'INOUT', 'UNKNOWN'])
 
@@ -50,11 +51,12 @@ class ArgumentDefinition:
     self.arg_type=arg_type
 
 class FunctionDefinition:
-  def __init__(self, name, return_type, is_definition_only):
+  def __init__(self, name, return_type, is_definition_only, blocks):
     self.name=name
     self.return_type=return_type
     self.args=[]
     self.is_definition_only=is_definition_only
+    self.blocks=blocks
 
   def add_arg_def(self, arg_def):
     self.args.append(arg_def)
@@ -123,10 +125,12 @@ class GatherFunctionInformation(Visitor):
     return_type=None
     if len(func_op.function_type.outputs.data) > 0:
       return_type=func_op.function_type.outputs.data[0]
-    fn_def=FunctionDefinition(fn_name, return_type, len(func_op.body.blocks) == 0)
+    fn_def=FunctionDefinition(fn_name, return_type, len(func_op.body.blocks) == 0, list(func_op.body.blocks))
     if len(func_op.body.blocks) != 0:
       # This has concrete implementation (e.g. is not a function definition)
-      assert len(func_op.body.blocks) == 1
+      assert len(func_op.body.blocks) >= 1
+      # Even if the body has more than one block, we only care about the first block as that is
+      # the entry point from the function, so it has the function arguments in it
       for block_arg in func_op.body.blocks[0].args:
         declare_op=self.get_declare_from_arg_uses(block_arg.uses)
         assert declare_op is not None
@@ -141,6 +145,16 @@ class GatherFunctionInformation(Visitor):
         arg_def=ArgumentDefinition(arg_name, is_scalar, arg_type, arg_intent)
         fn_def.add_arg_def(arg_def)
     self.program_state.addFunctionDefinition(fn_name, fn_def)
+
+class GatherFunctions(Visitor):
+  def __init__(self):
+    self.functions={}
+
+  def traverse_func_op(self, func_op: func.FuncOp):
+    fn_name=func_op.sym_name.data
+    if isa(fn_name, builtin.StringAttr): fn_name=fn_name.data
+    fn_name=clean_func_name(fn_name)
+    self.functions[fn_name]=func_op
 
 @dataclass
 class SSAValueCtx:
@@ -245,38 +259,43 @@ def translate_function(program_state: ProgramState, ctx: SSAValueCtx, fn: func.F
   if len(fn.body.blocks) > 0:
     # This is a function with a body, the input types come from the block as
     # we will manipulate these to pass constants if possible
-    for block in fn.body.blocks:
-      arg_types=[]
-      for idx, arg in enumerate(fn.args):
-        fir_type=arg.type
-        if (program_state.function_definitions[fn_name].args[idx].is_scalar and
-            program_state.function_definitions[fn_name].args[idx].intent == ArgIntent.IN):
-          # This is a scalar in, therefore it's just the constant type (don't encode as a memref)
-          if isa(fir_type, fir.ReferenceType):
-            arg_types.append(fir_type.type)
-          else:
-            arg_types.append(arg.type)
+    program_state.enterFunction(fn_name)
+    fn_in_arg_types=[]
+    for idx, arg in enumerate(fn.args):
+      fir_type=arg.type
+      if (program_state.function_definitions[fn_name].args[idx].is_scalar and
+          program_state.function_definitions[fn_name].args[idx].intent == ArgIntent.IN):
+        # This is a scalar in, therefore it's just the constant type (don't encode as a memref)
+        if isa(fir_type, fir.ReferenceType):
+          fn_in_arg_types.append(fir_type.type)
         else:
-          arg_types.append(convert_fir_type_to_standard(fir_type))
+          fn_in_arg_types.append(arg.type)
+      else:
+        fn_in_arg_types.append(convert_fir_type_to_standard(fir_type))
 
-      new_block = Block(arg_types=arg_types)
+    for idx, block in enumerate(fn.body.blocks):
+      if idx == 0:
+        # If this is the first block, then it is the function arguments
+        new_block = Block(arg_types=fn_in_arg_types)
+      else:
+        # Otherwise the arg types are the same as the blocks
+        new_block = Block(arg_types=block.args)
 
       for fir_arg, std_arg in zip(block.args, new_block.args):
         ctx[fir_arg]=std_arg
 
-      program_state.enterFunction(fn_name)
       ops_list=[]
       for op in block.ops:
         ops_list+=translate_stmt(program_state, ctx, op)
-      program_state.leaveFunction()
 
       new_block.add_ops(ops_list)
       body.add_block(new_block)
+    program_state.leaveFunction()
   else:
     # This is the definition of an external function, need to resolve input types
-    arg_types=[]
+    fn_in_arg_types=[]
     for t in fn.function_type.inputs.data:
-      arg_types.append(convert_fir_type_to_standard_if_needed(t))
+      fn_in_arg_types.append(convert_fir_type_to_standard_if_needed(t))
 
   # Perform some conversion on return types to standard
   return_types=[]
@@ -288,7 +307,7 @@ def translate_function(program_state: ProgramState, ctx: SSAValueCtx, fn: func.F
   if fn_name.data == "_QQmain":
     fn_name="main"
 
-  new_fn_type=builtin.FunctionType.from_lists(arg_types, return_types)
+  new_fn_type=builtin.FunctionType.from_lists(fn_in_arg_types, return_types)
 
   new_func=func.FuncOp(fn_name, new_fn_type, body, fn.sym_visibility, arg_attrs=fn.arg_attrs, res_attrs=fn.res_attrs)
   return new_func
@@ -312,8 +331,9 @@ def try_translate_stmt(program_state: ProgramState, ctx: SSAValueCtx, op: Operat
   elif isa(op, fir.DoLoop):
     return translate_do_loop(program_state, ctx, op)
   elif isa(op, fir.Alloca):
-    # Ignore this, as will handle with the declaration
-    return []
+    # Will only process this if it is an internal flag,
+    # otherwise pick up as part of the declareop
+    return translate_alloca(program_state, ctx, op)
   elif isa(op, arith.Constant):
     return []
   elif isa(op, fir.HasValue):
@@ -344,6 +364,10 @@ def try_translate_stmt(program_state: ProgramState, ctx: SSAValueCtx, op: Operat
     return translate_freemem(program_state, ctx, op)
   elif isa(op, fir.If):
     return translate_conditional(program_state, ctx, op)
+  elif isa(op, cf.Branch):
+    return translate_branch(program_state, ctx, op)
+  elif isa(op, cf.ConditionalBranch):
+    return translate_conditional_branch(program_state, ctx, op)
   else:
     return None
 
@@ -400,7 +424,8 @@ def try_translate_expr(program_state: ProgramState, ctx: SSAValueCtx, op: Operat
   else:
     for math_op in math.Math.operations:
       # Check to see if this is a math operation
-      return translate_math_operation(program_state, ctx, op)
+      if isa(op, math_op):
+        return translate_math_operation(program_state, ctx, op)
     return None
 
 def translate_select(program_state: ProgramState, ctx: SSAValueCtx, op: arith.Select):
@@ -574,6 +599,40 @@ def translate_conditional(program_state: ProgramState, ctx: SSAValueCtx, op: fir
 
   return conditional_expr_ops+[scf_if]
 
+def translate_branch(program_state: ProgramState, ctx: SSAValueCtx, op: cf.Branch):
+  current_fn_name=program_state.getCurrentFnState().fn_name
+  target_block_index=program_state.function_definitions[current_fn_name].blocks.index(op.successor)
+
+  ops_list=[]
+  block_ssas=[]
+  for arg in op.arguments:
+    ops_list+=translate_expr(program_state, ctx, arg)
+    block_ssas.append(ctx[arg])
+  relative_branch=ftn_relative_cf.Branch(current_fn_name, target_block_index, *block_ssas)
+  ops_list.append(relative_branch)
+  return ops_list
+
+def translate_conditional_branch(program_state: ProgramState, ctx: SSAValueCtx, op: cf.ConditionalBranch):
+  current_fn_name=program_state.getCurrentFnState().fn_name
+  then_block_index=program_state.function_definitions[current_fn_name].blocks.index(op.then_block)
+  else_block_index=program_state.function_definitions[current_fn_name].blocks.index(op.else_block)
+
+  ops_list=[]
+  ops_list+=translate_expr(program_state, ctx, op.cond)
+
+  then_block_ssas=[]
+  else_block_ssas=[]
+  for arg in op.then_arguments:
+    ops_list+=translate_expr(program_state, ctx, arg)
+    then_block_ssas.append(ctx[arg])
+  for arg in op.else_arguments:
+    ops_list+=translate_expr(program_state, ctx, arg)
+    else_block_ssas.append(ctx[arg])
+
+  relative_cond_branch=ftn_relative_cf.ConditionalBranch(current_fn_name, ctx[op.cond], then_block_index, then_block_ssas, else_block_index, else_block_ssas)
+  ops_list.append(relative_cond_branch)
+
+  return ops_list
 
 def translate_load(program_state: ProgramState, ctx: SSAValueCtx, op: fir.Load):
   if ctx.contains(op.results[0]): return []
@@ -631,6 +690,15 @@ def translate_load(program_state: ProgramState, ctx: SSAValueCtx, op: fir.Load):
     ops_list.append(load_op)
     ctx[op.results[0]]=load_op.results[0]
     return ops_list
+  elif isa(op.memref.owner, fir.Alloca):
+    # This is used for loading an internal variable
+    assert isa(op.memref.owner.results[0].type, fir.ReferenceType)
+
+    zero_val=arith.Constant.create(properties={"value": builtin.IntegerAttr.from_index_int_value(0)},
+                                               result_types=[builtin.IndexType()])
+    load_op=memref.Load.get(ctx[op.memref], [zero_val])
+    ctx[op.results[0]]=load_op.results[0]
+    return [zero_val, load_op]
   else:
     assert False
 
@@ -826,8 +894,13 @@ def translate_store(program_state: ProgramState, ctx: SSAValueCtx, op: fir.Store
     expr_ops=translate_expr(program_state, ctx, op.value)
     zero_val=arith.Constant.create(properties={"value": builtin.IntegerAttr.from_index_int_value(0)},
                                                result_types=[builtin.IndexType()])
-    assert isa(op.memref.owner, hlfir.DeclareOp)
-    storage_op=memref.Store.get(ctx[op.value], ctx[op.memref], [zero_val])
+    if isa(op.memref.owner, hlfir.DeclareOp):
+      storage_op=memref.Store.get(ctx[op.value], ctx[op.memref], [zero_val])
+    elif isa(op.memref.owner, fir.Alloca):
+      assert ctx[op.memref] is not None
+      storage_op=memref.Store.get(ctx[op.value], ctx[op.memref], [zero_val])
+    else:
+      assert False
     return expr_ops+[zero_val, storage_op]
 
 def array_access_components(program_state: ProgramState, ctx: SSAValueCtx, op:hlfir.DesignateOp):
@@ -900,7 +973,7 @@ def translate_assign(program_state: ProgramState, ctx: SSAValueCtx, op: hlfir.As
           assert isa(op.lhs.owner.results[0].type.type, fir.HeapType)
           assert isa(op.lhs.owner.results[0].type.type.type, fir.SequenceType)
           lhs_array_op=op.rhs.owner.results[0].type.type.type.type
-          rhs_array_op=op.rhs.owner.results[0].type.type.type
+          rhs_array_op=op.lhs.owner.results[0].type.type.type
         else:
           # Of the form fir.box<fir.array<...>>
           assert isa(op.rhs.owner.results[0].type.type, fir.SequenceType)
@@ -979,19 +1052,20 @@ def handle_call_argument(program_state: ProgramState, ctx: SSAValueCtx, fn_name:
     # allow the translate_expr to handle it, but if the function accepts an integer due to
     # scalar and intent(in), then we need to load the memref.
     ops_list=translate_expr(program_state, ctx, arg)
-    arg_defn=program_state.function_definitions[fn_name].args[arg_index]
-    if arg_defn.is_scalar and arg_defn.intent == ArgIntent.IN and isa(ctx[arg].type, memref.MemRefType):
-      # The function will accept a constant, but we are currently passing a memref
-      # therefore need to load the value and pass this
-      zero_val=arith.Constant.create(properties={"value": builtin.IntegerAttr.from_index_int_value(0)},
-                                             result_types=[builtin.IndexType()])
-      load_op=memref.Load.get(ctx[arg], [zero_val])
+    if not program_state.function_definitions[fn_name].is_definition_only:
+      arg_defn=program_state.function_definitions[fn_name].args[arg_index]
+      if arg_defn.is_scalar and arg_defn.intent == ArgIntent.IN and isa(ctx[arg].type, memref.MemRefType):
+        # The function will accept a constant, but we are currently passing a memref
+        # therefore need to load the value and pass this
+        zero_val=arith.Constant.create(properties={"value": builtin.IntegerAttr.from_index_int_value(0)},
+                                               result_types=[builtin.IndexType()])
+        load_op=memref.Load.get(ctx[arg], [zero_val])
 
-      # arg is already in our ctx from above, so remove it and add in the load as
-      # we want to reference that instead
-      del ctx[arg]
-      ctx[arg]=load_op.results[0]
-      ops_list+=[zero_val, load_op]
+        # arg is already in our ctx from above, so remove it and add in the load as
+        # we want to reference that instead
+        del ctx[arg]
+        ctx[arg]=load_op.results[0]
+        ops_list+=[zero_val, load_op]
     return ops_list
 
 def translate_call(program_state: ProgramState, ctx: SSAValueCtx, op: fir.Call):
@@ -1074,6 +1148,18 @@ def translate_return(program_state: ProgramState, ctx: SSAValueCtx, op: func.Ret
     ssa_to_return.append(ctx[arg])
   new_return=func.Return(*ssa_to_return)
   return args_ops+[new_return]
+
+def translate_alloca(program_state: ProgramState, ctx: SSAValueCtx, op: fir.Alloca):
+  if ctx.contains(op.results[0]): return []
+
+  # If any use of the result is the declareop, then ignore this as
+  # we will handle it elsewhere - otherwise this is used internally
+  for use in op.results[0].uses:
+    if isa(use.operation, hlfir.DeclareOp): return[]
+
+  memref_alloca_op=memref.Alloca.get(op.in_type)
+  ctx[op.results[0]]=memref_alloca_op.results[0]
+  return [memref_alloca_op]
 
 def translate_declare(program_state: ProgramState, ctx: SSAValueCtx, op: hlfir.DeclareOp):
   if isa(op.results[0].type, fir.ReferenceType) and isa(op.results[0].type.type, fir.BoxType):
@@ -1379,11 +1465,38 @@ def translate_math_operation(program_state: ProgramState, ctx: SSAValueCtx, op: 
     math_op=op.__class__(ctx[op.operand], op.fastmath)
   elif isa(op, math.TruncOp):
     math_op=op.__class__(ctx[op.operand], op.fastmath)
+  else:
+    raise Exception(f"Could not translate `{op}' as a math operation")
 
   assert math_op is not None
   ctx[op.results[0]]=math_op.results[0]
   return expr_ops+[math_op]
 
+class RewriteRelativeBranch(RewritePattern):
+  def __init__(self, functions):
+    self.functions=functions
+
+  @op_type_rewrite_pattern
+  def match_and_rewrite(self, op: ftn_relative_cf.Branch, rewriter: PatternRewriter, /):
+    containing_fn_name=op.function_name.data
+    assert containing_fn_name in self.functions.keys()
+    assert len(self.functions[containing_fn_name].regions[0].blocks) > op.successor.value.data
+    cf_branch_op=cf.Branch(self.functions[containing_fn_name].regions[0].blocks[op.successor.value.data], *op.arguments)
+    rewriter.replace_matched_op(cf_branch_op)
+
+class RewriteRelativeConditionalBranch(RewritePattern):
+  def __init__(self, functions):
+    self.functions=functions
+
+  @op_type_rewrite_pattern
+  def match_and_rewrite(self, op: ftn_relative_cf.ConditionalBranch, rewriter: PatternRewriter, /):
+    containing_fn_name=op.function_name.data
+    assert containing_fn_name in self.functions.keys()
+    assert len(self.functions[containing_fn_name].regions[0].blocks) > op.then_block.value.data
+    assert len(self.functions[containing_fn_name].regions[0].blocks) > op.else_block.value.data
+    cf_cbranch_op=cf.ConditionalBranch(op.cond, self.functions[containing_fn_name].regions[0].blocks[op.then_block.value.data],
+                      op.then_arguments, self.functions[containing_fn_name].regions[0].blocks[op.else_block.value.data], op.else_arguments)
+    rewriter.replace_matched_op(cf_cbranch_op)
 
 @dataclass(frozen=True)
 class RewriteFIRToStandard(ModulePass):
@@ -1400,3 +1513,14 @@ class RewriteFIRToStandard(ModulePass):
     global_visitor.traverse(input_module)
     res_module = translate_program(program_state, input_module)
     res_module.regions[0].move_blocks(input_module.regions[0])
+
+    fn_gatherer=GatherFunctions()
+    fn_gatherer.traverse(input_module)
+
+
+    walker = PatternRewriteWalker(GreedyRewritePatternApplier([
+              RewriteRelativeBranch(fn_gatherer.functions),
+              RewriteRelativeConditionalBranch(fn_gatherer.functions),
+    ]), apply_recursively=False)
+    walker.rewrite_module(input_module)
+
