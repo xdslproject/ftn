@@ -211,6 +211,28 @@ def translate_global(program_state, global_ctx, global_op: fir.Global):
   else:
     return None
 
+def convert_fir_type_to_standard(fir_type, ref_as_mem_ref=True):
+  if isa(fir_type, fir.ReferenceType):
+    if ref_as_mem_ref:
+      base_t=convert_fir_type_to_standard(fir_type.type, ref_as_mem_ref)
+      if isa(base_t, memref.MemRefType):
+        return base_t
+      else:
+        return memref.MemRefType(base_t, [1], builtin.NoneAttr(), builtin.NoneAttr())
+    else:
+      return llvm.LLVMPointerType.opaque()
+  elif isa(fir_type, fir.SequenceType):
+    base_t=convert_fir_type_to_standard(fir_type.type)
+    dim_sizes=[]
+    for shape_el in fir_type.shape:
+      if isa(shape_el, builtin.IntegerAttr):
+        dim_sizes.append(shape_el.value.data)
+      else:
+        dim_sizes.append(-1)
+    return memref.MemRefType(base_t, dim_sizes, builtin.NoneAttr(), builtin.NoneAttr())
+  else:
+    return fir_type
+
 def translate_function(program_state: ProgramState, ctx: SSAValueCtx, fn: func.FuncOp):
   fn_name=clean_func_name(fn.sym_name.data)
 
@@ -230,11 +252,7 @@ def translate_function(program_state: ProgramState, ctx: SSAValueCtx, fn: func.F
           else:
             arg_types.append(arg.type)
         else:
-          if isa(fir_type, fir.ReferenceType):
-            mrt=memref.MemRefType(fir_type.type, [1], builtin.NoneAttr(), builtin.NoneAttr())
-            arg_types.append(mrt)
-          else:
-            arg_types.append(arg.type)
+          arg_types.append(convert_fir_type_to_standard(fir_type))
 
       new_block = Block(arg_types=arg_types)
 
@@ -367,6 +385,11 @@ def try_translate_expr(program_state: ProgramState, ctx: SSAValueCtx, op: Operat
     return translate_reassoc(program_state, ctx, op)
   elif isa(op, fir.ZeroBits):
     return []
+  elif isa(op, fir.BoxAddr):
+    # Ignore box address, just process argument and link to results of that
+    expr_list=translate_expr(program_state, ctx, op.val)
+    ctx[op.results[0]]=ctx[op.val]
+    return expr_list
   else:
     return None
 
@@ -472,7 +495,19 @@ def translate_convert(program_state: ProgramState, ctx: SSAValueCtx, op: fir.Con
     ctx[op.results[0]]=get_element_ptr.results[0]
     new_conv=[get_element_ptr]
 
-  assert new_conv is not None
+  if isa(in_type, fir.HeapType) and isa(out_type, fir.ReferenceType):
+    # When passing arrays to subroutines will box_addr to a heaptype, then convert
+    # to a reference type. Both these contain arrays, therefore set this to
+    # short circuit to the type of the arg (effectively this is a pass through)
+    assert isa(in_type.type, fir.SequenceType)
+    assert isa(out_type.type, fir.SequenceType)
+    # Assert that what we will forward to is in-fact a memref type
+    assert isa(ctx[op.value].type, builtin.MemRefType)
+    ctx[op.results[0]]=ctx[op.value]
+    new_conv=[]
+
+  if new_conv is None:
+    raise Exception(f"Could not convert between `{in_type}' and `{out_type}`")
   return value_ops+new_conv
 
 def handle_conditional_true_or_false_region(program_state: ProgramState, ctx: SSAValueCtx, region: Region):
@@ -821,8 +856,8 @@ def array_access_components(program_state: ProgramState, ctx: SSAValueCtx, op:hl
 
 def translate_assign(program_state: ProgramState, ctx: SSAValueCtx, op: hlfir.AssignOp):
   expr_lhs_ops=translate_expr(program_state, ctx, op.lhs)
-  expr_rhs_ops=translate_expr(program_state, ctx, op.rhs)
   if isa(op.rhs.owner, hlfir.DeclareOp):
+    expr_rhs_ops=translate_expr(program_state, ctx, op.rhs)
     # Scalar value or assign entire array to another
     if isa(ctx[op.rhs].type, memref.MemRefType):
       assert isa(op.rhs.owner.results[0].type, fir.ReferenceType)
@@ -869,7 +904,7 @@ def translate_assign(program_state: ProgramState, ctx: SSAValueCtx, op: hlfir.As
 
     storage_op=memref.Store.get(ctx[op.lhs], ctx[memref_reference], indexes_ssa)
     ops_list.append(storage_op)
-    return expr_lhs_ops+expr_rhs_ops+ops_list
+    return expr_lhs_ops+ops_list
   else:
     assert False
 
@@ -1001,6 +1036,18 @@ def translate_declare(program_state: ProgramState, ctx: SSAValueCtx, op: hlfir.D
     static_size=dims_has_static_size(dim_sizes)
     if static_size:
       return define_stack_array_var(program_state, ctx, op, dim_sizes, dim_starts, dim_ends)
+    elif isa(op.memref, BlockArgument) and isa(op.results[1].type, fir.ReferenceType):
+      # This is an array passed into a function
+      if ctx.contains(op.results[0]): return []
+      ctx[op.results[0]]=ctx[op.memref]
+      ctx[op.results[1]]=ctx[op.memref]
+      fn_name=program_state.getCurrentFnState().fn_name
+      array_name=op.uniq_name.data
+      assert fn_name.replace("P", "F")+"E" in array_name
+      array_name=array_name.split(fn_name.replace("P", "F")+"E")[1]
+      # Store information about the array - the size, and lower and upper bounds as we need this when accessing elements
+      program_state.getCurrentFnState().array_info[array_name]=ArrayDescription(array_name, dim_sizes, dim_starts, dim_ends)
+      return []
     else:
       assert False
 
