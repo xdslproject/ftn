@@ -189,16 +189,23 @@ def translate_program(program_state: ProgramState, input_module: builtin.ModuleO
 
 def translate_global(program_state, global_ctx, global_op: fir.Global):
   # For now just support global strings
+  assert len(global_op.regions) == 1
+  assert len(global_op.regions[0].blocks) == 1
+  ops_list=[]
+  for op in global_op.regions[0].blocks[0].ops:
+    ops_list+=translate_stmt(program_state, global_ctx, op)
   if isa(global_op.type, fir.CharacterType):
-    assert len(global_op.regions) == 1
-    assert len(global_op.regions[0].blocks) == 1
-    ops_list=[]
-    for op in global_op.regions[0].blocks[0].ops:
-      ops_list+=translate_stmt(program_state, global_ctx, op)
     assert len(ops_list)==1
     rebuilt_global=llvm.GlobalOp(ops_list[0].global_type, global_op.sym_name, ops_list[0].linkage,
                       ops_list[0].addr_space.value.data, True, value=ops_list[0].value, unnamed_addr=ops_list[0].unnamed_addr.value.data)
     return rebuilt_global
+  elif isa(global_op.type, fir.IntegerType):
+    assert len(ops_list)==1
+    const_op=ops_list[0]
+    assert isa(const_op, arith.Constant)
+    return_op=llvm.ReturnOp.build(operands=[const_op.results[0]])
+    return llvm.GlobalOp(global_op.type, global_op.sym_name, "internal",
+                      constant=True, body=Region([Block([const_op, return_op])]))
   else:
     return None
 
@@ -356,6 +363,8 @@ def try_translate_expr(program_state: ProgramState, ctx: SSAValueCtx, op: Operat
     return translate_address_of(program_state, ctx, op)
   elif isa(op, hlfir.NoReassocOp) or isa(op, fir.NoReassoc):
     return translate_reassoc(program_state, ctx, op)
+  elif isa(op, fir.ZeroBits):
+    return []
   else:
     return None
 
