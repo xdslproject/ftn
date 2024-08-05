@@ -1523,6 +1523,12 @@ class RewriteFIRToStandard(ModulePass):
     res_module = translate_program(program_state, input_module)
     res_module.regions[0].move_blocks(input_module.regions[0])
 
+    # Clean out module attributes to remove dlti and fir specific ones
+    attr_list=list(input_module.attributes)
+    for attr in attr_list:
+      if attr.startswith("dlti.") or attr.startswith("fir."):
+        del input_module.attributes[attr]
+
     fn_gatherer=GatherFunctions()
     fn_gatherer.traverse(input_module)
 
