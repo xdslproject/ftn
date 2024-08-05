@@ -159,6 +159,10 @@ class SSAValueCtx:
         else:
             return None
 
+    def __delitem__(self, identifier: str):
+        if identifier in self.dictionary:
+          del self.dictionary[identifier]
+
     def __setitem__(self, identifier: str, ssa_value: SSAValue):
         """Relate the given identifier and SSA value in the current scope"""
         if identifier in self.dictionary:
@@ -200,7 +204,7 @@ def translate_global(program_state, global_ctx, global_op: fir.Global):
                       ops_list[0].addr_space.value.data, global_op.constant, value=ops_list[0].value,
                       unnamed_addr=ops_list[0].unnamed_addr.value.data)
     return rebuilt_global
-  elif isa(global_op.type, fir.IntegerType):
+  elif isa(global_op.type, fir.IntegerType) or isa(global_op.type, builtin.AnyFloat):
     assert len(ops_list)==1
     const_op=ops_list[0]
     assert isa(const_op, arith.Constant)
@@ -860,28 +864,39 @@ def translate_assign(program_state: ProgramState, ctx: SSAValueCtx, op: hlfir.As
     expr_rhs_ops=translate_expr(program_state, ctx, op.rhs)
     # Scalar value or assign entire array to another
     if isa(ctx[op.rhs].type, memref.MemRefType):
-      assert isa(op.rhs.owner.results[0].type, fir.ReferenceType)
-      if isa(op.rhs.owner.results[0].type.type, fir.BoxType):
+      if (isa(op.rhs.owner.results[0].type, fir.BoxType) or (isa(op.rhs.owner.results[0].type, fir.ReferenceType)
+              and isa(op.rhs.owner.results[0].type.type, fir.BoxType))):
         # This is an array, we must be assigning one array to another, the type will
-        # be fir.box<fir.heap<fir.array<..>>>
-        assert isa(op.rhs.owner.results[0].type.type.type, fir.HeapType)
-        assert isa(op.rhs.owner.results[0].type.type.type.type, fir.SequenceType)
-        assert isa(op.lhs.owner, fir.Load)
-        assert isa(op.lhs.owner.results[0].type, fir.BoxType)
-        assert isa(op.lhs.owner.results[0].type.type, fir.HeapType)
-        assert isa(op.lhs.owner.results[0].type.type.type, fir.SequenceType)
+        # be fir.ref<fir.box<fir.heap<fir.array<..>>>> or fir.box<fir.array<...>>
+        if isa(op.rhs.owner.results[0].type, fir.ReferenceType):
+          # Of the form fir.ref<fir.box<fir.heap<fir.array<..>>>>
+          assert isa(op.rhs.owner.results[0].type.type.type, fir.HeapType)
+          assert isa(op.rhs.owner.results[0].type.type.type.type, fir.SequenceType)
+          assert isa(op.lhs.owner, fir.Load)
+          assert isa(op.lhs.owner.results[0].type, fir.BoxType)
+          assert isa(op.lhs.owner.results[0].type.type, fir.HeapType)
+          assert isa(op.lhs.owner.results[0].type.type.type, fir.SequenceType)
+          lhs_array_op=op.rhs.owner.results[0].type.type.type.type
+          rhs_array_op=op.rhs.owner.results[0].type.type.type
+        else:
+          # Of the form fir.box<fir.array<...>>
+          assert isa(op.rhs.owner.results[0].type.type, fir.SequenceType)
+          assert isa(op.lhs.owner.results[0].type.type, fir.SequenceType)
+          lhs_array_op=op.rhs.owner.results[0].type.type
+          rhs_array_op=op.rhs.owner.results[0].type.type
 
         # Check number of dimensions is the same
-        lhs_dims=op.rhs.owner.results[0].type.type.type.type.shape
-        rhs_dims=op.lhs.owner.results[0].type.type.type.shape
+        lhs_dims=lhs_array_op.shape
+        rhs_dims=rhs_array_op.shape
         assert len(lhs_dims) == len(rhs_dims)
 
         # Check the base type is the same
-        assert op.lhs.owner.results[0].type.type.type.type == op.rhs.owner.results[0].type.type.type.type.type
+        assert lhs_array_op.type == rhs_array_op.type
         # We don't check the array sizes are the same, probably should but might need to be dynamic
         copy_op=memref.CopyOp(ctx[op.rhs], ctx[op.lhs])
         return expr_lhs_ops+expr_rhs_ops+[copy_op]
       else:
+        assert isa(op.rhs.owner.results[0].type, fir.ReferenceType)
         zero_val=arith.Constant.create(properties={"value": builtin.IntegerAttr.from_index_int_value(0)},
                                                  result_types=[builtin.IndexType()])
         storage_op=memref.Store.get(ctx[op.lhs], ctx[op.rhs], [zero_val])
@@ -916,6 +931,7 @@ def translate_constant(program_state: ProgramState, ctx: SSAValueCtx, op: arith.
 
 def handle_call_argument(program_state: ProgramState, ctx: SSAValueCtx, fn_name: str, arg: Operand, arg_index: int):
   if isa(arg.owner, hlfir.AssociateOp):
+    # This is a scalar that we are passing by value
     assert arg.owner.uniq_name.data=="adapt.valuebyref"
     arg_defn=program_state.function_definitions[fn_name].args[arg_index]
     # For now we just work with scalars here, could pass arrays by literal too
@@ -936,7 +952,24 @@ def handle_call_argument(program_state: ProgramState, ctx: SSAValueCtx, fn_name:
       ctx[arg]=memref_alloca_op.results[0]
       return ops_list+[memref_alloca_op, zero_val, storage_op]
   else:
-    return translate_expr(program_state, ctx, arg)
+    # Here passing a variable (array or scalar variable). This is a little confusing, as we
+    # allow the translate_expr to handle it, but if the function accepts an integer due to
+    # scalar and intent(in), then we need to load the memref.
+    ops_list=translate_expr(program_state, ctx, arg)
+    arg_defn=program_state.function_definitions[fn_name].args[arg_index]
+    if arg_defn.is_scalar and arg_defn.intent == ArgIntent.IN and isa(ctx[arg].type, memref.MemRefType):
+      # The function will accept a constant, but we are currently passing a memref
+      # therefore need to load the value and pass this
+      zero_val=arith.Constant.create(properties={"value": builtin.IntegerAttr.from_index_int_value(0)},
+                                             result_types=[builtin.IndexType()])
+      load_op=memref.Load.get(ctx[arg], [zero_val])
+
+      # arg is already in our ctx from above, so remove it and add in the load as
+      # we want to reference that instead
+      del ctx[arg]
+      ctx[arg]=load_op.results[0]
+      ops_list+=[zero_val, load_op]
+    return ops_list
 
 def translate_call(program_state: ProgramState, ctx: SSAValueCtx, op: fir.Call):
   if len(op.results) > 0 and ctx.contains(op.results[0]): return []
