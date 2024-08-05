@@ -197,7 +197,8 @@ def translate_global(program_state, global_ctx, global_op: fir.Global):
   if isa(global_op.type, fir.CharacterType):
     assert len(ops_list)==1
     rebuilt_global=llvm.GlobalOp(ops_list[0].global_type, global_op.sym_name, ops_list[0].linkage,
-                      ops_list[0].addr_space.value.data, True, value=ops_list[0].value, unnamed_addr=ops_list[0].unnamed_addr.value.data)
+                      ops_list[0].addr_space.value.data, global_op.constant, value=ops_list[0].value,
+                      unnamed_addr=ops_list[0].unnamed_addr.value.data)
     return rebuilt_global
   elif isa(global_op.type, fir.IntegerType):
     assert len(ops_list)==1
@@ -205,7 +206,8 @@ def translate_global(program_state, global_ctx, global_op: fir.Global):
     assert isa(const_op, arith.Constant)
     return_op=llvm.ReturnOp.build(operands=[const_op.results[0]])
     return llvm.GlobalOp(global_op.type, global_op.sym_name, "internal",
-                      constant=True, body=Region([Block([const_op, return_op])]))
+                      constant=global_op.constant,
+                      body=Region([Block([const_op, return_op])]))
   else:
     return None
 
@@ -526,12 +528,26 @@ def translate_load(program_state: ProgramState, ctx: SSAValueCtx, op: fir.Load):
     return []
   elif isa(op.memref.owner, hlfir.DeclareOp):
     # Scalar value
-    assert isa(ctx[op.memref].type, memref.MemRefType)
-    zero_val=arith.Constant.create(properties={"value": builtin.IntegerAttr.from_index_int_value(0)},
-                                             result_types=[builtin.IndexType()])
-    load_op=memref.Load.get(ctx[op.memref], [zero_val])
-    ctx[op.results[0]]=load_op.results[0]
-    return [zero_val, load_op]
+    if isa(ctx[op.memref].type, memref.MemRefType):
+      # This is held in a memref, it is a variable in the user's code,
+      # therefore load it up
+      zero_val=arith.Constant.create(properties={"value": builtin.IntegerAttr.from_index_int_value(0)},
+                                               result_types=[builtin.IndexType()])
+      load_op=memref.Load.get(ctx[op.memref], [zero_val])
+      ctx[op.results[0]]=load_op.results[0]
+      return [zero_val, load_op]
+    elif isa(ctx[op.memref].type, llvm.LLVMPointerType):
+      # This is referenced by an LLVM pointer, it is because it has been loaded by an addressof
+      # operation, most likely because that loads in a global. Regardless, we issue and LLVM
+      # load operation to load the value
+      assert isa(op.memref.owner.results[0].type, fir.ReferenceType)
+      # As LLVM pointer types are opaque, we need to grab the element type from
+      # the declaration fir.reference type
+      load_op=llvm.LoadOp(ctx[op.memref], op.memref.owner.results[0].type.type)
+      ctx[op.results[0]]=load_op.results[0]
+      return [load_op]
+    else:
+      assert False
   elif isa(op.memref.owner, hlfir.DesignateOp):
     # Array value
     assert op.memref.owner.indices is not None
