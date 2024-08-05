@@ -989,7 +989,7 @@ def translate_assign(program_state: ProgramState, ctx: SSAValueCtx, op: hlfir.As
         # Check the base type is the same
         assert lhs_array_op.type == rhs_array_op.type
         # We don't check the array sizes are the same, probably should but might need to be dynamic
-        copy_op=memref.CopyOp(ctx[op.rhs], ctx[op.lhs])
+        copy_op=memref.CopyOp(ctx[op.lhs], ctx[op.rhs])
         return expr_lhs_ops+expr_rhs_ops+[copy_op]
       else:
         assert isa(op.rhs.owner.results[0].type, fir.ReferenceType)
