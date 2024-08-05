@@ -1122,6 +1122,14 @@ def translate_do_loop(program_state: ProgramState, ctx: SSAValueCtx, op: fir.DoL
   for loop_op in op.regions[0].blocks[0].ops:
     loop_body_ops+=translate_stmt(program_state, ctx, loop_op)
 
+  # We need to add one to the upper index, as scf.for is not inclusive on the
+  # top bound, whereas fir for loops are
+  one_val_op=create_index_constant(1)
+  add_op=arith.Addi(ctx[op.upperBound], one_val_op)
+  upper_bound_ops+=[one_val_op, add_op]
+  del ctx[op.upperBound]
+  ctx[op.upperBound]=add_op.results[0]
+
   # The fir result has both the index and iterargs, whereas the yield has only
   # the iterargs. Therefore need to rebuild the yield with the first argument (the index)
   # removed from it
