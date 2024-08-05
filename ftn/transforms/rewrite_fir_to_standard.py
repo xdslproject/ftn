@@ -809,13 +809,20 @@ def array_access_components(program_state: ProgramState, ctx: SSAValueCtx, op:hl
   return ops_list, indexes_ssa
 
 def translate_assign(program_state: ProgramState, ctx: SSAValueCtx, op: hlfir.AssignOp):
-  expr_ops=translate_expr(program_state, ctx, op.lhs)
+  expr_lhs_ops=translate_expr(program_state, ctx, op.lhs)
+  expr_rhs_ops=translate_expr(program_state, ctx, op.rhs)
   if isa(op.rhs.owner, hlfir.DeclareOp):
     # Scalar value
-    zero_val=arith.Constant.create(properties={"value": builtin.IntegerAttr.from_index_int_value(0)},
-                                             result_types=[builtin.IndexType()])
-    storage_op=memref.Store.get(ctx[op.lhs], ctx[op.rhs], [zero_val])
-    return expr_ops+[zero_val, storage_op]
+    if isa(ctx[op.rhs].type, memref.MemRefType):
+      zero_val=arith.Constant.create(properties={"value": builtin.IntegerAttr.from_index_int_value(0)},
+                                               result_types=[builtin.IndexType()])
+      storage_op=memref.Store.get(ctx[op.lhs], ctx[op.rhs], [zero_val])
+      return expr_lhs_ops+expr_rhs_ops+[zero_val, storage_op]
+    elif isa(ctx[op.rhs].type, llvm.LLVMPointerType):
+      storage_op=llvm.StoreOp(ctx[op.lhs], ctx[op.rhs])
+      return expr_lhs_ops+expr_rhs_ops+[storage_op]
+    else:
+      assert False
   elif isa(op.rhs.owner, hlfir.DesignateOp):
     # Array value
     assert op.rhs.owner.indices is not None
@@ -829,7 +836,7 @@ def translate_assign(program_state: ProgramState, ctx: SSAValueCtx, op: hlfir.As
 
     storage_op=memref.Store.get(ctx[op.lhs], ctx[memref_reference], indexes_ssa)
     ops_list.append(storage_op)
-    return expr_ops+ops_list
+    return expr_lhs_ops+expr_rhs_ops+ops_list
   else:
     assert False
 
