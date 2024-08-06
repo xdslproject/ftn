@@ -1232,6 +1232,11 @@ def translate_declare(program_state: ProgramState, ctx: SSAValueCtx, op: hlfir.D
     # This is an allocatable array, we will handle this on the allocation
     return []
 
+  if len(op.results[0].uses) == 0 and len(op.results[1].uses) == 0:
+    # This is never used in the code, Flang seems to generate the load
+    # for global arrays regardless and therefore just ignore then
+    return []
+
   if op.shape is None:
     return define_scalar_var(program_state, ctx, op)
   else:
