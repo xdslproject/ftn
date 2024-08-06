@@ -1,6 +1,7 @@
 from abc import ABC
 from enum import Enum
 import itertools
+from functools import reduce
 from typing import TypeVar, cast
 from dataclasses import dataclass
 from xdsl.dialects.experimental import fir, hlfir
@@ -76,6 +77,18 @@ class ProgramState:
     self.global_state=ComponentState()
     self.function_state=None
     self.fir_global_constants={}
+    self.is_in_global=False
+
+  def enterGlobal(self):
+    assert self.function_state is None
+    self.is_in_global=True
+
+  def leaveGlobal(self):
+    assert self.function_state is None
+    self.is_in_global=False
+
+  def isInGlobal(self):
+    return self.is_in_global
 
   def addFunctionDefinition(self, name, fn_def):
     assert name not in self.function_definitions.keys()
@@ -212,9 +225,14 @@ def translate_global(program_state, global_ctx, global_op: fir.Global):
   if global_op.sym_name.data == "_QQEnvironmentDefaults":return None
   assert len(global_op.regions) == 1
   assert len(global_op.regions[0].blocks) == 1
+
   ops_list=[]
+  program_state.enterGlobal()
   for op in global_op.regions[0].blocks[0].ops:
     ops_list+=translate_stmt(program_state, global_ctx, op)
+
+  program_state.leaveGlobal()
+
   if isa(global_op.type, fir.CharacterType):
     assert len(ops_list)==1
     rebuilt_global=llvm.GlobalOp(ops_list[0].global_type, global_op.sym_name, ops_list[0].linkage,
@@ -223,12 +241,13 @@ def translate_global(program_state, global_ctx, global_op: fir.Global):
     return rebuilt_global
   elif isa(global_op.type, fir.IntegerType) or isa(global_op.type, builtin.AnyFloat) or isa(global_op.type, fir.SequenceType):
     assert len(ops_list)==1
-    const_op=ops_list[0]
-    assert (isa(const_op, arith.Constant) or isa(const_op, memref.Alloc))
-    return_op=llvm.ReturnOp.build(operands=[const_op.results[0]])
-    return llvm.GlobalOp(global_op.type, global_op.sym_name, "internal",
+    global_contained_op=ops_list[0]
+    assert (isa(global_contained_op, arith.Constant) or isa(global_contained_op, llvm.ZeroOp))
+    return_op=llvm.ReturnOp.build(operands=[global_contained_op.results[0]])
+
+    return llvm.GlobalOp(global_contained_op.results[0].type, global_op.sym_name, "internal",
                       constant=global_op.constant,
-                      body=Region([Block([const_op, return_op])]))
+                      body=Region([Block([global_contained_op, return_op])]))
   else:
     return None
 
@@ -438,6 +457,8 @@ def try_translate_expr(program_state: ProgramState, ctx: SSAValueCtx, op: Operat
     return None
 
 def translate_zerobits(program_state: ProgramState, ctx: SSAValueCtx, op: fir.ZeroBits):
+  # This often appears in global regions for array declaration, if so then we need to
+  # handle differently as can not use a memref in LLVM global operations
   result_type=op.results[0].type
   assert isa(result_type, fir.SequenceType)
 
@@ -446,9 +467,18 @@ def translate_zerobits(program_state: ProgramState, ctx: SSAValueCtx, op: fir.Ze
   for d in result_type.shape.data:
     assert isa(d, builtin.IntegerAttr)
     array_sizes.append(d.value.data)
-  memref_alloc=memref.Alloc.get(base_type, shape=array_sizes)
-  ctx[op.results[0]]=memref_alloc.results[0]
-  return [memref_alloc]
+
+  if program_state.isInGlobal():
+    # Need to allocate as LLVM compatible operation
+    total_size=reduce((lambda x, y: x * y), array_sizes)
+    llvm_array_type=llvm.LLVMArrayType.from_size_and_type(total_size, base_type)
+    zero_op=llvm.ZeroOp(llvm_array_type)
+    ctx[op.results[0]]=zero_op.results[0]
+    return [zero_op]
+  else:
+    memref_alloc=memref.Alloc.get(base_type, shape=array_sizes)
+    ctx[op.results[0]]=memref_alloc.results[0]
+    return [memref_alloc]
 
 def translate_select(program_state: ProgramState, ctx: SSAValueCtx, op: arith.Select):
   if ctx.contains(op.results[0]): return []
@@ -1300,7 +1330,11 @@ def define_stack_array_var(program_state: ProgramState, ctx: SSAValueCtx,
 
   if isa(op.memref.owner, fir.AddressOf):
     # This is looking up a global array, we need to construct the memref from this
-    pass
+    addr_lookup=llvm.AddressOfOp(op.memref.owner.symbol, llvm.LLVMPointerType.opaque())
+    ops_list, ssa=generate_memref_from_llvm_ptr(addr_lookup.results[0], dim_sizes, fir_array_type.type)
+    ctx[op.results[0]] = ssa
+    ctx[op.results[1]] = ssa
+    return [addr_lookup]+ops_list
   elif isa(op.memref.owner, fir.Alloca):
     # Issue an allocation on the stack
     # Reverse the indicies as Fortran and C/MLIR are opposite in terms of
@@ -1313,6 +1347,45 @@ def define_stack_array_var(program_state: ProgramState, ctx: SSAValueCtx,
     return [memref_alloca_op]
   else:
     assert False
+
+def generate_memref_from_llvm_ptr(llvm_ptr_in_ssa, dim_sizes, target_type):
+  # Builds a memref from an LLVM pointer. This is required if we are working with
+  # global arrays, as they are llvm.array, and the pointer is grabbed from that and
+  # then the memref constructed
+  ptr_type=llvm.LLVMPointerType.opaque()
+
+  array_type=llvm.LLVMArrayType.from_size_and_type(builtin.IntAttr(len(dim_sizes)), builtin.i64)
+  struct_type=llvm.LLVMStructType.from_type_list([ptr_type, ptr_type, builtin.i64, array_type, array_type])
+
+  undef_memref_struct_op=llvm.UndefOp.create(result_types=[struct_type])
+  insert_alloc_ptr_op=llvm.InsertValueOp.create(properties={"position":  builtin.DenseArrayBase.from_list(builtin.i64, [0])},
+    operands=[undef_memref_struct_op.results[0], llvm_ptr_in_ssa], result_types=[struct_type])
+  insert_aligned_ptr_op=llvm.InsertValueOp.create(properties={"position":  builtin.DenseArrayBase.from_list(builtin.i64, [1])},
+    operands=[insert_alloc_ptr_op.results[0], llvm_ptr_in_ssa], result_types=[struct_type])
+
+  offset_op=arith.Constant.from_int_and_width(0, 64)
+  insert_offset_op=llvm.InsertValueOp.create(properties={"position":  builtin.DenseArrayBase.from_list(builtin.i64, [2])},
+    operands=[insert_aligned_ptr_op.results[0], offset_op.results[0]], result_types=[struct_type])
+
+  ops_to_add=[undef_memref_struct_op, insert_alloc_ptr_op, insert_aligned_ptr_op, offset_op, insert_offset_op]
+
+  for idx, dim in enumerate(dim_sizes):
+    size_op=arith.Constant.from_int_and_width(dim, 64)
+    insert_size_op=llvm.InsertValueOp.create(properties={"position":  builtin.DenseArrayBase.from_list(builtin.i64, [3, idx])},
+      operands=[ops_to_add[-1].results[0], size_op.results[0]], result_types=[struct_type])
+
+    # One for dimension stride
+    stride_op=arith.Constant.from_int_and_width(1, 64)
+    insert_stride_op=llvm.InsertValueOp.create(properties={"position":  builtin.DenseArrayBase.from_list(builtin.i64, [4, idx])},
+      operands=[insert_size_op.results[0], stride_op.results[0]], result_types=[struct_type])
+
+    ops_to_add+=[size_op, insert_size_op, stride_op, insert_stride_op]
+
+  target_memref_type=memref.MemRefType(target_type, dim_sizes)
+
+  unrealised_conv_cast_op=builtin.UnrealizedConversionCastOp.create(operands=[insert_stride_op.results[0]], result_types=[target_memref_type])
+  ops_to_add.append(unrealised_conv_cast_op)
+  return ops_to_add, unrealised_conv_cast_op.results[0]
 
 def define_scalar_var(program_state: ProgramState, ctx: SSAValueCtx, op: hlfir.DeclareOp):
   if ctx.contains(op.results[0]):
