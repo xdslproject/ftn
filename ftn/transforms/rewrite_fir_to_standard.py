@@ -586,14 +586,19 @@ def translate_convert(program_state: ProgramState, ctx: SSAValueCtx, op: fir.Con
       ctx[op.results[0]]=ctx[op.value]
 
   if isa(in_type, fir.ReferenceType) and isa(out_type, fir.ReferenceType):
-    # Converting to an LLVM pointer
-    assert isa(out_type.type, builtin.IntegerType) and out_type.type.width.data == 8
-    # The element type is an LLVM array, we hard code this to be size 1 here which is OK as it just needs to
-    # grab the starting pointer to this
-    get_element_ptr=llvm.GEPOp(ctx[op.value], [0,0], result_type=llvm.LLVMPointerType.opaque(),
-                      pointee_type=llvm.LLVMArrayType.from_size_and_type(1, builtin.IntegerType(8)))
-    ctx[op.results[0]]=get_element_ptr.results[0]
-    new_conv=[get_element_ptr]
+    if isa(out_type.type, builtin.IntegerType) and out_type.type.width.data == 8:
+      # Converting to an LLVM pointer
+      # The element type is an LLVM array, we hard code this to be size 1 here which is OK as it just needs to
+      # grab the starting pointer to this
+      get_element_ptr=llvm.GEPOp(ctx[op.value], [0,0], result_type=llvm.LLVMPointerType.opaque(),
+                        pointee_type=llvm.LLVMArrayType.from_size_and_type(1, builtin.IntegerType(8)))
+      ctx[op.results[0]]=get_element_ptr.results[0]
+      new_conv=[get_element_ptr]
+    elif isa(out_type.type, fir.SequenceType) and isa(in_type.type, fir.SequenceType):
+      assert out_type.type.type == in_type.type.type
+      # Just pass through, this is going from one sequence type to another wrt shape
+      ctx[op.results[0]]=ctx[op.value]
+      new_conv=[]
 
   if isa(in_type, fir.HeapType) and isa(out_type, fir.ReferenceType):
     # When passing arrays to subroutines will box_addr to a heaptype, then convert
