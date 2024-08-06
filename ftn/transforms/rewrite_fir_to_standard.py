@@ -811,24 +811,24 @@ def translate_store(program_state: ProgramState, ctx: SSAValueCtx, op: fir.Store
           if upper_bound_val is not None:
             assert upper_load_ssa is None
             assert upper_load_ops is None
-            dim_starts.append(upper_bound_val)
+            dim_ends.append(upper_bound_val)
           else:
             assert upper_load_ssa is not None
             assert upper_load_ops is not None
             ops_list+=upper_load_ops
-            dim_starts.append(upper_load_ssa)
+            dim_ends.append(upper_load_ssa)
             ctx[upper_load_ssa]=upper_load_ssa
 
           lower_bound_val, lower_load_ssa, lower_load_ops=handle_array_size_lu_bound(program_state, ctx, size_op.lhs.owner.rhs.owner, size_op.lhs.owner.rhs)
           if lower_bound_val is not None:
             assert lower_load_ssa is None
             assert lower_load_ops is None
-            dim_ends.append(lower_bound_val)
+            dim_starts.append(lower_bound_val)
           else:
             assert lower_load_ssa is not None
             assert lower_load_ops is not None
             ops_list+=lower_load_ops
-            dim_ends.append(lower_load_ssa)
+            dim_starts.append(lower_load_ssa)
             ctx[lower_load_ssa]=lower_load_ssa
 
           if lower_bound_val is not None and upper_bound_val is not None:
