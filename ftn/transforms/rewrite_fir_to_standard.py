@@ -269,6 +269,8 @@ def convert_fir_type_to_standard(fir_type, ref_as_mem_ref=True):
         dim_sizes.append(shape_el.value.data)
       else:
         dim_sizes.append(-1)
+    # Reverse the sizes to go from Fortran to C allocation semantics
+    dim_sizes.reverse()
     return memref.MemRefType(base_t, dim_sizes, builtin.NoneAttr(), builtin.NoneAttr())
   else:
     return fir_type
@@ -595,10 +597,21 @@ def translate_convert(program_state: ProgramState, ctx: SSAValueCtx, op: fir.Con
       ctx[op.results[0]]=get_element_ptr.results[0]
       new_conv=[get_element_ptr]
     elif isa(out_type.type, fir.SequenceType) and isa(in_type.type, fir.SequenceType):
+      # Converting between two shapes in the array
       assert out_type.type.type == in_type.type.type
-      # Just pass through, this is going from one sequence type to another wrt shape
-      ctx[op.results[0]]=ctx[op.value]
-      new_conv=[]
+      shape_size=[]
+      for s in out_type.type.shape.data:
+        if isa(s, fir.DeferredAttr):
+          shape_size.append(-1)
+        else:
+          shape_size.append(s.value.data)
+      # Reverse shape_size to get it from Fortran allocation to C/MLIR allocation
+      shape_size.reverse()
+      target_type=memref.MemRefType(out_type.type.type, shape_size)
+      cast_op=memref.Cast.get(ctx[op.value], target_type)
+
+      ctx[op.results[0]]=cast_op.results[0]
+      new_conv=[cast_op]
 
   if isa(in_type, fir.HeapType) and isa(out_type, fir.ReferenceType):
     # When passing arrays to subroutines will box_addr to a heaptype, then convert
@@ -1613,6 +1626,7 @@ class RewriteRelativeBranch(RewritePattern):
   @op_type_rewrite_pattern
   def match_and_rewrite(self, op: ftn_relative_cf.Branch, rewriter: PatternRewriter, /):
     containing_fn_name=op.function_name.data
+    if containing_fn_name == "_QQmain": containing_fn_name="main"
     assert containing_fn_name in self.functions.keys()
     assert len(self.functions[containing_fn_name].regions[0].blocks) > op.successor.value.data
     cf_branch_op=cf.Branch(self.functions[containing_fn_name].regions[0].blocks[op.successor.value.data], *op.arguments)
@@ -1625,6 +1639,7 @@ class RewriteRelativeConditionalBranch(RewritePattern):
   @op_type_rewrite_pattern
   def match_and_rewrite(self, op: ftn_relative_cf.ConditionalBranch, rewriter: PatternRewriter, /):
     containing_fn_name=op.function_name.data
+    if containing_fn_name == "_QQmain": containing_fn_name="main"
     assert containing_fn_name in self.functions.keys()
     assert len(self.functions[containing_fn_name].regions[0].blocks) > op.then_block.value.data
     assert len(self.functions[containing_fn_name].regions[0].blocks) > op.else_block.value.data
