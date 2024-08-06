@@ -1360,6 +1360,11 @@ def generate_memref_from_llvm_ptr(llvm_ptr_in_ssa, dim_sizes, target_type):
   # then the memref constructed
   ptr_type=llvm.LLVMPointerType.opaque()
 
+  # Reverse the indicies as Fortran and C/MLIR are opposite in terms of
+  # the order of the contiguous dimension (F is least, whereas C/MLIR is highest)
+  dim_sizes=dim_sizes.copy()
+  dim_sizes.reverse()
+
   array_type=llvm.LLVMArrayType.from_size_and_type(builtin.IntAttr(len(dim_sizes)), builtin.i64)
   struct_type=llvm.LLVMStructType.from_type_list([ptr_type, ptr_type, builtin.i64, array_type, array_type])
 
