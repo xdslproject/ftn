@@ -39,8 +39,10 @@ class ArrayDescription:
     self.dim_ends=dim_ends
 
 class ComponentState:
-  def __init__(self, fn_name=None):
+  def __init__(self, fn_name=None, module_name=None, fn_identifier=None):
     self.fn_name=fn_name
+    self.module_name=module_name
+    self.fn_identifier=fn_identifier
     self.array_info={}
 
 class ArgumentDefinition:
@@ -79,9 +81,9 @@ class ProgramState:
     assert name not in self.function_definitions.keys()
     self.function_definitions[name]=fn_def
 
-  def enterFunction(self, fn_name):
+  def enterFunction(self, fn_name, function_identifier, module_name=None):
     assert self.function_state is None
-    self.function_state=ComponentState(fn_name)
+    self.function_state=ComponentState(fn_name, module_name, function_identifier)
 
   def getCurrentFnState(self):
     assert self.function_state is not None
@@ -139,8 +141,8 @@ class GatherFunctionInformation(Visitor):
         arg_name=declare_op.uniq_name.data
         # This is a bit strange, in a module we have modulenamePprocname, however
         # flang then uses modulenameFprocname for array literal string names
-        assert fn_name.replace("P", "F")+"E" in arg_name
-        arg_name=arg_name.split(fn_name.replace("P", "F")+"E")[1]
+        #assert fn_name.replace("P", "F")+"E" in arg_name
+        #arg_name=arg_name.split(fn_name.replace("P", "F")+"E")[1]
         arg_intent=self.map_ftn_attrs_to_intent(declare_op.fortran_attrs)
         arg_def=ArgumentDefinition(arg_name, is_scalar, arg_type, arg_intent)
         fn_def.add_arg_def(arg_def)
@@ -207,7 +209,7 @@ def translate_program(program_state: ProgramState, input_module: builtin.ModuleO
     return builtin.ModuleOp(body)
 
 def translate_global(program_state, global_ctx, global_op: fir.Global):
-  # For now just support global strings
+  if global_op.sym_name.data == "_QQEnvironmentDefaults":return None
   assert len(global_op.regions) == 1
   assert len(global_op.regions[0].blocks) == 1
   ops_list=[]
@@ -219,10 +221,10 @@ def translate_global(program_state, global_ctx, global_op: fir.Global):
                       ops_list[0].addr_space.value.data, global_op.constant, value=ops_list[0].value,
                       unnamed_addr=ops_list[0].unnamed_addr.value.data)
     return rebuilt_global
-  elif isa(global_op.type, fir.IntegerType) or isa(global_op.type, builtin.AnyFloat):
+  elif isa(global_op.type, fir.IntegerType) or isa(global_op.type, builtin.AnyFloat) or isa(global_op.type, fir.SequenceType):
     assert len(ops_list)==1
     const_op=ops_list[0]
-    assert isa(const_op, arith.Constant)
+    assert (isa(const_op, arith.Constant) or isa(const_op, memref.Alloc))
     return_op=llvm.ReturnOp.build(operands=[const_op.results[0]])
     return llvm.GlobalOp(global_op.type, global_op.sym_name, "internal",
                       constant=global_op.constant,
@@ -253,18 +255,26 @@ def convert_fir_type_to_standard(fir_type, ref_as_mem_ref=True):
     return fir_type
 
 def translate_function(program_state: ProgramState, ctx: SSAValueCtx, fn: func.FuncOp):
-  fn_name=clean_func_name(fn.sym_name.data)
+  within_module=fn.sym_name.data.startswith("_QM")
+  fn_identifier=clean_func_name(fn.sym_name.data)
+
+  if within_module:
+    module_name=fn_identifier.split("P")[0]
+    fn_name=fn_identifier.split("P")[1]
+  else:
+    module_name=None
+    fn_name=fn_identifier
 
   body = Region()
   if len(fn.body.blocks) > 0:
     # This is a function with a body, the input types come from the block as
     # we will manipulate these to pass constants if possible
-    program_state.enterFunction(fn_name)
+    program_state.enterFunction(fn_name, fn_identifier, module_name)
     fn_in_arg_types=[]
     for idx, arg in enumerate(fn.args):
       fir_type=arg.type
-      if (program_state.function_definitions[fn_name].args[idx].is_scalar and
-          program_state.function_definitions[fn_name].args[idx].intent == ArgIntent.IN):
+      if (program_state.function_definitions[fn_identifier].args[idx].is_scalar and
+          program_state.function_definitions[fn_identifier].args[idx].intent == ArgIntent.IN):
         # This is a scalar in, therefore it's just the constant type (don't encode as a memref)
         if isa(fir_type, fir.ReferenceType):
           fn_in_arg_types.append(fir_type.type)
@@ -302,14 +312,13 @@ def translate_function(program_state: ProgramState, ctx: SSAValueCtx, fn: func.F
   for rt in fn.function_type.outputs.data:
     return_types.append(convert_fir_type_to_standard_if_needed(rt))
 
-  fn_name=fn.sym_name
-
-  if fn_name.data == "_QQmain":
-    fn_name="main"
+  fn_identifier=fn.sym_name
+  if fn_identifier.data == "_QQmain":
+    fn_identifier="main"
 
   new_fn_type=builtin.FunctionType.from_lists(fn_in_arg_types, return_types)
 
-  new_func=func.FuncOp(fn_name, new_fn_type, body, fn.sym_visibility, arg_attrs=fn.arg_attrs, res_attrs=fn.res_attrs)
+  new_func=func.FuncOp(fn_identifier, new_fn_type, body, fn.sym_visibility, arg_attrs=fn.arg_attrs, res_attrs=fn.res_attrs)
   return new_func
 
 def convert_fir_type_to_standard_if_needed(fir_type):
@@ -413,7 +422,7 @@ def try_translate_expr(program_state: ProgramState, ctx: SSAValueCtx, op: Operat
   elif isa(op, hlfir.NoReassocOp) or isa(op, fir.NoReassoc):
     return translate_reassoc(program_state, ctx, op)
   elif isa(op, fir.ZeroBits):
-    return []
+    return translate_zerobits(program_state, ctx, op)
   elif isa(op, fir.BoxAddr):
     # Ignore box address, just process argument and link to results of that
     expr_list=translate_expr(program_state, ctx, op.val)
@@ -427,6 +436,19 @@ def try_translate_expr(program_state: ProgramState, ctx: SSAValueCtx, op: Operat
       if isa(op, math_op):
         return translate_math_operation(program_state, ctx, op)
     return None
+
+def translate_zerobits(program_state: ProgramState, ctx: SSAValueCtx, op: fir.ZeroBits):
+  result_type=op.results[0].type
+  assert isa(result_type, fir.SequenceType)
+
+  base_type=result_type.type
+  array_sizes=[]
+  for d in result_type.shape.data:
+    assert isa(d, builtin.IntegerAttr)
+    array_sizes.append(d.value.data)
+  memref_alloc=memref.Alloc.get(base_type, shape=array_sizes)
+  ctx[op.results[0]]=memref_alloc.results[0]
+  return [memref_alloc]
 
 def translate_select(program_state: ProgramState, ctx: SSAValueCtx, op: arith.Select):
   if ctx.contains(op.results[0]): return []
@@ -600,22 +622,22 @@ def translate_conditional(program_state: ProgramState, ctx: SSAValueCtx, op: fir
   return conditional_expr_ops+[scf_if]
 
 def translate_branch(program_state: ProgramState, ctx: SSAValueCtx, op: cf.Branch):
-  current_fn_name=program_state.getCurrentFnState().fn_name
-  target_block_index=program_state.function_definitions[current_fn_name].blocks.index(op.successor)
+  current_fn_identifier=program_state.getCurrentFnState().fn_identifier
+  target_block_index=program_state.function_definitions[current_fn_identifier].blocks.index(op.successor)
 
   ops_list=[]
   block_ssas=[]
   for arg in op.arguments:
     ops_list+=translate_expr(program_state, ctx, arg)
     block_ssas.append(ctx[arg])
-  relative_branch=ftn_relative_cf.Branch(current_fn_name, target_block_index, *block_ssas)
+  relative_branch=ftn_relative_cf.Branch(current_fn_identifier, target_block_index, *block_ssas)
   ops_list.append(relative_branch)
   return ops_list
 
 def translate_conditional_branch(program_state: ProgramState, ctx: SSAValueCtx, op: cf.ConditionalBranch):
-  current_fn_name=program_state.getCurrentFnState().fn_name
-  then_block_index=program_state.function_definitions[current_fn_name].blocks.index(op.then_block)
-  else_block_index=program_state.function_definitions[current_fn_name].blocks.index(op.else_block)
+  current_fn_identifier=program_state.getCurrentFnState().fn_identifier
+  then_block_index=program_state.function_definitions[current_fn_identifier].blocks.index(op.then_block)
+  else_block_index=program_state.function_definitions[current_fn_identifier].blocks.index(op.else_block)
 
   ops_list=[]
   ops_list+=translate_expr(program_state, ctx, op.cond)
@@ -629,7 +651,7 @@ def translate_conditional_branch(program_state: ProgramState, ctx: SSAValueCtx, 
     ops_list+=translate_expr(program_state, ctx, arg)
     else_block_ssas.append(ctx[arg])
 
-  relative_cond_branch=ftn_relative_cf.ConditionalBranch(current_fn_name, ctx[op.cond], then_block_index, then_block_ssas, else_block_index, else_block_ssas)
+  relative_cond_branch=ftn_relative_cf.ConditionalBranch(current_fn_identifier, ctx[op.cond], then_block_index, then_block_ssas, else_block_index, else_block_ssas)
   ops_list.append(relative_cond_branch)
 
   return ops_list
@@ -887,8 +909,6 @@ def translate_store(program_state: ProgramState, ctx: SSAValueCtx, op: fir.Store
 
       fn_name=program_state.getCurrentFnState().fn_name
       array_name=op.memref.owner.uniq_name.data
-      assert fn_name.replace("P", "F")+"E" in array_name
-      array_name=array_name.split(fn_name.replace("P", "F")+"E")[1]
       # Store information about the array - the size, and lower and upper bounds as we need this when accessing elements
       program_state.getCurrentFnState().array_info[array_name]=ArrayDescription(array_name, dim_sizes, dim_starts, dim_ends)
 
@@ -915,7 +935,6 @@ def array_access_components(program_state: ProgramState, ctx: SSAValueCtx, op:hl
   # This will generate the required operations and SSA for index accesses to an array, whether
   # this is storage or loading in the wider context. It will offset depending upon the logical
   # start index to the physical start index of 0
-  fn_name=program_state.getCurrentFnState().fn_name
   if isa(op.memref.owner, hlfir.DeclareOp):
     array_name=op.memref.owner.uniq_name.data
   elif isa(op.memref.owner, fir.Load):
@@ -923,9 +942,6 @@ def array_access_components(program_state: ProgramState, ctx: SSAValueCtx, op:hl
     array_name=op.memref.owner.memref.owner.uniq_name.data
   else:
     assert False
-
-  assert fn_name.replace("P", "F")+"E" in array_name
-  array_name=array_name.split(fn_name.replace("P", "F")+"E")[1]
 
   ops_list=[]
   indexes_ssa=[]
@@ -1208,10 +1224,7 @@ def translate_declare(program_state: ProgramState, ctx: SSAValueCtx, op: hlfir.D
       if ctx.contains(op.results[0]): return []
       ctx[op.results[0]]=ctx[op.memref]
       ctx[op.results[1]]=ctx[op.memref]
-      fn_name=program_state.getCurrentFnState().fn_name
       array_name=op.uniq_name.data
-      assert fn_name.replace("P", "F")+"E" in array_name
-      array_name=array_name.split(fn_name.replace("P", "F")+"E")[1]
       # Store information about the array - the size, and lower and upper bounds as we need this when accessing elements
       program_state.getCurrentFnState().array_info[array_name]=ArrayDescription(array_name, dim_sizes, dim_starts, dim_ends)
       return shape_expr_list
@@ -1220,7 +1233,7 @@ def translate_declare(program_state: ProgramState, ctx: SSAValueCtx, op: hlfir.D
 
 def dims_has_static_size(dims):
   for dim in dims:
-    if dim is not int: return False
+    if not isa(dim, int): return False
   return True
 
 def gather_static_shape_dims_from_shape(shape_op: fir.Shape):
@@ -1281,21 +1294,25 @@ def define_stack_array_var(program_state: ProgramState, ctx: SSAValueCtx,
     assert isa(type_size.type, builtin.IntegerType)
     assert type_size.value.data == dim_size
 
-  fn_name=program_state.getCurrentFnState().fn_name
   array_name=op.uniq_name.data
-  assert fn_name.replace("P", "F")+"E" in array_name
-  array_name=array_name.split(fn_name.replace("P", "F")+"E")[1]
   # Store information about the array - the size, and lower and upper bounds as we need this when accessing elements
   program_state.getCurrentFnState().array_info[array_name]=ArrayDescription(array_name, dim_sizes, dim_starts, dim_ends)
 
-  # Reverse the indicies as Fortran and C/MLIR are opposite in terms of
-  # the order of the contiguous dimension (F is least, whereas C/MLIR is highest)
-  dim_sizes_reversed=dim_sizes.copy()
-  dim_sizes_reversed.reverse()
-  memref_alloca_op=memref.Alloca.get(fir_array_type.type, shape=dim_ssa_reversed)
-  ctx[op.results[0]] = memref_alloca_op.results[0]
-  ctx[op.results[1]] = memref_alloca_op.results[0]
-  return [memref_alloca_op]
+  if isa(op.memref.owner, fir.AddressOf):
+    # This is looking up a global array, we need to construct the memref from this
+    pass
+  elif isa(op.memref.owner, fir.Alloca):
+    # Issue an allocation on the stack
+    # Reverse the indicies as Fortran and C/MLIR are opposite in terms of
+    # the order of the contiguous dimension (F is least, whereas C/MLIR is highest)
+    dim_sizes_reversed=dim_sizes.copy()
+    dim_sizes_reversed.reverse()
+    memref_alloca_op=memref.Alloca.get(fir_array_type.type, shape=dim_sizes_reversed)
+    ctx[op.results[0]] = memref_alloca_op.results[0]
+    ctx[op.results[1]] = memref_alloca_op.results[0]
+    return [memref_alloca_op]
+  else:
+    assert False
 
 def define_scalar_var(program_state: ProgramState, ctx: SSAValueCtx, op: hlfir.DeclareOp):
   if ctx.contains(op.results[0]):
