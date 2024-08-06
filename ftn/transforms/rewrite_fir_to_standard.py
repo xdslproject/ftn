@@ -1183,12 +1183,13 @@ def translate_declare(program_state: ProgramState, ctx: SSAValueCtx, op: hlfir.D
       dim_sizes, dim_starts, dim_ends=gather_static_shape_dims_from_shapeshift(op.shape.owner)
     else:
       assert False
+
     static_size=dims_has_static_size(dim_sizes)
     if static_size:
       return define_stack_array_var(program_state, ctx, op, dim_sizes, dim_starts, dim_ends)
     elif isa(op.memref, BlockArgument) and isa(op.results[1].type, fir.ReferenceType):
       shape_expr_list=[]
-      for ds in itertools.chain(dim_starts, dim_ends):
+      for ds in dim_starts:
         if not isa(ds, int) and ds is not None:
           shape_expr_list+=translate_expr(program_state, ctx, ds)
       # This is an array passed into a function
@@ -1230,7 +1231,9 @@ def gather_static_shape_dims_from_shapeshift(shape_op: fir.ShapeShift):
   dim_starts=[]
   dim_ends=[]
   assert shape_op.pairs is not None
-  for low_arg, high_arg in itertools.pairwise(shape_op.pairs):
+  # Now iterate in pairs of low, high e.g. (low, high), (low, high) etc
+  paired_vals=list(zip(shape_op.pairs[::2], shape_op.pairs[1::2]))
+  for low_arg, high_arg in paired_vals:
     if isa(low_arg.owner, arith.Constant):
       assert isa(low_arg.owner.result.type, builtin.IndexType)
       dim_starts.append(low_arg.owner.value.value.data)
@@ -1248,7 +1251,7 @@ def gather_static_shape_dims_from_shapeshift(shape_op: fir.ShapeShift):
     else:
       dim_ends.append(None)
 
-  return dim_sizes, dim_starts, dim_sizes
+  return dim_sizes, dim_starts, dim_ends
 
 def define_stack_array_var(program_state: ProgramState, ctx: SSAValueCtx,
       op: hlfir.DeclareOp, dim_sizes: list, dim_starts: list, dim_ends: list):
