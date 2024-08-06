@@ -1233,8 +1233,9 @@ def translate_declare(program_state: ProgramState, ctx: SSAValueCtx, op: hlfir.D
     return []
 
   if len(op.results[0].uses) == 0 and len(op.results[1].uses) == 0:
-    # This is never used in the code, Flang seems to generate the load
-    # for global arrays regardless and therefore just ignore then
+    # Some declare ops are never actually used in the code, Flang seems to generate
+    # the declare for global arrays regardless in some functions and therefore
+    # we ignore them if the declare doesn't have any uses
     return []
 
   if op.shape is None:
