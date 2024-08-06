@@ -686,7 +686,11 @@ def translate_load(program_state: ProgramState, ctx: SSAValueCtx, op: fir.Load):
     else:
       assert False
 
-    load_op=memref.Load.get(ctx[src_ssa], indexes_ssa)
+    # Reverse the indicies as Fortran and C/MLIR are opposite in terms of
+    # the order of the contiguous dimension (F is least, whereas C/MLIR is highest)
+    indexes_ssa_reversed=indexes_ssa.copy()
+    indexes_ssa_reversed.reverse()
+    load_op=memref.Load.get(ctx[src_ssa], indexes_ssa_reversed)
     ops_list.append(load_op)
     ctx[op.results[0]]=load_op.results[0]
     return ops_list
@@ -872,7 +876,11 @@ def translate_store(program_state: ProgramState, ctx: SSAValueCtx, op: fir.Store
       assert len(dim_sizes) == len(dim_starts) == len(dim_ends)
 
       # Now create memref, passing -1 as shape will make this deferred size
-      memref_allocation_op=memref_alloca_op=memref.Alloc.get(base_type, shape=[-1]*len(dim_ssas), dynamic_sizes=dim_ssas)
+      # Reverse the indicies as Fortran and C/MLIR are opposite in terms of
+      # the order of the contiguous dimension (F is least, whereas C/MLIR is highest)
+      dim_ssa_reversed=dim_ssas.copy()
+      dim_ssa_reversed.reverse()
+      memref_allocation_op=memref_alloca_op=memref.Alloc.get(base_type, shape=[-1]*len(dim_ssas), dynamic_sizes=dim_ssa_reversed)
       ops_list.append(memref_allocation_op)
       ctx[op.memref.owner.results[0]]=memref_allocation_op.results[0]
       ctx[op.memref.owner.results[1]]=memref_allocation_op.results[0]
@@ -1013,7 +1021,11 @@ def translate_assign(program_state: ProgramState, ctx: SSAValueCtx, op: hlfir.As
     else:
       assert False
 
-    storage_op=memref.Store.get(ctx[op.lhs], ctx[memref_reference], indexes_ssa)
+    # Reverse the indicies as Fortran and C/MLIR are opposite in terms of
+    # the order of the contiguous dimension (F is least, whereas C/MLIR is highest)
+    indexes_ssa_reversed=indexes_ssa.copy()
+    indexes_ssa_reversed.reverse()
+    storage_op=memref.Store.get(ctx[op.lhs], ctx[memref_reference], indexes_ssa_reversed)
     ops_list.append(storage_op)
     return expr_lhs_ops+ops_list
   else:
@@ -1276,7 +1288,11 @@ def define_stack_array_var(program_state: ProgramState, ctx: SSAValueCtx,
   # Store information about the array - the size, and lower and upper bounds as we need this when accessing elements
   program_state.getCurrentFnState().array_info[array_name]=ArrayDescription(array_name, dim_sizes, dim_starts, dim_ends)
 
-  memref_alloca_op=memref.Alloca.get(fir_array_type.type, shape=dim_sizes)
+  # Reverse the indicies as Fortran and C/MLIR are opposite in terms of
+  # the order of the contiguous dimension (F is least, whereas C/MLIR is highest)
+  dim_sizes_reversed=dim_sizes.copy()
+  dim_sizes_reversed.reverse()
+  memref_alloca_op=memref.Alloca.get(fir_array_type.type, shape=dim_ssa_reversed)
   ctx[op.results[0]] = memref_alloca_op.results[0]
   ctx[op.results[1]] = memref_alloca_op.results[0]
   return [memref_alloca_op]
