@@ -366,6 +366,8 @@ def try_translate_stmt(program_state: ProgramState, ctx: SSAValueCtx, op: Operat
     return translate_declare(program_state, ctx, op)
   elif isa(op, fir.DoLoop):
     return translate_do_loop(program_state, ctx, op)
+  elif isa(op, fir.IterateWhile):
+    return translate_iterate_while(program_state, ctx, op)
   elif isa(op, fir.Alloca):
     # Will only process this if it is an internal flag,
     # otherwise pick up as part of the declareop
@@ -436,6 +438,8 @@ def try_translate_expr(program_state: ProgramState, ctx: SSAValueCtx, op: Operat
   elif isa(op, fir.DoLoop):
     # Do loop can be either an expression or statement
     return translate_do_loop(program_state, ctx, op)
+  elif isa(op, fir.IterateWhile):
+    return translate_iterate_while(program_state, ctx, op)
   elif isa(op, hlfir.DeclareOp):
     return translate_declare(program_state, ctx, op)
   elif isa(op, arith.Cmpi) or isa(op, arith.Cmpf):
@@ -1210,6 +1214,82 @@ def translate_call(program_state: ProgramState, ctx: SSAValueCtx, op: fir.Call):
       ctx[ret_ssa]=alloca_scope_op.results[idx]
 
     return [alloca_scope_op]
+
+def translate_iterate_while(program_state: ProgramState, ctx: SSAValueCtx, op: fir.IterateWhile):
+  # FIR's iterate while is like the do loop as it has a numeric counter but it also has an i1
+  # flag to drive whether to continue (flag=true) or exit (flag=false). We map this to scf.While
+  # however it's a bit of a different operation, so we need to more manual things here to achieve this
+  if ctx.contains(op.results[1]):
+    for fir_result in op.results[1:]:
+      assert ctx.contains(fir_result)
+    return []
+
+  lower_bound_ops=translate_expr(program_state, ctx, op.lowerBound)
+  upper_bound_ops=translate_expr(program_state, ctx, op.upperBound)
+  step_ops=translate_expr(program_state, ctx, op.step)
+  iterate_in_ops=translate_expr(program_state, ctx, op.iterateIn)
+  initarg_ops=translate_expr(program_state, ctx, op.initArgs)
+
+  zero_const=create_index_constant(0)
+  # Will be true if smaller than zero, this is needed because if counting backwards
+  # then check it is larger or equal to the upper bound, otherwise it's smaller or equals
+  step_op_lt_zero=arith.Cmpi(ctx[op.step], zero_const, 2)
+  step_zero_check_ops=[zero_const, step_op_lt_zero]
+
+  assert len(op.regions)==1
+  assert len(op.regions[0].blocks)==1
+
+  arg_types=[builtin.IndexType(), builtin.i1, ctx[op.initArgs].type]
+
+  before_block = Block(arg_types=arg_types)
+
+  # Build the index check, the one to use depends on whether the step is positive or not
+  true_cmp_op=arith.Cmpi(before_block.args[0], ctx[op.upperBound], 5)
+  true_cmp_block=[true_cmp_op, scf.Yield(true_cmp_op)]
+  false_cmp_op=arith.Cmpi(before_block.args[0], ctx[op.upperBound], 3)
+  false_cmp_block=[false_cmp_op, scf.Yield(false_cmp_op)]
+  index_comparison=scf.If(step_op_lt_zero, builtin.i1, true_cmp_block, false_cmp_block)
+
+  # True if both are true, false otherwise (either the counter or bool can quit out of loop)
+  or_comparison=arith.AndI(index_comparison, before_block.args[1])
+  condition_op=scf.Condition(or_comparison, *before_block.args)
+
+  before_block.add_ops([index_comparison, or_comparison, condition_op])
+
+  after_block = Block(arg_types=arg_types)
+
+  for fir_arg, std_arg in zip(op.regions[0].blocks[0].args, after_block.args):
+    ctx[fir_arg]=std_arg
+
+  loop_body_ops=[]
+  for loop_op in op.regions[0].blocks[0].ops:
+    loop_body_ops+=translate_stmt(program_state, ctx, loop_op)
+
+  # This updates the loop counter
+  update_loop_idx=arith.Addi(after_block.args[0], ctx[op.step])
+
+  # Now we grab out the loop update to return, the true or false flag, and the initarg
+  yield_op=loop_body_ops[-1]
+  assert isa(yield_op, scf.Yield)
+  ssa_args=[update_loop_idx.results[0], yield_op.arguments[0], after_block.args[2]]
+
+  # Rebuilt yield with these new SSAs
+  new_yieldop=scf.Yield(*ssa_args)
+  del loop_body_ops[-1]
+  # Add new yield and the update loop counter to the block
+  after_block.add_ops(loop_body_ops+[update_loop_idx, new_yieldop])
+
+  while_return_types=[builtin.IndexType(), builtin.i1, ctx[op.initArgs]]
+
+  scf_while_loop=scf.While([ctx[op.lowerBound], ctx[op.iterateIn], ctx[op.initArgs]], arg_types, [before_block], [after_block])
+
+  # It is correct to have them this way round, in fir it's i1, index whereas here
+  # we have index, i1, index (and we ignore the last index)
+  ctx[op.results[0]]=scf_while_loop.results[1]
+  ctx[op.results[1]]=scf_while_loop.results[0]
+
+  return lower_bound_ops+upper_bound_ops+step_ops+step_zero_check_ops+iterate_in_ops+initarg_ops+[scf_while_loop]
+
 
 def translate_do_loop(program_state: ProgramState, ctx: SSAValueCtx, op: fir.DoLoop):
   if ctx.contains(op.results[1]):
