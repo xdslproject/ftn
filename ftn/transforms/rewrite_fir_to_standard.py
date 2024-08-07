@@ -462,6 +462,10 @@ def try_translate_expr(program_state: ProgramState, ctx: SSAValueCtx, op: Operat
     return expr_list
   elif isa(op, arith.Select):
     return translate_select(program_state, ctx, op)
+  elif isa(op, fir.Embox):
+    expr_ops=translate_expr(program_state, ctx, op.memref)
+    ctx[op.results[0]]=ctx[expr_ops[-1].results[0]]
+    return expr_ops
   else:
     for math_op in math.Math.operations:
       # Check to see if this is a math operation
@@ -473,13 +477,15 @@ def translate_zerobits(program_state: ProgramState, ctx: SSAValueCtx, op: fir.Ze
   # This often appears in global regions for array declaration, if so then we need to
   # handle differently as can not use a memref in LLVM global operations
   result_type=op.results[0].type
-  assert isa(result_type, fir.SequenceType)
-
-  base_type=result_type.type
-  array_sizes=[]
-  for d in result_type.shape.data:
-    assert isa(d, builtin.IntegerAttr)
-    array_sizes.append(d.value.data)
+  if isa(result_type, fir.SequenceType):
+    base_type=result_type.type
+    array_sizes=[]
+    for d in result_type.shape.data:
+      assert isa(d, builtin.IntegerAttr)
+      array_sizes.append(d.value.data)
+  else:
+    base_type=result_type
+    array_sizes=[1]
 
   if program_state.isInGlobal():
     # Need to allocate as LLVM compatible operation
