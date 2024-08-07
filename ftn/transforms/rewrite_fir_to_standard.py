@@ -1378,6 +1378,13 @@ def generate_memref_from_llvm_ptr(llvm_ptr_in_ssa, dim_sizes, target_type):
   # then the memref constructed
   ptr_type=llvm.LLVMPointerType.opaque()
 
+  offsets=[1]
+  if len(dim_sizes) > 1:
+    for d in dim_sizes[:-1]:
+      offsets.append(d * offsets[-1])
+
+  offsets.reverse()
+
   # Reverse the indicies as Fortran and C/MLIR are opposite in terms of
   # the order of the contiguous dimension (F is least, whereas C/MLIR is highest)
   dim_sizes=dim_sizes.copy()
@@ -1404,7 +1411,7 @@ def generate_memref_from_llvm_ptr(llvm_ptr_in_ssa, dim_sizes, target_type):
       operands=[ops_to_add[-1].results[0], size_op.results[0]], result_types=[struct_type])
 
     # One for dimension stride
-    stride_op=arith.Constant.from_int_and_width(1, 64)
+    stride_op=arith.Constant.from_int_and_width(offsets[idx], 64)
     insert_stride_op=llvm.InsertValueOp.create(properties={"position":  builtin.DenseArrayBase.from_list(builtin.i64, [4, idx])},
       operands=[insert_size_op.results[0], stride_op.results[0]], result_types=[struct_type])
 
