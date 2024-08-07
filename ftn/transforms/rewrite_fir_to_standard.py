@@ -45,6 +45,10 @@ class ComponentState:
     self.module_name=module_name
     self.fn_identifier=fn_identifier
     self.array_info={}
+    self.stack_vars=[]
+
+  def addStackVar(self, stack_var):
+    self.stack_vars.append(stack_var)
 
 class ArgumentDefinition:
   def __init__(self, name, is_scalar, arg_type, intent, ):
@@ -321,6 +325,13 @@ def translate_function(program_state: ProgramState, ctx: SSAValueCtx, fn: func.F
 
       new_block.add_ops(ops_list)
       body.add_block(new_block)
+
+    assert isa(body.blocks[-1].ops.last, func.Return)
+    dealloc_ops=[]
+    for alloca_ssa in program_state.getCurrentFnState().stack_vars:
+      dealloc_ops.append(memref.Dealloc.get(alloca_ssa))
+    if len(dealloc_ops) > 0:
+      body.blocks[-1].insert_ops_before(dealloc_ops, body.blocks[-1].ops.last)
     program_state.leaveFunction()
   else:
     # This is the definition of an external function, need to resolve input types
@@ -1112,17 +1123,18 @@ def handle_call_argument(program_state: ProgramState, ctx: SSAValueCtx, fn_name:
       # This is a scalar with intent in, therefore just pass the constant
       ops_list=translate_expr(program_state, ctx, arg.owner.source)
       ctx[arg]=ctx[arg.owner.source]
-      return ops_list
+      return ops_list, None
     else:
       # Otherwise we need to pack the constant into a memref and pass this
       assert isa(arg_defn.arg_type, fir.ReferenceType)
       ops_list=translate_expr(program_state, ctx, arg.owner.source)
-      memref_alloca_op=memref.Alloca.get(arg_defn.arg_type.type)
+      # Alloca
+      memref_alloca_op=memref.Alloc.get(arg_defn.arg_type.type)
       zero_val=arith.Constant.create(properties={"value": builtin.IntegerAttr.from_index_int_value(0)},
                                              result_types=[builtin.IndexType()])
       storage_op=memref.Store.get(ctx[arg.owner.source], memref_alloca_op.results[0], [zero_val])
       ctx[arg]=memref_alloca_op.results[0]
-      return ops_list+[memref_alloca_op, zero_val, storage_op]
+      return ops_list+[memref_alloca_op, zero_val, storage_op], memref_alloca_op.results[0]
   else:
     # Here passing a variable (array or scalar variable). This is a little confusing, as we
     # allow the translate_expr to handle it, but if the function accepts an integer due to
@@ -1142,7 +1154,7 @@ def handle_call_argument(program_state: ProgramState, ctx: SSAValueCtx, fn_name:
         del ctx[arg]
         ctx[arg]=load_op.results[0]
         ops_list+=[zero_val, load_op]
-    return ops_list
+    return ops_list, None
 
 def translate_call(program_state: ProgramState, ctx: SSAValueCtx, op: fir.Call):
   if len(op.results) > 0 and ctx.contains(op.results[0]): return []
@@ -1150,9 +1162,13 @@ def translate_call(program_state: ProgramState, ctx: SSAValueCtx, op: fir.Call):
   fn_name=clean_func_name(op.callee.string_value())
 
   arg_ops=[]
+  arg_cleanup_ssa=[]
   for idx, arg in enumerate(op.args):
     # This is more complex, as constants are passed directly or packed in a temporary
-    arg_ops+=handle_call_argument(program_state, ctx, fn_name, arg, idx)
+    specific_arg_ops, specific_arg_cleanup_ssa=handle_call_argument(program_state, ctx, fn_name, arg, idx)
+    arg_ops+=specific_arg_ops
+    if specific_arg_cleanup_ssa is not None:
+      arg_cleanup_ssa.append(specific_arg_cleanup_ssa)
 
   arg_ssa=[]
   for arg in op.args:
@@ -1166,10 +1182,14 @@ def translate_call(program_state: ProgramState, ctx: SSAValueCtx, op: fir.Call):
 
   call_op=func.Call(op.callee, arg_ssa, return_types)
 
+  cleanup_ops=[]
+  for cleanup_ssa in arg_cleanup_ssa:
+    cleanup_ops.append(memref.Dealloc.get(cleanup_ssa))
+
   for idx, ret_ssa in enumerate(return_ssas):
     ctx[ret_ssa]=call_op.results[idx]
 
-  return arg_ops+[call_op]
+  return arg_ops+[call_op]+cleanup_ops
 
 def translate_do_loop(program_state: ProgramState, ctx: SSAValueCtx, op: fir.DoLoop):
   if ctx.contains(op.results[1]):
@@ -1241,7 +1261,9 @@ def translate_alloca(program_state: ProgramState, ctx: SSAValueCtx, op: fir.Allo
   for use in op.results[0].uses:
     if isa(use.operation, hlfir.DeclareOp): return[]
 
-  memref_alloca_op=memref.Alloca.get(op.in_type)
+  #Alloca
+  memref_alloca_op=memref.Alloc.get(op.in_type)
+  program_state.getCurrentFnState().addStackVar(memref_alloca_op.results[0])
   ctx[op.results[0]]=memref_alloca_op.results[0]
   return [memref_alloca_op]
 
@@ -1365,7 +1387,9 @@ def define_stack_array_var(program_state: ProgramState, ctx: SSAValueCtx,
     # the order of the contiguous dimension (F is least, whereas C/MLIR is highest)
     dim_sizes_reversed=dim_sizes.copy()
     dim_sizes_reversed.reverse()
-    memref_alloca_op=memref.Alloca.get(fir_array_type.type, shape=dim_sizes_reversed)
+    #alloca
+    memref_alloca_op=memref.Alloc.get(fir_array_type.type, shape=dim_sizes_reversed)
+    program_state.getCurrentFnState().addStackVar(memref_alloca_op.results[0])
     ctx[op.results[0]] = memref_alloca_op.results[0]
     ctx[op.results[1]] = memref_alloca_op.results[0]
     return [memref_alloca_op]
@@ -1432,7 +1456,9 @@ def define_scalar_var(program_state: ProgramState, ctx: SSAValueCtx, op: hlfir.D
     if isa(allocation_op, fir.Alloca):
       assert isa(allocation_op.results[0].type, fir.ReferenceType)
       assert allocation_op.results[0].type.type == allocation_op.in_type
-      memref_alloca_op=memref.Alloca.get(allocation_op.in_type)
+      # alloca
+      memref_alloca_op=memref.Alloc.get(allocation_op.in_type)
+      program_state.getCurrentFnState().addStackVar(memref_alloca_op.results[0])
       ctx[op.results[0]] = memref_alloca_op.results[0]
       ctx[op.results[1]] = memref_alloca_op.results[0]
       return [memref_alloca_op]
