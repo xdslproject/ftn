@@ -470,8 +470,15 @@ def try_translate_expr(program_state: ProgramState, ctx: SSAValueCtx, op: Operat
     return translate_select(program_state, ctx, op)
   elif isa(op, fir.Embox) or isa(op, fir.Emboxchar):
     expr_ops=translate_expr(program_state, ctx, op.memref)
-    ctx[op.results[0]]=ctx[expr_ops[-1].results[0]]
+    ctx[op.results[0]]=ctx[op.memref.owner.results[0]]
     return expr_ops
+  elif isa(op, hlfir.AssociateOp):
+    expr_ops=translate_expr(program_state, ctx, op.source)
+    ctx[op.results[0]]=ctx[op.source.owner.results[0]]
+    return expr_ops
+  elif isa(op, hlfir.AsExprOp):
+    ctx[op.results[0]]=ctx[op.var]
+    return []
   else:
     for math_op in math.Math.operations:
       # Check to see if this is a math operation
@@ -1486,6 +1493,11 @@ def define_scalar_var(program_state: ProgramState, ctx: SSAValueCtx, op: hlfir.D
       return [memref_alloca_op]
     elif isa(allocation_op, fir.AddressOf):
       expr_ops=translate_expr(program_state, ctx, op.memref)
+      ctx[op.results[0]] = ctx[allocation_op.results[0]]
+      ctx[op.results[1]] = ctx[allocation_op.results[0]]
+      return expr_ops
+    elif isa(allocation_op, fir.Unboxchar):
+      expr_ops=translate_expr(program_state, ctx, allocation_op.boxchar)
       ctx[op.results[0]] = ctx[allocation_op.results[0]]
       ctx[op.results[1]] = ctx[allocation_op.results[0]]
       return expr_ops
