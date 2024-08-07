@@ -249,7 +249,7 @@ def translate_global(program_state, global_ctx, global_op: fir.Global):
                       constant=global_op.constant,
                       body=Region([Block([global_contained_op, return_op])]))
   else:
-    return None
+    raise Exception(f"Could not translate global region of type `{global_op.type}'")
 
 def convert_fir_type_to_standard(fir_type, ref_as_mem_ref=True):
   if isa(fir_type, fir.ReferenceType):
