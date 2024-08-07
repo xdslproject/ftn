@@ -124,6 +124,10 @@ class GatherFunctionInformation(Visitor):
 
   def get_declare_from_arg_uses(self, arg_uses):
     for use in arg_uses:
+      # It can unbox characters into a declare, if so then just follow it through
+      if isa(use.operation, fir.Unboxchar):
+        ub_dec=self.get_declare_from_arg_uses(use.operation.results[0].uses)
+        if ub_dec is not None: return ub_dec
       if isa(use.operation, hlfir.DeclareOp):
         return use.operation
     return None
@@ -276,6 +280,8 @@ def convert_fir_type_to_standard(fir_type, ref_as_mem_ref=True):
     # Reverse the sizes to go from Fortran to C allocation semantics
     dim_sizes.reverse()
     return memref.MemRefType(base_t, dim_sizes, builtin.NoneAttr(), builtin.NoneAttr())
+  elif isa(fir_type, fir.LogicalType):
+    return builtin.i1
   else:
     return fir_type
 
@@ -462,7 +468,7 @@ def try_translate_expr(program_state: ProgramState, ctx: SSAValueCtx, op: Operat
     return expr_list
   elif isa(op, arith.Select):
     return translate_select(program_state, ctx, op)
-  elif isa(op, fir.Embox):
+  elif isa(op, fir.Embox) or isa(op, fir.Emboxchar):
     expr_ops=translate_expr(program_state, ctx, op.memref)
     ctx[op.results[0]]=ctx[expr_ops[-1].results[0]]
     return expr_ops
@@ -638,6 +644,16 @@ def translate_convert(program_state: ProgramState, ctx: SSAValueCtx, op: fir.Con
     assert isa(out_type.type, fir.SequenceType)
     # Assert that what we will forward to is in-fact a memref type
     assert isa(ctx[op.value].type, builtin.MemRefType)
+    ctx[op.results[0]]=ctx[op.value]
+    new_conv=[]
+
+  if isa(in_type, fir.LogicalType):
+    assert out_type == builtin.i1
+    ctx[op.results[0]]=ctx[op.value]
+    new_conv=[]
+
+  if in_type == builtin.i1:
+    assert isa(out_type, fir.LogicalType)
     ctx[op.results[0]]=ctx[op.value]
     new_conv=[]
 
