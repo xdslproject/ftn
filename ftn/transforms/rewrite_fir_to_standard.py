@@ -406,6 +406,8 @@ def try_translate_stmt(program_state: ProgramState, ctx: SSAValueCtx, op: Operat
     return translate_branch(program_state, ctx, op)
   elif isa(op, cf.ConditionalBranch):
     return translate_conditional_branch(program_state, ctx, op)
+  elif isa(op, fir.Unreachable):
++    return [llvm.UnreachableOp()]
   else:
     return None
 
