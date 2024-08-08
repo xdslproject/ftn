@@ -274,6 +274,8 @@ def convert_fir_type_to_standard(fir_type, ref_as_mem_ref=True):
         return memref.MemRefType(base_t, [1], builtin.NoneAttr(), builtin.NoneAttr())
     else:
       return llvm.LLVMPointerType.opaque()
+  elif isa(fir_type, fir.BoxType):
+    return convert_fir_type_to_standard(fir_type.type, ref_as_mem_ref)
   elif isa(fir_type, fir.SequenceType):
     base_t=convert_fir_type_to_standard(fir_type.type)
     dim_sizes=[]
@@ -643,7 +645,8 @@ def translate_convert(program_state: ProgramState, ctx: SSAValueCtx, op: fir.Con
       new_conv=[]
       ctx[op.results[0]]=ctx[op.value]
 
-  if isa(in_type, fir.ReferenceType) and isa(out_type, fir.ReferenceType):
+  if (isa(in_type, fir.ReferenceType) and isa(out_type, fir.ReferenceType) or
+        (isa(in_type, fir.BoxType) and isa(out_type, fir.BoxType))):
     if isa(out_type.type, builtin.IntegerType) and out_type.type.width.data == 8:
       # Converting to an LLVM pointer
       # The element type is an LLVM array, we hard code this to be size 1 here which is OK as it just needs to
@@ -1405,6 +1408,9 @@ def translate_alloca(program_state: ProgramState, ctx: SSAValueCtx, op: fir.Allo
   return [memref_alloca_op]
 
 def translate_declare(program_state: ProgramState, ctx: SSAValueCtx, op: hlfir.DeclareOp):
+  # If already seen then simply ignore
+  if ctx.contains(op.results[0]): return []
+
   if isa(op.results[0].type, fir.ReferenceType) and isa(op.results[0].type.type, fir.BoxType):
     # This is an allocatable array, we will handle this on the allocation
     return []
@@ -1415,34 +1421,62 @@ def translate_declare(program_state: ProgramState, ctx: SSAValueCtx, op: hlfir.D
     # we ignore them if the declare doesn't have any uses
     return []
 
-  if op.shape is None:
+  # Passing an allocatable with annonymous dimension e.g. memref<?,i32> it doesn't know the size
+
+  if op.shape is None and not isa(op.results[0].type, fir.BoxType):
+    # Ensure it doesn't have a shape, and there isn't a boxtype (which caries the shape)
+    # this means that it is a scalar (TODO: could also check the inner type)
     return define_scalar_var(program_state, ctx, op)
   else:
-    if isa(op.shape.owner, fir.Shape):
-      dim_sizes, dim_starts, dim_ends=gather_static_shape_dims_from_shape(op.shape.owner)
-    elif isa(op.shape.owner, fir.ShapeShift):
-      dim_sizes, dim_starts, dim_ends=gather_static_shape_dims_from_shapeshift(op.shape.owner)
-    else:
-      assert False
+    if op.shape is not None:
+      # There is a shape we can use in determining the size
+      if isa(op.shape.owner, fir.Shape):
+        dim_sizes, dim_starts, dim_ends=gather_static_shape_dims_from_shape(op.shape.owner)
+      elif isa(op.shape.owner, fir.ShapeShift):
+        dim_sizes, dim_starts, dim_ends=gather_static_shape_dims_from_shapeshift(op.shape.owner)
+      else:
+        assert False
 
-    static_size=dims_has_static_size(dim_sizes)
-    if static_size:
-      return define_stack_array_var(program_state, ctx, op, dim_sizes, dim_starts, dim_ends)
-    elif isa(op.memref, BlockArgument) and isa(op.results[1].type, fir.ReferenceType):
-      shape_expr_list=[]
-      for ds in dim_starts:
-        if not isa(ds, int) and ds is not None:
-          shape_expr_list+=translate_expr(program_state, ctx, ds)
-      # This is an array passed into a function
-      if ctx.contains(op.results[0]): return []
+      static_size=dims_has_static_size(dim_sizes)
+      if static_size:
+        return define_stack_array_var(program_state, ctx, op, dim_sizes, dim_starts, dim_ends)
+      elif isa(op.memref, BlockArgument) and isa(op.results[1].type, fir.ReferenceType):
+        # This is an array passed into a function
+        shape_expr_list=[]
+        for ds in dim_starts:
+          if not isa(ds, int) and ds is not None:
+            shape_expr_list+=translate_expr(program_state, ctx, ds)
+        ctx[op.results[0]]=ctx[op.memref]
+        ctx[op.results[1]]=ctx[op.memref]
+        array_name=op.uniq_name.data
+        # Store information about the array - the size, and lower and upper bounds as we need this when accessing elements
+        program_state.getCurrentFnState().array_info[array_name]=ArrayDescription(array_name, dim_sizes, dim_starts, dim_ends)
+        return shape_expr_list
+      else:
+        assert False
+    else:
+      # There is no shape, we need to grab this from the memref using operations
+      assert isa(op.memref, BlockArgument)
+      assert isa(op.results[0].type, fir.BoxType) and isa(op.results[0].type.type, fir.SequenceType)
+      num_dims=len(op.results[0].type.type.shape)
+
+      one_op=create_index_constant(1)
+      ops_list=[one_op]
+      size_ssas=[]
+      end_ssas=[]
+      for dim in range(num_dims):
+        dim_idx_op=create_index_constant(dim)
+        get_dim_op=memref.Dim.from_source_and_index(ctx[op.memref], dim_idx_op)
+        add_arith_op=arith.Addi(get_dim_op.results[0], one_op.results[0])
+        ops_list+=[dim_idx_op, get_dim_op, add_arith_op]
+        size_ssas.append(get_dim_op.results[0])
+        end_ssas.append(add_arith_op.results[0])
+      array_name=op.uniq_name.data
       ctx[op.results[0]]=ctx[op.memref]
       ctx[op.results[1]]=ctx[op.memref]
-      array_name=op.uniq_name.data
-      # Store information about the array - the size, and lower and upper bounds as we need this when accessing elements
-      program_state.getCurrentFnState().array_info[array_name]=ArrayDescription(array_name, dim_sizes, dim_starts, dim_ends)
-      return shape_expr_list
-    else:
-      assert False
+      program_state.getCurrentFnState().array_info[array_name]=ArrayDescription(array_name, size_ssas, [1]*len(size_ssas), end_ssas)
+      return ops_list
+
 
 def dims_has_static_size(dims):
   for dim in dims:
