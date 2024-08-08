@@ -183,6 +183,10 @@ class SSAValueCtx:
     dictionary: Dict[str, SSAValue] = field(default_factory=dict)
     parent_scope = None
 
+    def __init__(self, parent_scope=None):
+      self.parent_scope=parent_scope
+      self.dictionary = {}
+
     def __getitem__(self, identifier: str) -> Optional[SSAValue]:
         """Check if the given identifier is in the current scope, or a parent scope"""
         ssa_value = self.dictionary.get(identifier, None)
@@ -206,6 +210,7 @@ class SSAValueCtx:
 
     def contains(self, identifier):
         return identifier in self.dictionary
+
 
 def translate_program(program_state: ProgramState, input_module: builtin.ModuleOp) -> builtin.ModuleOp:
     # create an empty global context
@@ -407,7 +412,7 @@ def try_translate_stmt(program_state: ProgramState, ctx: SSAValueCtx, op: Operat
   elif isa(op, cf.ConditionalBranch):
     return translate_conditional_branch(program_state, ctx, op)
   elif isa(op, fir.Unreachable):
-+    return [llvm.UnreachableOp()]
+    return [llvm.UnreachableOp()]
   else:
     return None
 
@@ -1186,17 +1191,20 @@ def translate_call(program_state: ProgramState, ctx: SSAValueCtx, op: fir.Call):
 
   fn_name=clean_func_name(op.callee.string_value())
 
+  # Create a new context scope, as we might overwrite some SSAs with packing
+  call_ctx=SSAValueCtx(ctx)
+
   arg_ops=[]
   are_temps_allocated=False
   for idx, arg in enumerate(op.args):
     # This is more complex, as constants are passed directly or packed in a temporary
-    specific_arg_ops, temporary_allocated=handle_call_argument(program_state, ctx, fn_name, arg, idx)
+    specific_arg_ops, temporary_allocated=handle_call_argument(program_state, call_ctx, fn_name, arg, idx)
     if temporary_allocated: are_temps_allocated=True
     arg_ops+=specific_arg_ops
 
   arg_ssa=[]
   for arg in op.args:
-    arg_ssa.append(ctx[arg])
+    arg_ssa.append(call_ctx[arg])
 
   return_types=[]
   return_ssas=[]
