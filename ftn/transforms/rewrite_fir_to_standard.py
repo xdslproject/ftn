@@ -904,7 +904,8 @@ def translate_store(program_state: ProgramState, ctx: SSAValueCtx, op: fir.Store
       for dim_shape in op.value.owner.memref.owner.results[0].type.type.shape.data:
         assert isa(dim_shape, fir.DeferredAttr)
 
-      default_start_idx_mode=isa(op.value.owner.shape.owner, fir.Shape)
+      assert len(op.value.owner.shape) == 1
+      default_start_idx_mode=isa(op.value.owner.shape[0].owner, fir.Shape)
 
       dim_sizes=[]
       dim_starts=[]
