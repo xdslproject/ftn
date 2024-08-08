@@ -1530,11 +1530,22 @@ def define_stack_array_var(program_state: ProgramState, ctx: SSAValueCtx,
   if ctx.contains(op.results[0]):
     assert ctx.contains(op.results[1])
     return []
-  # It might either allocate from a global or an alloca in fir, but both can be
-  # handled the same
-  assert isa(op.memref.owner, fir.AddressOf) or isa(op.memref.owner, fir.Alloca)
-  assert isa(op.memref.owner.results[0].type, fir.ReferenceType)
-  fir_array_type=op.memref.owner.results[0].type.type
+
+  # It might be one of tree things - allocated from a global, an alloca in fir
+  # for stack local variable, or an array function argument that is statically sized
+  assert (isa(op.memref.owner, fir.AddressOf) or isa(op.memref.owner, fir.Alloca) or
+          (op.memref.owner, Block))
+
+  if isa(op.memref.owner, Block):
+    # It is an array fn argument that is statically sized
+    fir_array_type=op.memref.type
+  else:
+    # Global or fn stack local variab;e
+    fir_array_type=op.memref.owner.results[0].type
+
+  assert isa(fir_array_type, fir.ReferenceType)
+  fir_array_type=fir_array_type.type
+
   assert isa(fir_array_type, fir.SequenceType)
   # Ensure collected dimensions and the addressof type dimensions are consistent
   for type_size, dim_size in zip(fir_array_type.shape, dim_sizes):
@@ -1545,7 +1556,13 @@ def define_stack_array_var(program_state: ProgramState, ctx: SSAValueCtx,
   # Store information about the array - the size, and lower and upper bounds as we need this when accessing elements
   program_state.getCurrentFnState().array_info[array_name]=ArrayDescription(array_name, dim_sizes, dim_starts, dim_ends)
 
-  if isa(op.memref.owner, fir.AddressOf):
+  if isa(op.memref.owner, Block):
+    # This is a statically sized array passed to the function
+    # so just point to this
+    ctx[op.results[0]] = ctx[op.memref]
+    ctx[op.results[1]] = ctx[op.memref]
+    return []
+  elif isa(op.memref.owner, fir.AddressOf):
     # This is looking up a global array, we need to construct the memref from this
     addr_lookup=llvm.AddressOfOp(op.memref.owner.symbol, llvm.LLVMPointerType.opaque())
     ops_list, ssa=generate_memref_from_llvm_ptr(addr_lookup.results[0], dim_sizes, fir_array_type.type)
