@@ -431,6 +431,8 @@ def try_translate_expr(program_state: ProgramState, ctx: SSAValueCtx, op: Operat
   elif (isa(op, arith.Addf) or isa(op, arith.Subf) or isa(op, arith.Mulf) or isa(op, arith.Divf) or isa(op, arith.Maximumf) or
       isa(op, arith.Maxnumf) or isa(op, arith.Minimumf) or isa(op, arith.Minnumf)):
     return translate_float_binary_arithmetic(program_state, ctx, op)
+  elif isa(op, arith.Negf):
+    return translate_float_unary_arithmetic(program_state, ctx, op)
   elif isa(op, fir.Load):
     return translate_load(program_state, ctx, op)
   elif isa(op, fir.Convert):
@@ -630,7 +632,7 @@ def translate_convert(program_state: ProgramState, ctx: SSAValueCtx, op: fir.Con
           shape_size.append(s.value.data)
       # Reverse shape_size to get it from Fortran allocation to C/MLIR allocation
       shape_size.reverse()
-      target_type=memref.MemRefType(out_type.type.type, shape_size)
+      target_type=memref.MemRefType(convert_fir_type_to_standard(out_type.type.type), shape_size)
       cast_op=memref.Cast.get(ctx[op.value], target_type)
 
       ctx[op.results[0]]=cast_op.results[0]
@@ -1150,7 +1152,7 @@ def handle_call_argument(program_state: ProgramState, ctx: SSAValueCtx, fn_name:
       # Otherwise we need to pack the constant into a memref and pass this
       assert isa(arg_defn.arg_type, fir.ReferenceType)
       ops_list=translate_expr(program_state, ctx, arg.owner.source)
-      memref_alloca_op=memref.Alloca.get(arg_defn.arg_type.type)
+      memref_alloca_op=memref.Alloca.get(convert_fir_type_to_standard(arg_defn.arg_type.type))
       zero_val=arith.Constant.create(properties={"value": builtin.IntegerAttr.from_index_int_value(0)},
                                              result_types=[builtin.IndexType()])
       storage_op=memref.Store.get(ctx[arg.owner.source], memref_alloca_op.results[0], [zero_val])
@@ -1361,7 +1363,7 @@ def translate_alloca(program_state: ProgramState, ctx: SSAValueCtx, op: fir.Allo
   for use in op.results[0].uses:
     if isa(use.operation, hlfir.DeclareOp): return[]
 
-  memref_alloca_op=memref.Alloca.get(op.in_type)
+  memref_alloca_op=memref.Alloca.get(convert_fir_type_to_standard(op.in_type))
   ctx[op.results[0]]=memref_alloca_op.results[0]
   return [memref_alloca_op]
 
@@ -1485,7 +1487,7 @@ def define_stack_array_var(program_state: ProgramState, ctx: SSAValueCtx,
     # the order of the contiguous dimension (F is least, whereas C/MLIR is highest)
     dim_sizes_reversed=dim_sizes.copy()
     dim_sizes_reversed.reverse()
-    memref_alloca_op=memref.Alloca.get(fir_array_type.type, shape=dim_sizes_reversed)
+    memref_alloca_op=memref.Alloca.get(convert_fir_type_to_standard(fir_array_type.type), shape=dim_sizes_reversed)
     ctx[op.results[0]] = memref_alloca_op.results[0]
     ctx[op.results[1]] = memref_alloca_op.results[0]
     return [memref_alloca_op]
@@ -1537,7 +1539,7 @@ def generate_memref_from_llvm_ptr(llvm_ptr_in_ssa, dim_sizes, target_type):
 
     ops_to_add+=[size_op, insert_size_op, stride_op, insert_stride_op]
 
-  target_memref_type=memref.MemRefType(target_type, dim_sizes)
+  target_memref_type=memref.MemRefType(convert_fir_type_to_standard(target_type), dim_sizes)
 
   unrealised_conv_cast_op=builtin.UnrealizedConversionCastOp.create(operands=[insert_stride_op.results[0]], result_types=[target_memref_type])
   ops_to_add.append(unrealised_conv_cast_op)
@@ -1552,7 +1554,7 @@ def define_scalar_var(program_state: ProgramState, ctx: SSAValueCtx, op: hlfir.D
     if isa(allocation_op, fir.Alloca):
       assert isa(allocation_op.results[0].type, fir.ReferenceType)
       assert allocation_op.results[0].type.type == allocation_op.in_type
-      memref_alloca_op=memref.Alloca.get(allocation_op.in_type)
+      memref_alloca_op=memref.Alloca.get(convert_fir_type_to_standard(allocation_op.in_type))
       ctx[op.results[0]] = memref_alloca_op.results[0]
       ctx[op.results[1]] = memref_alloca_op.results[0]
       return [memref_alloca_op]
@@ -1572,6 +1574,23 @@ def define_scalar_var(program_state: ProgramState, ctx: SSAValueCtx, op: hlfir.D
     ctx[op.results[0]] = ctx[op.memref]
     ctx[op.results[1]] = ctx[op.memref]
     return []
+
+def translate_float_unary_arithmetic(program_state: ProgramState, ctx: SSAValueCtx, op: Operation):
+  if ctx.contains(op.results[0]): return []
+  operand_ops=translate_expr(program_state, ctx, op.operand)
+  operand_ssa=ctx[op.operand]
+  fast_math_attr=op.fastmath
+  result_type=op.results[0].type
+  unary_arith_op=None
+
+  if isa(op, arith.Negf):
+    unary_arith_op=arith.Negf(operand_ssa, fast_math_attr)
+  else:
+    raise Exception(f"Could not translate `{op}' as a unary float operation")
+
+  assert unary_arith_op is not None
+  ctx[op.results[0]]=unary_arith_op.results[0]
+  return operand_ops+[unary_arith_op]
 
 def translate_float_binary_arithmetic(program_state: ProgramState, ctx: SSAValueCtx, op: Operation):
   if ctx.contains(op.results[0]): return []
