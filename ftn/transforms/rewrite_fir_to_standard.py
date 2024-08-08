@@ -209,7 +209,11 @@ class SSAValueCtx:
             self.dictionary[identifier] = ssa_value
 
     def contains(self, identifier):
-        return identifier in self.dictionary
+        if identifier in self.dictionary: return True
+        if self.parent_scope is not None:
+          return self.parent_scope.contains(identifier)
+        else:
+          return False
 
 
 def translate_program(program_state: ProgramState, input_module: builtin.ModuleOp) -> builtin.ModuleOp:
@@ -342,7 +346,9 @@ def translate_function(program_state: ProgramState, ctx: SSAValueCtx, fn: func.F
   # Perform some conversion on return types to standard
   return_types=[]
   for rt in fn.function_type.outputs.data:
-    return_types.append(convert_fir_type_to_standard_if_needed(rt))
+    if not isa(rt, builtin.NoneType):
+      # Ignore none types, these are simply omitted
+      return_types.append(convert_fir_type_to_standard_if_needed(rt))
 
   fn_identifier=fn.sym_name
   if fn_identifier.data == "_QQmain":
@@ -1209,8 +1215,10 @@ def translate_call(program_state: ProgramState, ctx: SSAValueCtx, op: fir.Call):
   return_types=[]
   return_ssas=[]
   for ret in op.results:
-    return_types.append(convert_fir_type_to_standard_if_needed(ret.type))
-    return_ssas.append(ret)
+    # Ignore none types, these are just omitted
+    if not isa(ret.type, builtin.NoneType):
+      return_types.append(convert_fir_type_to_standard_if_needed(ret.type))
+      return_ssas.append(ret)
 
   call_op=func.Call(op.callee, arg_ssa, return_types)
 
