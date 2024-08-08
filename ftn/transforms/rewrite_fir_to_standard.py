@@ -18,7 +18,7 @@ from xdsl.pattern_rewriter import (RewritePattern, PatternRewriter,
                                    PatternRewriteWalker,
                                    GreedyRewritePatternApplier)
 from xdsl.passes import ModulePass
-from xdsl.dialects import builtin, func, llvm, arith, memref, scf, cf
+from xdsl.dialects import builtin, func, llvm, arith, memref, scf, cf, linalg
 from xdsl.dialects.experimental import math
 from ftn.dialects import ftn_relative_cf
 
@@ -485,14 +485,32 @@ def try_translate_expr(program_state: ProgramState, ctx: SSAValueCtx, op: Operat
     ctx[op.results[0]]=ctx[op.source.owner.results[0]]
     return expr_ops
   elif isa(op, hlfir.AsExprOp):
+    expr_ops=translate_expr(program_state, ctx, op.var)
     ctx[op.results[0]]=ctx[op.var]
-    return []
+    return expr_ops
+  elif isa(op, fir.Rebox):
+    expr_ops=translate_expr(program_state, ctx, op.box)
+    ctx[op.results[0]]=ctx[op.box]
+    return expr_ops
+  elif isa(op, hlfir.DotProductOp):
+    return translate_dotproduct(program_state, ctx, op)
   else:
     for math_op in math.Math.operations:
       # Check to see if this is a math operation
       if isa(op, math_op):
         return translate_math_operation(program_state, ctx, op)
     return None
+
+def translate_dotproduct(program_state: ProgramState, ctx: SSAValueCtx, op: hlfir.DotProductOp):
+  if ctx.contains(op.results[0]): return []
+  lhs_ops_list=translate_expr(program_state, ctx, op.lhs)
+  rhs_ops_list=translate_expr(program_state, ctx, op.rhs)
+
+  dot_op=linalg.DotOp((op.lhs, op.rhs), (), res=[op.results[0].type])
+
+  ctx[op.results[0]]=dot_op.results[0]
+
+  return lhs_ops_list+rhs_ops_list+[dot_op]
 
 def translate_zerobits(program_state: ProgramState, ctx: SSAValueCtx, op: fir.ZeroBits):
   # This often appears in global regions for array declaration, if so then we need to
