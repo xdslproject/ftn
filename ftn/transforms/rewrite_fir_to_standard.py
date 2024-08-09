@@ -49,11 +49,12 @@ class ComponentState:
     self.array_info={}
 
 class ArgumentDefinition:
-  def __init__(self, name, is_scalar, arg_type, intent, ):
+  def __init__(self, name, is_scalar, arg_type, intent, is_allocatable):
     self.name=name
     self.is_scalar=is_scalar
     self.intent=intent
     self.arg_type=arg_type
+    self.is_allocatable=is_allocatable
 
 class FunctionDefinition:
   def __init__(self, name, return_type, is_definition_only, blocks):
@@ -141,6 +142,24 @@ class GatherFunctionInformation(Visitor):
           return ArgIntent.OUT
     return ArgIntent.UNKNOWN
 
+  def check_if_has_allocatable_attr(self, op: hlfir.DeclareOp):
+    if "fortran_attrs" in op.properties.keys():
+      attrs=op.properties["fortran_attrs"]
+      assert isa(attrs, fir.FortranVariableFlagsAttr)
+      for attr in attrs.data:
+        if attr == fir.FortranVariableFlags.ALLOCATABLE:
+          return True
+    return False
+
+  def get_base_type(self, t):
+    if isa(t, fir.ReferenceType):
+      return self.get_base_type(t.type)
+    elif isa(t, fir.BoxType):
+      return self.get_base_type(t.type)
+    elif isa(t, fir.HeapType):
+      return self.get_base_type(t.type)
+    return t
+
   def traverse_func_op(self, func_op: func.FuncOp):
     fn_name=clean_func_name(func_op.sym_name.data)
     return_type=None
@@ -155,15 +174,17 @@ class GatherFunctionInformation(Visitor):
       for block_arg in func_op.body.blocks[0].args:
         declare_op=self.get_declare_from_arg_uses(block_arg.uses)
         assert declare_op is not None
-        is_scalar=declare_op.shape is None
         arg_type=declare_op.results[0].type
+        base_type=self.get_base_type(arg_type)
+        is_scalar=declare_op.shape is None and not isa(base_type, fir.SequenceType)
         arg_name=declare_op.uniq_name.data
+        is_allocatable=self.check_if_has_allocatable_attr(declare_op)
         # This is a bit strange, in a module we have modulenamePprocname, however
         # flang then uses modulenameFprocname for array literal string names
         #assert fn_name.replace("P", "F")+"E" in arg_name
         #arg_name=arg_name.split(fn_name.replace("P", "F")+"E")[1]
         arg_intent=self.map_ftn_attrs_to_intent(declare_op.fortran_attrs)
-        arg_def=ArgumentDefinition(arg_name, is_scalar, arg_type, arg_intent)
+        arg_def=ArgumentDefinition(arg_name, is_scalar, arg_type, arg_intent, is_allocatable)
         fn_def.add_arg_def(arg_def)
     self.program_state.addFunctionDefinition(fn_name, fn_def)
 
@@ -321,7 +342,12 @@ def translate_function(program_state: ProgramState, ctx: SSAValueCtx, fn: func.F
         else:
           fn_in_arg_types.append(arg.type)
       else:
-        fn_in_arg_types.append(convert_fir_type_to_standard(fir_type))
+        converted_type=convert_fir_type_to_standard(fir_type)
+        if (isa(converted_type, memref.MemRefType) and
+            program_state.function_definitions[fn_identifier].args[idx].is_allocatable):
+          converted_type=memref.MemRefType(converted_type, shape=[])
+
+        fn_in_arg_types.append(converted_type)
 
     for idx, block in enumerate(fn.body.blocks):
       if idx == 0:
@@ -528,8 +554,20 @@ def translate_dotproduct(program_state: ProgramState, ctx: SSAValueCtx, op: hlfi
   lhs_ops_list=translate_expr(program_state, ctx, op.lhs)
   rhs_ops_list=translate_expr(program_state, ctx, op.rhs)
 
+  if isa(ctx[op.lhs].type.element_type, memref.MemRefType):
+    load_op, lhs_load_ssa=generate_dereference_memref(ctx[op.lhs])
+    lhs_ops_list.append(load_op)
+  else:
+    lhs_load_ssa=ctx[op.lhs]
+
+  if isa(ctx[op.rhs].type.element_type, memref.MemRefType):
+    load_op, rhs_load_ssa=generate_dereference_memref(ctx[op.rhs])
+    rhs_ops_list.append(load_op)
+  else:
+    rhs_load_ssa=ctx[op.rhs]
+
   output_memref_op=memref.Alloca.get(op.results[0].type, shape=[])
-  dot_op=linalg.DotOp((ctx[op.lhs], ctx[op.rhs]), [output_memref_op])
+  dot_op=linalg.DotOp((lhs_load_ssa, rhs_load_ssa), [output_memref_op])
   extract_op=memref.Load.get(output_memref_op, [])
 
   ctx[op.results[0]]=extract_op.results[0]
@@ -798,6 +836,10 @@ def translate_conditional_branch(program_state: ProgramState, ctx: SSAValueCtx, 
 
   return ops_list
 
+def generate_dereference_memref(memref_ssa):
+  load_op=memref.Load.get(memref_ssa, [])
+  return load_op, load_op.results[0]
+
 def translate_load(program_state: ProgramState, ctx: SSAValueCtx, op: fir.Load):
   if ctx.contains(op.results[0]): return []
 
@@ -850,11 +892,18 @@ def translate_load(program_state: ProgramState, ctx: SSAValueCtx, op: fir.Load):
     else:
       assert False
 
+    assert isa(ctx[src_ssa].type, memref.MemRefType)
+    if isa(ctx[src_ssa].type.element_type, memref.MemRefType):
+      load_op, load_ssa=generate_dereference_memref(ctx[src_ssa])
+      ops_list.append(load_op)
+    else:
+      load_ssa=ctx[src_ssa]
+
     # Reverse the indicies as Fortran and C/MLIR are opposite in terms of
     # the order of the contiguous dimension (F is least, whereas C/MLIR is highest)
     indexes_ssa_reversed=indexes_ssa.copy()
     indexes_ssa_reversed.reverse()
-    load_op=memref.Load.get(ctx[src_ssa], indexes_ssa_reversed)
+    load_op=memref.Load.get(load_ssa, indexes_ssa_reversed)
     ops_list.append(load_op)
     ctx[op.results[0]]=load_op.results[0]
     return ops_list
@@ -874,8 +923,17 @@ def translate_freemem(program_state: ProgramState, ctx: SSAValueCtx, op: fir.Fre
   assert isa(op.heapref.owner, fir.BoxAddr)
   assert isa(op.heapref.owner.val.owner, fir.Load)
   memref_ssa=op.heapref.owner.val.owner.memref
-  dealloc_op=memref.Dealloc.get(ctx[memref_ssa])
-  return [dealloc_op]
+
+  ops_list=[]
+  assert isa(ctx[memref_ssa].type, memref.MemRefType)
+  if isa(ctx[memref_ssa].type.element_type, memref.MemRefType):
+    load_op, load_ssa=generate_dereference_memref(ctx[memref_ssa])
+    ops_list.append(load_op)
+  else:
+    load_ssa=ctx[memref_ssa]
+
+  ops_list.append(memref.Dealloc.get(load_ssa))
+  return ops_list
 
 def translate_result(program_state: ProgramState, ctx: SSAValueCtx, op: fir.Result):
   ops_list=[]
@@ -1047,8 +1105,11 @@ def translate_store(program_state: ProgramState, ctx: SSAValueCtx, op: fir.Store
       dim_ssa_reversed.reverse()
       memref_allocation_op=memref_alloca_op=memref.Alloc.get(base_type, shape=[-1]*len(dim_ssas), dynamic_sizes=dim_ssa_reversed)
       ops_list.append(memref_allocation_op)
-      ctx[op.memref.owner.results[0]]=memref_allocation_op.results[0]
-      ctx[op.memref.owner.results[1]]=memref_allocation_op.results[0]
+
+      store_op=memref.Store.get(memref_allocation_op.results[0], ctx[op.memref.owner.results[0]], [])
+      ops_list.append(store_op)
+      #ctx[op.memref.owner.results[0]]=memref_allocation_op.results[0]
+      #ctx[op.memref.owner.results[1]]=memref_allocation_op.results[0]
 
       fn_name=program_state.getCurrentFnState().fn_name
       array_name=op.memref.owner.uniq_name.data
@@ -1156,7 +1217,19 @@ def translate_assign(program_state: ProgramState, ctx: SSAValueCtx, op: hlfir.As
         # Check the base type is the same
         assert lhs_array_op.type == rhs_array_op.type
         # We don't check the array sizes are the same, probably should but might need to be dynamic
-        copy_op=memref.CopyOp(ctx[op.lhs], ctx[op.rhs])
+        if isa(ctx[op.lhs].type.element_type, memref.MemRefType):
+          load_op, lhs_load_ssa=generate_dereference_memref(ctx[op.lhs])
+          expr_lhs_ops.append(load_op)
+        else:
+          lhs_load_ssa=ctx[op.lhs]
+
+        if isa(ctx[op.rhs].type.element_type, memref.MemRefType):
+          load_op, rhs_load_ssa=generate_dereference_memref(ctx[op.rhs])
+          expr_rhs_ops.append(load_op)
+        else:
+          rhs_load_ssa=ctx[op.rhs]
+
+        copy_op=memref.CopyOp(lhs_load_ssa, rhs_load_ssa)
         return expr_lhs_ops+expr_rhs_ops+[copy_op]
       else:
         assert isa(op.rhs.owner.results[0].type, fir.ReferenceType)
@@ -1180,11 +1253,17 @@ def translate_assign(program_state: ProgramState, ctx: SSAValueCtx, op: hlfir.As
     else:
       assert False
 
+    assert isa(ctx[memref_reference].type, memref.MemRefType)
+    if isa(ctx[memref_reference].type.element_type, memref.MemRefType):
+      load_op, load_ssa=generate_dereference_memref(ctx[memref_reference])
+      ops_list.append(load_op)
+    else:
+      load_ssa=ctx[memref_reference]
     # Reverse the indicies as Fortran and C/MLIR are opposite in terms of
     # the order of the contiguous dimension (F is least, whereas C/MLIR is highest)
     indexes_ssa_reversed=indexes_ssa.copy()
     indexes_ssa_reversed.reverse()
-    storage_op=memref.Store.get(ctx[op.lhs], ctx[memref_reference], indexes_ssa_reversed)
+    storage_op=memref.Store.get(ctx[op.lhs], load_ssa, indexes_ssa_reversed)
     ops_list.append(storage_op)
     return expr_lhs_ops+ops_list
   else:
@@ -1237,6 +1316,11 @@ def handle_call_argument(program_state: ProgramState, ctx: SSAValueCtx, fn_name:
         del ctx[arg]
         ctx[arg]=load_op.results[0]
         ops_list+=[zero_val, load_op]
+      elif not arg_defn.is_scalar and not arg_defn.is_allocatable and isa(ctx[arg].type, memref.MemRefType) and isa(ctx[arg].type.element_type, memref.MemRefType):
+        load_op=memref.Load.get(ctx[arg], [])
+        del ctx[arg]
+        ctx[arg]=load_op.results[0]
+        ops_list+=[load_op]
     return ops_list, False
 
 def translate_call(program_state: ProgramState, ctx: SSAValueCtx, op: fir.Call):
@@ -1546,7 +1630,13 @@ def translate_declare(program_state: ProgramState, ctx: SSAValueCtx, op: hlfir.D
 
   if isa(op.results[0].type, fir.ReferenceType) and isa(op.results[0].type.type, fir.BoxType):
     # This is an allocatable array, we will handle this on the allocation
-    return []
+    assert isa(op.results[0].type.type.type, fir.HeapType)
+    assert isa(op.results[0].type.type.type.type, fir.SequenceType)
+    num_dims=len(op.results[0].type.type.type.type.shape)
+    alloc_memref_container=memref.Alloca.get(memref.MemRefType(op.results[0].type.type.type.type.type, shape=num_dims*[-1]), shape=[])
+    ctx[op.results[0]]=alloc_memref_container.results[0]
+    ctx[op.results[1]]=alloc_memref_container.results[0]
+    return [alloc_memref_container]
 
   if len(op.results[0].uses) == 0 and len(op.results[1].uses) == 0:
     # Some declare ops are never actually used in the code, Flang seems to generate
