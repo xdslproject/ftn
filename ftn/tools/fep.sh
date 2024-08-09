@@ -13,7 +13,7 @@ if [ -f $filename_no_ext".mlir" ]; then
 	echo "  -> Completed, results in '"$filename_no_ext"_pre.mlir'"
 		echo "Lowering to standard dialects"
 		ftn-opt $filename_no_ext"_pre.mlir" -p rewrite-fir-to-standard -o $filename_no_ext"_res.mlir"
-		if [ -f $filename_no_ext"_res.mlir" ]; then
+		if [ -s $filename_no_ext"_res.mlir" ]; then
 			echo "  -> Completed, results in '"$filename_no_ext"_res.mlir'"
 			echo "Postprocessing xDSL MLIR to compatible form"
 			postprocess_xdsl_for_mlir $filename_no_ext"_res.mlir" $filename_no_ext"_post.mlir"
@@ -24,7 +24,8 @@ if [ -f $filename_no_ext".mlir" ]; then
 				if [ -f $filename_no_ext"_res.bc" ]; then
 					echo "  -> Completed, results in '"$filename_no_ext"_res.bc'"
 					echo "Building executable"
-					flang-new -O3 -o $filename_no_ext $filename_no_ext"_res.bc"
+					#flang-new -O3 -o $filename_no_ext $filename_no_ext"_res.bc"
+					clang -O3 -o $filename_no_ext $filename_no_ext"_res.bc" -lFortran_main -lFortranRuntime -lFortranDecimal -lm -lgcc
 					if [ -f $filename_no_ext ]; then
 						echo "  -> Completed, executable in '$filename_no_ext'"
 					fi
