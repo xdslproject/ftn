@@ -496,6 +496,8 @@ def try_translate_expr(program_state: ProgramState, ctx: SSAValueCtx, op: Operat
     return expr_ops
   elif isa(op, hlfir.DotProductOp):
     return translate_dotproduct(program_state, ctx, op)
+  elif isa(op, hlfir.CopyInOp):
+    return translate_copyin(program_state, ctx, op)
   else:
     for math_op in math.Math.operations:
       # Check to see if this is a math operation
@@ -503,16 +505,23 @@ def try_translate_expr(program_state: ProgramState, ctx: SSAValueCtx, op: Operat
         return translate_math_operation(program_state, ctx, op)
     return None
 
+def translate_copyin(program_state: ProgramState, ctx: SSAValueCtx, op: hlfir.CopyInOp):
+  expr_ops=translate_expr(program_state, ctx, op.var)
+  ctx[op.results[0]]=ctx[op.var]
+  return expr_ops
+
 def translate_dotproduct(program_state: ProgramState, ctx: SSAValueCtx, op: hlfir.DotProductOp):
   if ctx.contains(op.results[0]): return []
   lhs_ops_list=translate_expr(program_state, ctx, op.lhs)
   rhs_ops_list=translate_expr(program_state, ctx, op.rhs)
 
-  dot_op=linalg.DotOp((op.lhs, op.rhs), (), res=[op.results[0].type])
+  output_memref_op=memref.Alloca.get(op.results[0].type, shape=[])
+  dot_op=linalg.DotOp((ctx[op.lhs], ctx[op.rhs]), [output_memref_op])
+  extract_op=memref.Load.get(output_memref_op, [])
 
-  ctx[op.results[0]]=dot_op.results[0]
+  ctx[op.results[0]]=extract_op.results[0]
 
-  return lhs_ops_list+rhs_ops_list+[dot_op]
+  return lhs_ops_list+rhs_ops_list+[output_memref_op, dot_op, extract_op]
 
 def translate_zerobits(program_state: ProgramState, ctx: SSAValueCtx, op: fir.ZeroBits):
   # This often appears in global regions for array declaration, if so then we need to
