@@ -500,6 +500,8 @@ def try_translate_expr(program_state: ProgramState, ctx: SSAValueCtx, op: Operat
     return translate_dotproduct(program_state, ctx, op)
   elif isa(op, hlfir.CopyInOp):
     return translate_copyin(program_state, ctx, op)
+  elif isa(op, fir.Absent):
+    return translate_absent(program_state, ctx, op)
   else:
     for math_op in math.Math.operations:
       # Check to see if this is a math operation
@@ -507,7 +509,16 @@ def try_translate_expr(program_state: ProgramState, ctx: SSAValueCtx, op: Operat
         return translate_math_operation(program_state, ctx, op)
     return None
 
+def translate_absent(program_state: ProgramState, ctx: SSAValueCtx, op: fir.Absent):
+  if ctx.contains(op.results[0]): return []
+
+  null_ptr=llvm.ZeroOp(llvm.LLVMPointerType.opaque())
+  ctx[op.results[0]]=null_ptr.results[0]
+  return [null_ptr]
+
 def translate_copyin(program_state: ProgramState, ctx: SSAValueCtx, op: hlfir.CopyInOp):
+  if ctx.contains(op.results[0]): return []
+
   expr_ops=translate_expr(program_state, ctx, op.var)
   ctx[op.results[0]]=ctx[op.var]
   return expr_ops
@@ -682,6 +693,9 @@ def translate_convert(program_state: ProgramState, ctx: SSAValueCtx, op: fir.Con
 
       ctx[op.results[0]]=cast_op.results[0]
       new_conv=[cast_op]
+    elif isa(out_type.type, fir.BoxType) and isa(in_type.type, fir.BoxType):
+      new_conv=[]
+      ctx[op.results[0]]=ctx[op.value]
 
   if isa(in_type, fir.HeapType) and isa(out_type, fir.ReferenceType):
     # When passing arrays to subroutines will box_addr to a heaptype, then convert
