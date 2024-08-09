@@ -247,7 +247,7 @@ def translate_program(program_state: ProgramState, input_module: builtin.ModuleO
     for fn in input_module.ops:
       if isa(fn, func.FuncOp):
         fn_op=translate_function(program_state, global_ctx, fn)
-        block.add_op(fn_op)
+        if fn_op is not None: block.add_op(fn_op)
       elif isa(fn, fir.Global):
         global_op=translate_global(program_state, global_ctx, fn)
         if global_op is not None:
@@ -325,6 +325,8 @@ def translate_function(program_state: ProgramState, ctx: SSAValueCtx, fn: func.F
   else:
     module_name=None
     fn_name=fn_identifier
+
+  if fn_name in FortranIntrinsicsHandleExplicitly.keys(): return None
 
   body = Region()
   if len(fn.body.blocks) > 0:
@@ -1323,10 +1325,26 @@ def handle_call_argument(program_state: ProgramState, ctx: SSAValueCtx, fn_name:
         ops_list+=[load_op]
     return ops_list, False
 
+def handle_movealloc_intrinsic_call(program_state: ProgramState, ctx: SSAValueCtx, op: fir.Call):
+  src_ssa=op.args[1]
+  dst_ssa=op.args[0]
+
+  src_list=translate_expr(program_state, ctx, src_ssa)
+  dst_list=translate_expr(program_state, ctx, dst_ssa)
+
+  assert isa(ctx[src_ssa].type, memref.MemRefType)
+  assert isa(ctx[dst_ssa].type, memref.MemRefType)
+  load_op=memref.Load.get(ctx[src_ssa], [])
+  store_op=memref.Store.get(load_op.results[0], ctx[dst_ssa], [])
+  return [load_op, store_op]
+
 def translate_call(program_state: ProgramState, ctx: SSAValueCtx, op: fir.Call):
   if len(op.results) > 0 and ctx.contains(op.results[0]): return []
 
   fn_name=clean_func_name(op.callee.string_value())
+
+  if fn_name in FortranIntrinsicsHandleExplicitly.keys():
+    return FortranIntrinsicsHandleExplicitly[fn_name](program_state, ctx, op)
 
   # Create a new context scope, as we might overwrite some SSAs with packing
   call_ctx=SSAValueCtx(ctx)
@@ -2141,3 +2159,4 @@ class RewriteFIRToStandard(ModulePass):
     ]), apply_recursively=False)
     walker.rewrite_module(input_module)
 
+FortranIntrinsicsHandleExplicitly={"_FortranAMoveAlloc" : handle_movealloc_intrinsic_call}
