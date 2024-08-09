@@ -1,6 +1,7 @@
 from abc import ABC
 from enum import Enum
 import itertools
+import copy
 from functools import reduce
 from typing import TypeVar, cast
 from dataclasses import dataclass
@@ -23,6 +24,7 @@ from xdsl.dialects.experimental import math
 from ftn.dialects import ftn_relative_cf
 
 ArgIntent = Enum('ArgIntent', ['IN', 'OUT', 'INOUT', 'UNKNOWN'])
+LoopStepDirection = Enum('LoopStepDirection', ['INCREMENT', 'DECREMENT', 'UNKNOWN'])
 
 def clean_func_name(func_name: str):
   if "_QP" in func_name:
@@ -1341,6 +1343,49 @@ def translate_iterate_while(program_state: ProgramState, ctx: SSAValueCtx, op: f
 
   return lower_bound_ops+upper_bound_ops+step_ops+step_zero_check_ops+iterate_in_ops+initarg_ops+[scf_while_loop]
 
+def get_loop_arg_val_if_known(ssa):
+  # Grabs out the value corresponding the to loops input SSA
+  # if this can be found statically, otherwise return None
+  ssa_base=ssa
+  if isa(ssa_base.owner, arith.IndexCastOp):
+    ssa_base=ssa_base.owner.input
+
+  if isa(ssa_base.owner, arith.Constant):
+    assert isa(ssa_base.type, builtin.IndexType) or isa(ssa_base.type, builtin.IntegerType)
+    val=ssa_base.owner.value.value.data
+    return val
+  else:
+    return None
+
+def determine_loop_step_direction(step_ssa):
+  # Determines the loop step direction
+  step_val=get_loop_arg_val_if_known(step_ssa)
+  if step_val is not None:
+    if step_val > 0:
+      return LoopStepDirection.INCREMENT
+    else:
+      return LoopStepDirection.DECREMENT
+  else:
+    return LoopStepDirection.UNKNOWN
+
+def generate_index_inversion_at_start_of_loop(index_ssa, lower_ssa, upper_ssa, target_type):
+  # This is the index inversion required at the start of the loop if working backwards
+  inversion_ops=[]
+  reduce_idx_from_start=arith.Subi(index_ssa, lower_ssa)
+  invert_idx=arith.Subi(upper_ssa, reduce_idx_from_start)
+  inversion_ops+=[reduce_idx_from_start, invert_idx]
+  if isa(target_type, builtin.IntegerType):
+    index_cast=arith.IndexCastOp(invert_idx.results[0], target_type)
+    inversion_ops.append(index_cast)
+  return inversion_ops
+
+def generate_convert_step_to_absolute(step_ssa):
+  # Generates the MLIR to convert an index ssa to it's absolute (positive) form
+  assert isa(step_ssa.type, builtin.IndexType)
+  cast_int=arith.IndexCastOp(step_ssa, builtin.i64)
+  step_absolute=math.AbsIOp(cast_int.results[0])
+  cast_abs=arith.IndexCastOp(step_absolute.results[0], builtin.IndexType())
+  return [cast_int, step_absolute, cast_abs], cast_abs.results[0]
 
 def translate_do_loop(program_state: ProgramState, ctx: SSAValueCtx, op: fir.DoLoop):
   if ctx.contains(op.results[1]):
@@ -1352,6 +1397,9 @@ def translate_do_loop(program_state: ProgramState, ctx: SSAValueCtx, op: fir.DoL
   upper_bound_ops=translate_expr(program_state, ctx, op.upperBound)
   step_ops=translate_expr(program_state, ctx, op.step)
   initarg_ops=translate_expr(program_state, ctx, op.initArgs)
+
+  lower_bound=ctx[op.lowerBound]
+  upper_bound=ctx[op.upperBound]
 
   assert len(op.regions)==1
   assert len(op.regions[0].blocks)==1
@@ -1365,17 +1413,79 @@ def translate_do_loop(program_state: ProgramState, ctx: SSAValueCtx, op: fir.DoL
   for fir_arg, std_arg in zip(op.regions[0].blocks[0].args, new_block.args):
     ctx[fir_arg]=std_arg
 
+  # Determine the step direction (increment, decrement or unknown)
+  step_direction=determine_loop_step_direction(ctx[op.step])
+
   loop_body_ops=[]
+  if step_direction == LoopStepDirection.DECREMENT:
+    # If this is stepping down, then we assume the loop is do high, low, step
+    # as this follows Fortran semantics, for instance do 10,1,-1 would count
+    # down from 10, whereas do 1,10,-1 would not execute any iterations
+    # scf.for always counts up, therefore we assume that it is high to low
+    # and these need swapped around
+    t=upper_bound
+    upper_bound=lower_bound
+    lower_bound=t
+
+    # The loop counter is incrementing, we need to invert this based on the upper bound
+    # to get the value as if the loop was actually counting downwards. Note that there are
+    # two values each iteration, the actual loop index driven by scf.for (which is an index)
+    # and an i32 integer which is the index we are updating from one iteration to the next
+    # it is the later that is written to the loop variable. This integer value tracks
+    # the scf index (at the end of the loop it is incremented based on the index)
+    loop_body_ops+=generate_index_inversion_at_start_of_loop(new_block.args[0], lower_bound, upper_bound, op.regions[0].blocks[0].args[1].type)
+    del ctx[op.regions[0].blocks[0].args[1]]
+    ctx[op.regions[0].blocks[0].args[1]]=loop_body_ops[-1].results[0]
+
+    # The step must be positive
+    step_abs_ops,step_abs_ssa=generate_convert_step_to_absolute(ctx[op.step])
+    step_ops+=step_abs_ops
+    del ctx[op.step]
+    ctx[op.step]=step_abs_ssa
+  elif step_direction == LoopStepDirection.UNKNOWN:
+    # We don't know if the step is positive or not, as this is from an input
+    # variable. The same as the above, but support for decrement is driven
+    # by conditionals
+    loop_one_const=create_index_constant(1)
+    loop_idx_cmp=arith.Cmpi(ctx[op.step], loop_one_const, 2) # checking if step is less than 1
+
+    reduction_ops=generate_index_inversion_at_start_of_loop(new_block.args[0], lower_bound, upper_bound, op.regions[0].blocks[0].args[1].type)
+    # We are going to wrap this in a conditional, therefore yield the result of the index inversion
+    reduction_ops.append(scf.Yield(reduction_ops[-1]))
+    # Wrap in a conditional, if so then invert the index, otherwise just send the index through,
+    # see above explanation for more details on this step
+    scf_if=scf.If(loop_idx_cmp.results[0], [ctx[op.regions[0].blocks[0].args[1]].type], reduction_ops, [scf.Yield(ctx[op.regions[0].blocks[0].args[1]])])
+    loop_body_ops+=[loop_one_const, loop_idx_cmp, scf_if]
+    del ctx[op.regions[0].blocks[0].args[1]]
+    ctx[op.regions[0].blocks[0].args[1]]=scf_if.results[0]
+
+    # This does the swapping between the lower and upper bounds, as above if we count down
+    # then indexes will be high to low, i.e. do high, low, step but these need swapped
+    # for the scf loop. This is driven by the conditional on the step
+    outer_const=create_index_constant(1)
+    outer_idx_cmp=arith.Cmpi(ctx[op.step], outer_const, 2)
+    nscf_if=scf.If(outer_idx_cmp.results[0], [upper_bound.type, lower_bound.type], [scf.Yield(upper_bound, lower_bound)], [scf.Yield(lower_bound, upper_bound)])
+    lower_bound=nscf_if.results[0]
+    upper_bound=nscf_if.results[1]
+    initarg_ops+=[outer_const, outer_idx_cmp, nscf_if]
+
+    # Regardless of whether the step is positive or not then we convert
+    # it to positive, as if it is already then it doesn't change anything
+    # and it's not worth the conditional check
+    step_abs_ops,step_abs_ssa=generate_convert_step_to_absolute(ctx[op.step])
+    step_ops+=step_abs_ops
+    del ctx[op.step]
+    ctx[op.step]=step_abs_ssa
+
   for loop_op in op.regions[0].blocks[0].ops:
     loop_body_ops+=translate_stmt(program_state, ctx, loop_op)
 
   # We need to add one to the upper index, as scf.for is not inclusive on the
   # top bound, whereas fir for loops are
   one_val_op=create_index_constant(1)
-  add_op=arith.Addi(ctx[op.upperBound], one_val_op)
-  upper_bound_ops+=[one_val_op, add_op]
-  del ctx[op.upperBound]
-  ctx[op.upperBound]=add_op.results[0]
+  add_op=arith.Addi(upper_bound, one_val_op)
+  initarg_ops+=[one_val_op, add_op]
+  upper_bound=add_op.results[0]
 
   # The fir result has both the index and iterargs, whereas the yield has only
   # the iterargs. Therefore need to rebuild the yield with the first argument (the index)
@@ -1388,7 +1498,7 @@ def translate_do_loop(program_state: ProgramState, ctx: SSAValueCtx, op: fir.DoL
 
   new_block.add_ops(loop_body_ops)
 
-  scf_for_loop=scf.For(ctx[op.lowerBound], ctx[op.upperBound], ctx[op.step], [ctx[op.initArgs]], new_block)
+  scf_for_loop=scf.For(lower_bound, upper_bound, ctx[op.step], [ctx[op.initArgs]], new_block)
 
   for index, scf_result in enumerate(scf_for_loop.results):
     ctx[op.results[index+1]]=scf_result
