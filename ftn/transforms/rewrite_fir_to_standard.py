@@ -294,7 +294,7 @@ def convert_fir_type_to_standard(fir_type, ref_as_mem_ref=True):
       if isa(base_t, memref.MemRefType):
         return base_t
       else:
-        return memref.MemRefType(base_t, [1], builtin.NoneAttr(), builtin.NoneAttr())
+        return memref.MemRefType(base_t, [], builtin.NoneAttr(), builtin.NoneAttr())
     else:
       return llvm.LLVMPointerType.opaque()
   elif isa(fir_type, fir.BoxType):
@@ -864,11 +864,10 @@ def translate_load(program_state: ProgramState, ctx: SSAValueCtx, op: fir.Load):
         return []
       else:
         # Otherwise assume it is a scalar
-        zero_val=arith.Constant.create(properties={"value": builtin.IntegerAttr.from_index_int_value(0)},
-                                               result_types=[builtin.IndexType()])
-        load_op=memref.Load.get(ctx[op.memref], [zero_val])
+
+        load_op=memref.Load.get(ctx[op.memref], [])
         ctx[op.results[0]]=load_op.results[0]
-        return [zero_val, load_op]
+        return [load_op]
     elif isa(ctx[op.memref].type, llvm.LLVMPointerType):
       # This is referenced by an LLVM pointer, it is because it has been loaded by an addressof
       # operation, most likely because that loads in a global. Regardless, we issue and LLVM
@@ -913,11 +912,9 @@ def translate_load(program_state: ProgramState, ctx: SSAValueCtx, op: fir.Load):
     # This is used for loading an internal variable
     assert isa(op.memref.owner.results[0].type, fir.ReferenceType)
 
-    zero_val=arith.Constant.create(properties={"value": builtin.IntegerAttr.from_index_int_value(0)},
-                                               result_types=[builtin.IndexType()])
-    load_op=memref.Load.get(ctx[op.memref], [zero_val])
+    load_op=memref.Load.get(ctx[op.memref], [])
     ctx[op.results[0]]=load_op.results[0]
-    return [zero_val, load_op]
+    return [load_op]
   else:
     assert False
 
@@ -968,9 +965,8 @@ def generate_var_dim_size_load(ctx: SSAValueCtx, op: fir.Load):
   if isa(var_ssa.type, builtin.MemRefType):
     # If this is a memref then we need to load it to
     # retrieve the index value
-    zero_index_op=create_index_constant(0)
-    load_op=memref.Load.get(var_ssa, [zero_index_op])
-    ops_list+=[zero_index_op, load_op]
+    load_op=memref.Load.get(var_ssa, [])
+    ops_list+=[load_op]
     var_ssa=load_op.results[0]
   if not isa(var_ssa.type, builtin.IndexType):
     assert isa(var_ssa.type, builtin.IntegerType)
@@ -1126,16 +1122,15 @@ def translate_store(program_state: ProgramState, ctx: SSAValueCtx, op: fir.Store
 
   else:
     expr_ops=translate_expr(program_state, ctx, op.value)
-    zero_val=arith.Constant.create(properties={"value": builtin.IntegerAttr.from_index_int_value(0)},
-                                               result_types=[builtin.IndexType()])
+
     if isa(op.memref.owner, hlfir.DeclareOp):
-      storage_op=memref.Store.get(ctx[op.value], ctx[op.memref], [zero_val])
+      storage_op=memref.Store.get(ctx[op.value], ctx[op.memref], [])
     elif isa(op.memref.owner, fir.Alloca):
       assert ctx[op.memref] is not None
-      storage_op=memref.Store.get(ctx[op.value], ctx[op.memref], [zero_val])
+      storage_op=memref.Store.get(ctx[op.value], ctx[op.memref], [])
     else:
       assert False
-    return expr_ops+[zero_val, storage_op]
+    return expr_ops+[storage_op]
 
 def array_access_components(program_state: ProgramState, ctx: SSAValueCtx, op:hlfir.DesignateOp):
   # This will generate the required operations and SSA for index accesses to an array, whether
@@ -1235,10 +1230,9 @@ def translate_assign(program_state: ProgramState, ctx: SSAValueCtx, op: hlfir.As
         return expr_lhs_ops+expr_rhs_ops+[copy_op]
       else:
         assert isa(op.rhs.owner.results[0].type, fir.ReferenceType)
-        zero_val=arith.Constant.create(properties={"value": builtin.IntegerAttr.from_index_int_value(0)},
-                                                 result_types=[builtin.IndexType()])
-        storage_op=memref.Store.get(ctx[op.lhs], ctx[op.rhs], [zero_val])
-        return expr_lhs_ops+expr_rhs_ops+[zero_val, storage_op]
+
+        storage_op=memref.Store.get(ctx[op.lhs], ctx[op.rhs], [])
+        return expr_lhs_ops+expr_rhs_ops+[storage_op]
     elif isa(ctx[op.rhs].type, llvm.LLVMPointerType):
       storage_op=llvm.StoreOp(ctx[op.lhs], ctx[op.rhs])
       return expr_lhs_ops+expr_rhs_ops+[storage_op]
@@ -1293,12 +1287,11 @@ def handle_call_argument(program_state: ProgramState, ctx: SSAValueCtx, fn_name:
       # Otherwise we need to pack the constant into a memref and pass this
       assert isa(arg_defn.arg_type, fir.ReferenceType)
       ops_list=translate_expr(program_state, ctx, arg.owner.source)
-      memref_alloca_op=memref.Alloca.get(convert_fir_type_to_standard(arg_defn.arg_type.type))
-      zero_val=arith.Constant.create(properties={"value": builtin.IntegerAttr.from_index_int_value(0)},
-                                             result_types=[builtin.IndexType()])
-      storage_op=memref.Store.get(ctx[arg.owner.source], memref_alloca_op.results[0], [zero_val])
+      memref_alloca_op=memref.Alloca.get(convert_fir_type_to_standard(arg_defn.arg_type.type), shape=[])
+
+      storage_op=memref.Store.get(ctx[arg.owner.source], memref_alloca_op.results[0], [])
       ctx[arg]=memref_alloca_op.results[0]
-      return ops_list+[memref_alloca_op, zero_val, storage_op], True
+      return ops_list+[memref_alloca_op, storage_op], True
   else:
     # Here passing a variable (array or scalar variable). This is a little confusing, as we
     # allow the translate_expr to handle it, but if the function accepts an integer due to
@@ -1309,15 +1302,14 @@ def handle_call_argument(program_state: ProgramState, ctx: SSAValueCtx, fn_name:
       if arg_defn.is_scalar and arg_defn.intent == ArgIntent.IN and isa(ctx[arg].type, memref.MemRefType):
         # The function will accept a constant, but we are currently passing a memref
         # therefore need to load the value and pass this
-        zero_val=arith.Constant.create(properties={"value": builtin.IntegerAttr.from_index_int_value(0)},
-                                               result_types=[builtin.IndexType()])
-        load_op=memref.Load.get(ctx[arg], [zero_val])
+
+        load_op=memref.Load.get(ctx[arg], [])
 
         # arg is already in our ctx from above, so remove it and add in the load as
         # we want to reference that instead
         del ctx[arg]
         ctx[arg]=load_op.results[0]
-        ops_list+=[zero_val, load_op]
+        ops_list+=[load_op]
       elif not arg_defn.is_scalar and not arg_defn.is_allocatable and isa(ctx[arg].type, memref.MemRefType) and isa(ctx[arg].type.element_type, memref.MemRefType):
         load_op=memref.Load.get(ctx[arg], [])
         del ctx[arg]
@@ -1638,7 +1630,7 @@ def translate_alloca(program_state: ProgramState, ctx: SSAValueCtx, op: fir.Allo
   for use in op.results[0].uses:
     if isa(use.operation, hlfir.DeclareOp): return[]
 
-  memref_alloca_op=memref.Alloca.get(convert_fir_type_to_standard(op.in_type))
+  memref_alloca_op=memref.Alloca.get(convert_fir_type_to_standard(op.in_type), shape=[])
   ctx[op.results[0]]=memref_alloca_op.results[0]
   return [memref_alloca_op]
 
@@ -1883,7 +1875,7 @@ def define_scalar_var(program_state: ProgramState, ctx: SSAValueCtx, op: hlfir.D
     if isa(allocation_op, fir.Alloca):
       assert isa(allocation_op.results[0].type, fir.ReferenceType)
       assert allocation_op.results[0].type.type == allocation_op.in_type
-      memref_alloca_op=memref.Alloca.get(convert_fir_type_to_standard(allocation_op.in_type))
+      memref_alloca_op=memref.Alloca.get(convert_fir_type_to_standard(allocation_op.in_type), shape=[])
       ctx[op.results[0]] = memref_alloca_op.results[0]
       ctx[op.results[1]] = memref_alloca_op.results[0]
       return [memref_alloca_op]
