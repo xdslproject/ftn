@@ -537,6 +537,8 @@ def try_translate_expr(program_state: ProgramState, ctx: SSAValueCtx, op: Operat
     return translate_absent(program_state, ctx, op)
   elif isa(op, hlfir.SumOp):
     return translate_sum(program_state, ctx, op)
+  elif isa(op, hlfir.TransposeOp):
+    return translate_transpose(program_state, ctx, op)
   else:
     for math_op in math.Math.operations:
       # Check to see if this is a math operation
@@ -582,6 +584,27 @@ def translate_dotproduct(program_state: ProgramState, ctx: SSAValueCtx, op: hlfi
   ctx[op.results[0]]=extract_op.results[0]
 
   return lhs_ops_list+rhs_ops_list+[output_memref_op, dot_op, extract_op]
+
+def translate_transpose(program_state: ProgramState, ctx: SSAValueCtx, op: hlfir.TransposeOp):
+  if ctx.contains(op.results[0]): return []
+
+  array_ops_list=translate_expr(program_state, ctx, op.array)
+
+  ops_list=[]
+  if isa(ctx[op.array].type.element_type, memref.MemRefType):
+    load_op, array_load_ssa=generate_dereference_memref(ctx[op.array])
+    ops_list.append(load_op)
+  else:
+    array_load_ssa=ctx[op.array]
+
+  output_memref_op=memref.Alloca.get(array_load_ssa.type.element_type, shape=array_load_ssa.type.shape)
+
+  transpose_op=linalg.TransposeOp(array_load_ssa, output_memref_op, builtin.DenseArrayBase.create_dense_int_or_index(builtin.i32, [1, 0]))
+
+  ctx[op.results[0]]=output_memref_op.results[0]
+
+  return ops_list+[output_memref_op, transpose_op]
+
 
 def translate_sum(program_state: ProgramState, ctx: SSAValueCtx, op: hlfir.SumOp):
   if ctx.contains(op.results[0]): return []
@@ -1240,19 +1263,31 @@ def translate_assign(program_state: ProgramState, ctx: SSAValueCtx, op: hlfir.As
     # Scalar value or assign entire array to another
     if isa(ctx[op.rhs].type, memref.MemRefType):
       if (isa(op.rhs.owner.results[0].type, fir.BoxType) or (isa(op.rhs.owner.results[0].type, fir.ReferenceType)
-              and isa(op.rhs.owner.results[0].type.type, fir.BoxType))):
+              and (isa(op.rhs.owner.results[0].type.type, fir.BoxType)) or isa(op.rhs.owner.results[0].type.type, fir.SequenceType))):
         # This is an array, we must be assigning one array to another, the type will
         # be fir.ref<fir.box<fir.heap<fir.array<..>>>> or fir.box<fir.array<...>>
         if isa(op.rhs.owner.results[0].type, fir.ReferenceType):
           # Of the form fir.ref<fir.box<fir.heap<fir.array<..>>>>
-          assert isa(op.rhs.owner.results[0].type.type.type, fir.HeapType)
-          assert isa(op.rhs.owner.results[0].type.type.type.type, fir.SequenceType)
-          assert isa(op.lhs.owner, fir.Load)
-          assert isa(op.lhs.owner.results[0].type, fir.BoxType)
-          assert isa(op.lhs.owner.results[0].type.type, fir.HeapType)
-          assert isa(op.lhs.owner.results[0].type.type.type, fir.SequenceType)
-          lhs_array_op=op.rhs.owner.results[0].type.type.type.type
-          rhs_array_op=op.lhs.owner.results[0].type.type.type
+          if isa(op.rhs.owner.results[0].type.type, fir.BoxType):
+            assert isa(op.rhs.owner.results[0].type.type.type, fir.HeapType)
+            assert isa(op.rhs.owner.results[0].type.type.type.type, fir.SequenceType)
+            rhs_array_op=op.rhs.owner.results[0].type.type.type.type
+          elif isa(op.rhs.owner.results[0].type.type, fir.SequenceType):
+            rhs_array_op=op.rhs.owner.results[0].type.type
+          else:
+            assert False
+
+          if isa(op.lhs.owner, fir.Load):
+            assert isa(op.lhs.owner.results[0].type, fir.BoxType)
+            assert isa(op.lhs.owner.results[0].type.type, fir.HeapType)
+            assert isa(op.lhs.owner.results[0].type.type.type, fir.SequenceType)
+            lhs_array_op=op.lhs.owner.results[0].type.type.type
+          elif isa(op.lhs.owner.results[0].type, hlfir.ExprType):
+            # This is the result of an intrinsic such as transpose or matmul
+            lhs_array_op=op.lhs.owner.results[0].type
+          else:
+            assert False
+
         else:
           # Of the form fir.box<fir.array<...>>
           assert isa(op.rhs.owner.results[0].type.type, fir.SequenceType)
@@ -1266,7 +1301,8 @@ def translate_assign(program_state: ProgramState, ctx: SSAValueCtx, op: hlfir.As
         assert len(lhs_dims) == len(rhs_dims)
 
         # Check the base type is the same
-        assert lhs_array_op.type == rhs_array_op.type
+        lhs_element_type = lhs_array_op.elementType if isa(lhs_array_op, hlfir.ExprType) else lhs_array_op.type
+        assert lhs_element_type == rhs_array_op.type
         # We don't check the array sizes are the same, probably should but might need to be dynamic
         if isa(ctx[op.lhs].type.element_type, memref.MemRefType):
           load_op, lhs_load_ssa=generate_dereference_memref(ctx[op.lhs])
