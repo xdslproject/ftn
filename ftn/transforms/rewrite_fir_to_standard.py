@@ -535,6 +535,8 @@ def try_translate_expr(program_state: ProgramState, ctx: SSAValueCtx, op: Operat
     return translate_copyin(program_state, ctx, op)
   elif isa(op, fir.Absent):
     return translate_absent(program_state, ctx, op)
+  elif isa(op, hlfir.SumOp):
+    return translate_sum(program_state, ctx, op)
   else:
     for math_op in math.Math.operations:
       # Check to see if this is a math operation
@@ -580,6 +582,44 @@ def translate_dotproduct(program_state: ProgramState, ctx: SSAValueCtx, op: hlfi
   ctx[op.results[0]]=extract_op.results[0]
 
   return lhs_ops_list+rhs_ops_list+[output_memref_op, dot_op, extract_op]
+
+def translate_sum(program_state: ProgramState, ctx: SSAValueCtx, op: hlfir.SumOp):
+  if ctx.contains(op.results[0]): return []
+
+  array_ops_list=translate_expr(program_state, ctx, op.array)
+
+  ops_list=[]
+  if isa(ctx[op.array].type.element_type, memref.MemRefType):
+    load_op, array_load_ssa=generate_dereference_memref(ctx[op.array])
+    ops_list.append(load_op)
+  else:
+    array_load_ssa=ctx[op.array]
+
+  output_memref_op=memref.Alloca.get(op.results[0].type, shape=[])
+
+  block=Block(arg_types=[op.results[0].type, op.results[0].type])
+  if isa(op.results[0].type, builtin.IntegerType):
+    zero_const=arith.Constant.from_int_and_width(0, op.results[0].type)
+    add_op=arith.Addi(block.args[0], block.args[1])
+  elif isa(op.results[0].type, builtin.AnyFloat):
+    zero_const=arith.Constant.from_float_and_width(0.0, op.results[0].type.width)
+    add_op=arith.Addf(block.args[0], block.args[1])
+  else:
+    assert False
+
+  yield_op=linalg.YieldOp(add_op)
+
+  # We need to initialise the output memref to zero
+  initialise_output_memref=memref.Store.get(zero_const, output_memref_op.results[0], [])
+
+  block.add_ops([add_op, yield_op])
+
+  reduce_op=linalg.ReductionOp([array_load_ssa], [output_memref_op], builtin.DenseArrayBase.create_dense_int_or_index(builtin.i32, [0]), Region([block]))
+  extract_op=memref.Load.get(output_memref_op, [])
+
+  ctx[op.results[0]]=extract_op.results[0]
+
+  return ops_list+[output_memref_op, zero_const, initialise_output_memref, reduce_op, extract_op]
 
 def translate_zerobits(program_state: ProgramState, ctx: SSAValueCtx, op: fir.ZeroBits):
   # This often appears in global regions for array declaration, if so then we need to
