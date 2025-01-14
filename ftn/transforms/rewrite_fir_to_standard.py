@@ -539,6 +539,8 @@ def try_translate_expr(program_state: ProgramState, ctx: SSAValueCtx, op: Operat
     return translate_sum(program_state, ctx, op)
   elif isa(op, hlfir.TransposeOp):
     return translate_transpose(program_state, ctx, op)
+  elif isa(op, hlfir.MatmulOp):
+    return translate_matmul(program_state, ctx, op)
   else:
     for math_op in math.Math.operations:
       # Check to see if this is a math operation
@@ -559,6 +561,30 @@ def translate_copyin(program_state: ProgramState, ctx: SSAValueCtx, op: hlfir.Co
   expr_ops=translate_expr(program_state, ctx, op.var)
   ctx[op.results[0]]=ctx[op.var]
   return expr_ops
+
+def translate_matmul(program_state: ProgramState, ctx: SSAValueCtx, op: hlfir.MatmulOp):
+  if ctx.contains(op.results[0]): return []
+  lhs_ops_list=translate_expr(program_state, ctx, op.lhs)
+  rhs_ops_list=translate_expr(program_state, ctx, op.rhs)
+
+  if isa(ctx[op.lhs].type.element_type, memref.MemRefType):
+    load_op, lhs_load_ssa=generate_dereference_memref(ctx[op.lhs])
+    lhs_ops_list.append(load_op)
+  else:
+    lhs_load_ssa=ctx[op.lhs]
+
+  if isa(ctx[op.rhs].type.element_type, memref.MemRefType):
+    load_op, rhs_load_ssa=generate_dereference_memref(ctx[op.rhs])
+    rhs_ops_list.append(load_op)
+  else:
+    rhs_load_ssa=ctx[op.rhs]
+
+  output_memref_op=memref.Alloca.get(lhs_load_ssa.type.element_type, shape=lhs_load_ssa.type.shape)
+  matmul_op=linalg.MatmulOp((lhs_load_ssa, rhs_load_ssa), [output_memref_op.results[0]])
+
+  ctx[op.results[0]]=output_memref_op.results[0]
+
+  return lhs_ops_list+rhs_ops_list+[output_memref_op, matmul_op]
 
 def translate_dotproduct(program_state: ProgramState, ctx: SSAValueCtx, op: hlfir.DotProductOp):
   if ctx.contains(op.results[0]): return []
@@ -625,7 +651,15 @@ def translate_sum(program_state: ProgramState, ctx: SSAValueCtx, op: hlfir.SumOp
     zero_const=arith.Constant.from_int_and_width(0, op.results[0].type)
     add_op=arith.Addi(block.args[0], block.args[1])
   elif isa(op.results[0].type, builtin.AnyFloat):
-    zero_const=arith.Constant.from_float_and_width(0.0, op.results[0].type.width)
+    if isa(op.results[0].type, builtin.Float16Type):
+      width=16
+    elif isa(op.results[0].type, builtin.Float32Type):
+      width=32
+    elif isa(op.results[0].type, builtin.Float64Type):
+      width=64
+    else:
+      assert False
+    zero_const=arith.Constant.from_float_and_width(0.0, width)
     add_op=arith.Addf(block.args[0], block.args[1])
   else:
     assert False
