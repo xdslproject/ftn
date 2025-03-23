@@ -19,7 +19,7 @@ from xdsl.pattern_rewriter import (RewritePattern, PatternRewriter,
                                    PatternRewriteWalker,
                                    GreedyRewritePatternApplier)
 from xdsl.passes import ModulePass
-from xdsl.dialects import builtin, func, llvm, arith, memref, scf, cf, linalg
+from xdsl.dialects import builtin, func, llvm, arith, memref, scf, cf, linalg, omp
 from xdsl.dialects.experimental import math
 from ftn.dialects import ftn_relative_cf
 
@@ -452,6 +452,10 @@ def try_translate_stmt(program_state: ProgramState, ctx: SSAValueCtx, op: Operat
     return translate_conditional(program_state, ctx, op)
   elif isa(op, cf.Branch):
     return translate_branch(program_state, ctx, op)
+  elif isa(op, omp.TargetOp):
+    return translate_omp_target(program_state, ctx, op)
+  elif isa(op, omp.TerminatorOp):
+    return [omp.TerminatorOp.create()]
   elif isa(op, cf.ConditionalBranch):
     return translate_conditional_branch(program_state, ctx, op)
   elif isa(op, fir.Unreachable):
@@ -541,6 +545,10 @@ def try_translate_expr(program_state: ProgramState, ctx: SSAValueCtx, op: Operat
     return translate_transpose(program_state, ctx, op)
   elif isa(op, hlfir.MatmulOp):
     return translate_matmul(program_state, ctx, op)
+  elif isa(op, omp.BoundsOp):
+    return translate_omp_bounds(program_state, ctx, op)
+  elif isa(op, omp.MapInfoOp):
+    return translate_omp_mapinfo(program_state, ctx, op)
   else:
     for math_op in math.Math.operations:
       # Check to see if this is a math operation
@@ -872,6 +880,95 @@ def translate_convert(program_state: ProgramState, ctx: SSAValueCtx, op: fir.Con
   if new_conv is None:
     raise Exception(f"Could not convert between `{in_type}' and `{out_type}`")
   return value_ops+new_conv
+
+def translate_omp_mapinfo(program_state: ProgramState, ctx: SSAValueCtx, op: omp.MapInfoOp):
+  var_ptr_ops=[]
+  var_ptr_ssa=[]
+  var_ptr_type=[]
+  for arg in op.var_ptr:
+    var_ptr_ops+=translate_expr(program_state, ctx, arg)
+    var_ptr_ssa.append(ctx[arg])
+    var_ptr_type.append(ctx[arg].type)
+
+  members_ops=[]
+  members_ssa=[]
+  for arg in op.members:
+    members_ops+=translate_expr(program_state, ctx, arg)
+    members_ssa.append(ctx[arg])
+
+  bounds_ops=[]
+  bounds_ssa=[]
+  for arg in op.bounds:
+    bounds_ops+=translate_expr(program_state, ctx, arg)
+    bounds_ssa.append(bounds_ops[-1].results[0])
+
+  mapinfo_op=omp.MapInfoOp.build(operands=[var_ptr_ssa, members_ssa, bounds_ssa],
+                      properties={"map_type": op.map_type, "var_name": op.var_name, "var_type": var_ptr_type[0]},
+                      result_types=var_ptr_type)
+
+  return var_ptr_ops + members_ops + bounds_ops + [mapinfo_op]
+
+def translate_omp_bounds(program_state: ProgramState, ctx: SSAValueCtx, op: omp.BoundsOp):
+  lower_ops=[]
+  lower_ssa=[]
+  for arg in op.lower:
+    lower_ops+=translate_expr(program_state, ctx, arg)
+    lower_ssa.append(ctx[arg])
+
+  upper_ops=[]
+  upper_ssa=[]
+  for arg in op.upper:
+    pass#upper_ops+=translate_expr(program_state, ctx, arg)
+    #upper_ssa.append(ctx[arg])
+
+  extent_ops=[]
+  extent_ssa=[]
+  for arg in op.extent:
+    extent_ops+=translate_expr(program_state, ctx, arg)
+    extent_ssa.append(ctx[arg])
+
+  stride_ops=[]
+  stride_ssa=[]
+  for arg in op.stride:
+    pass#stride_ops+=translate_expr(program_state, ctx, arg)
+    #stride_ssa.append(ctx[arg])
+
+  start_ops=[]
+  start_ssa=[]
+  for arg in op.start:
+    pass#start_ops+=translate_expr(program_state, ctx, arg)
+    #start_ssa.append(ctx[arg])
+
+  bounds_op=omp.BoundsOp.build(operands=[lower_ssa, upper_ssa, extent_ssa, stride_ssa, start_ssa],
+                      properties={"stride_in_bytes": op.stride_in_bytes},
+                      result_types=[omp.DataBoundsTy()])
+
+  return lower_ops+upper_ops+extent_ops+stride_ops+start_ops+[bounds_op]
+
+def translate_omp_target(program_state: ProgramState, ctx: SSAValueCtx, op: omp.TargetOp):
+  map_var_ops=[]
+  map_var_ssa=[]
+  arg_types=[]
+  for arg in op.map_vars:
+    v_ops=translate_expr(program_state, ctx, arg)
+    map_var_ops+=v_ops
+    map_var_ssa.append(map_var_ops[-1].results[0])
+    arg_types.append(map_var_ops[-1].results[0].type)
+
+  new_block = Block(arg_types=arg_types)
+
+  for fir_arg, std_arg in zip(op.region.blocks[0].args, new_block.args):
+    ctx[fir_arg]=std_arg
+
+  region_body_ops=[]
+  for single_op in op.region.blocks[0].ops:
+    region_body_ops+=translate_stmt(program_state, ctx, single_op)
+
+  new_block.add_ops(region_body_ops)
+
+  target_op=omp.TargetOp.build(operands=[[],[],[],map_var_ssa], regions=[Region([new_block])])
+
+  return map_var_ops+[target_op]
 
 def handle_conditional_true_or_false_region(program_state: ProgramState, ctx: SSAValueCtx, region: Region):
   arg_types=[]
