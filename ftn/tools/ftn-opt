@@ -13,6 +13,7 @@ from ftn.transforms.merge_memref_deref import MergeMemRefDeref
 from ftn.transforms.extract_target import ExtractTarget
 from ftn.transforms.isolate_target import IsolateTarget
 from psy.extract_stencil import ExtractStencil
+from ftn.transforms.linalg_to_xrt import LinalgToXrt
 from psy.infer_gpu_data_transfer import InferGPUDataTransfer
 
 from util.semantic_error import SemanticError
@@ -36,6 +37,7 @@ class FtnOptMain(xDSLOptMain):
         self.register_pass("merge-memref-deref", lambda: MergeMemRefDeref)
         self.register_pass("extract-target", lambda: ExtractTarget)
         self.register_pass("isolate-target", lambda: IsolateTarget)
+        self.register_pass("linalg-to-xrt", lambda: LinalgToXrt)
 
 
     def register_all_targets(self):
