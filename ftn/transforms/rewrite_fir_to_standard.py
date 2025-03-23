@@ -458,6 +458,8 @@ def try_translate_stmt(program_state: ProgramState, ctx: SSAValueCtx, op: Operat
     return [omp.TerminatorOp.create()]
   elif isa(op, omp.SIMDLoopOp):
     return translate_omp_simdloop(program_state, ctx, op)
+  elif isa(op, omp.TeamsOp):
+    return translate_omp_team(program_state, ctx, op)
   elif isa(op, omp.YieldOp):
     return [omp.YieldOp.create()]
   elif isa(op, cf.ConditionalBranch):
@@ -949,9 +951,43 @@ def translate_omp_bounds(program_state: ProgramState, ctx: SSAValueCtx, op: omp.
 
   return lower_ops+upper_ops+extent_ops+stride_ops+start_ops+[bounds_op]
 
+def translate_omp_team(program_state: ProgramState, ctx: SSAValueCtx, op: omp.TeamsOp):
+  arg_ssa=[]
+  arg_ops=[]
+
+  if op.num_teams_lower is not None:
+    ops=translate_expr(program_state, ctx, op.num_teams_lower)
+    arg_ops+=ops
+    arg_ssa.append([ops[-1].results[0]])
+  else:
+    arg_ssa.append([])
+
+  if op.num_teams_upper is not None:
+    ops=translate_expr(program_state, ctx, op.num_teams_upper)
+    arg_ops+=ops
+    arg_ssa.append([ops[-1].results[0]])
+  else:
+    arg_ssa.append([])
+
+  arg_ssa+=[[],[],[],[],[]]
+
+  new_block = Block()
+
+  region_body_ops=[]
+  for single_op in op.body.blocks[0].ops:
+    region_body_ops+=translate_stmt(program_state, ctx, single_op)
+
+  new_block.add_ops(region_body_ops)
+
+  new_props={}
+  for key, value in op.properties.items():
+    if key != "operandSegmentSizes":
+      new_props[key]=value
+
+  teams_op=omp.TeamsOp.build(operands=arg_ssa, regions=[Region([new_block])], properties=new_props)
+  return arg_ops + [teams_op]
+
 def translate_omp_simdloop(program_state: ProgramState, ctx: SSAValueCtx, op: omp.SIMDLoopOp):
-  var_ops=[]
-  var_ssa=[]
   arg_types=[]
 
   lb_ops=translate_expr(program_state, ctx, op.lowerBound[0])
@@ -971,7 +1007,12 @@ def translate_omp_simdloop(program_state: ProgramState, ctx: SSAValueCtx, op: om
 
   new_block.add_ops(region_body_ops)
 
-  simd_op=omp.SIMDLoopOp.build(operands=[lb_ops,ub_ops,step_ops,[], [], []], regions=[Region([new_block])])
+  new_props={}
+  for key, value in op.properties.items():
+    if key != "operandSegmentSizes":
+      new_props[key]=value
+
+  simd_op=omp.SIMDLoopOp.build(operands=[lb_ops,ub_ops,step_ops,[], [], []], regions=[Region([new_block])], properties=new_props)
 
   return lb_ops + ub_ops + step_ops + [simd_op]
 
@@ -996,7 +1037,12 @@ def translate_omp_target(program_state: ProgramState, ctx: SSAValueCtx, op: omp.
 
   new_block.add_ops(region_body_ops)
 
-  target_op=omp.TargetOp.build(operands=[[],[],[],map_var_ssa], regions=[Region([new_block])])
+  new_props={}
+  for key, value in op.properties.items():
+    if key != "operandSegmentSizes":
+      new_props[key]=value
+
+  target_op=omp.TargetOp.build(operands=[[],[],[],map_var_ssa], regions=[Region([new_block])], properties=new_props)
 
   return map_var_ops+[target_op]
 
