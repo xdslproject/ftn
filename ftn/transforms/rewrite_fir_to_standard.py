@@ -456,6 +456,10 @@ def try_translate_stmt(program_state: ProgramState, ctx: SSAValueCtx, op: Operat
     return translate_omp_target(program_state, ctx, op)
   elif isa(op, omp.TerminatorOp):
     return [omp.TerminatorOp.create()]
+  elif isa(op, omp.SIMDLoopOp):
+    return translate_omp_simdloop(program_state, ctx, op)
+  elif isa(op, omp.YieldOp):
+    return [omp.YieldOp.create()]
   elif isa(op, cf.ConditionalBranch):
     return translate_conditional_branch(program_state, ctx, op)
   elif isa(op, fir.Unreachable):
@@ -944,6 +948,32 @@ def translate_omp_bounds(program_state: ProgramState, ctx: SSAValueCtx, op: omp.
                       result_types=[omp.DataBoundsTy()])
 
   return lower_ops+upper_ops+extent_ops+stride_ops+start_ops+[bounds_op]
+
+def translate_omp_simdloop(program_state: ProgramState, ctx: SSAValueCtx, op: omp.SIMDLoopOp):
+  var_ops=[]
+  var_ssa=[]
+  arg_types=[]
+
+  lb_ops=translate_expr(program_state, ctx, op.lowerBound[0])
+  ub_ops=translate_expr(program_state, ctx, op.upperBound[0])
+  step_ops=translate_expr(program_state, ctx, op.step[0])
+
+  arg_types=[lb_ops[-1].results[0].type, ub_ops[-1].results[0].type, step_ops[-1].results[0].type]
+
+  new_block = Block(arg_types=arg_types)
+
+  for fir_arg, std_arg in zip(op.body.blocks[0].args, new_block.args):
+    ctx[fir_arg]=std_arg
+
+  region_body_ops=[]
+  for single_op in op.body.blocks[0].ops:
+    region_body_ops+=translate_stmt(program_state, ctx, single_op)
+
+  new_block.add_ops(region_body_ops)
+
+  simd_op=omp.SIMDLoopOp.build(operands=[lb_ops,ub_ops,step_ops,[], [], []], regions=[Region([new_block])])
+
+  return lb_ops + ub_ops + step_ops + [simd_op]
 
 def translate_omp_target(program_state: ProgramState, ctx: SSAValueCtx, op: omp.TargetOp):
   map_var_ops=[]
