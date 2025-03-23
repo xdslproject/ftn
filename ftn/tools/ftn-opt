@@ -13,7 +13,7 @@ from ftn.transforms.merge_memref_deref import MergeMemRefDeref
 from ftn.transforms.extract_target import ExtractTarget
 from ftn.transforms.isolate_target import IsolateTarget
 from psy.extract_stencil import ExtractStencil
-from ftn.transforms.convert_to_tt import ConvertToTT
+from ftn.transforms.tenstorrent.convert_to_tt import ConvertToTT
 from psy.infer_gpu_data_transfer import InferGPUDataTransfer
 
 from util.semantic_error import SemanticError
