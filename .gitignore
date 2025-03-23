@@ -3,6 +3,10 @@ __pycache__/
 *.py[cod]
 *$py.class
 
+ftn/tools/test/
+ftn/tools/tt_eg/
+ftn/tools/generated/
+
 # C extensions
 *.so
 

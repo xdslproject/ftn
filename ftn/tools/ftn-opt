@@ -10,6 +10,8 @@ from xdsl.dialects.builtin import ModuleOp
 from ftn.transforms.fir_to_stencil import FIRToStencil
 from ftn.transforms.rewrite_fir_to_standard import RewriteFIRToStandard
 from ftn.transforms.merge_memref_deref import MergeMemRefDeref
+from ftn.transforms.extract_target import ExtractTarget
+from ftn.transforms.isolate_target import IsolateTarget
 from psy.extract_stencil import ExtractStencil
 from psy.infer_gpu_data_transfer import InferGPUDataTransfer
 
@@ -32,6 +34,8 @@ class FtnOptMain(xDSLOptMain):
         self.register_pass("infer-gpu-data-transfer", lambda: InferGPUDataTransfer)
         self.register_pass("rewrite-fir-to-standard", lambda: RewriteFIRToStandard)
         self.register_pass("merge-memref-deref", lambda: MergeMemRefDeref)
+        self.register_pass("extract-target", lambda: ExtractTarget)
+        self.register_pass("isolate-target", lambda: IsolateTarget)
 
 
     def register_all_targets(self):
