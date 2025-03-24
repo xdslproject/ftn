@@ -1935,8 +1935,9 @@ def translate_declare(program_state: ProgramState, ctx: SSAValueCtx, op: hlfir.D
   # If already seen then simply ignore
   if ctx.contains(op.results[0]): return []
 
-  if isa(op.results[0].type, fir.ReferenceType) and isa(op.results[0].type.type, fir.BoxType):
-    # This is an allocatable array, we will handle this on the allocation
+  if isa(op.results[0].type, fir.ReferenceType) and isa(op.results[0].type.type, fir.BoxType) and not isa(op.memref, BlockArgument):
+    # This is an allocatable array, we will handle this on the allocation, last part ensures
+    # is not a block argument (which would already be allocated and passed into a block e.g. a function)
     assert isa(op.results[0].type.type.type, fir.HeapType)
     assert isa(op.results[0].type.type.type.type, fir.SequenceType)
     num_dims=len(op.results[0].type.type.type.type.shape)
