@@ -27,12 +27,32 @@ class RewriteTarget(RewritePattern):
 
     locations={}
 
+    memref_dim_ops=[]
     # Grab bounds and info, then at end the terminator
     for var in op.map_vars:
       var_op=var.owner
       var_op.parent.detach_op(var_op)
       arg_types.append(var_op.var_ptr[0].type)
       arg_ssa.append(var_op.var_ptr[0])
+      if isa(var_op.var_ptr[0].type, builtin.MemRefType):
+        memref_type=var_op.var_ptr[0].type
+        src_memref=var_op.var_ptr[0]
+        if isa(memref_type.element_type, builtin.MemRefType):
+          assert len(memref_type.shape) == 0
+          memref_type=var_op.var_ptr[0].type.element_type
+          memref_loadop=memref.Load.get(src_memref, [])
+          src_memref=memref_loadop.results[0]
+          memref_dim_ops.append(memref_loadop)
+        for idx, s in enumerate(memref_type.shape):
+          assert isa(s, builtin.IntAttr)
+          if (s.data == -1):
+            # Need to pass the dimension shape size in explicitly as it is deferred
+            const_op=arith.Constant.from_int_and_width(idx, builtin.IndexType())
+            dim_size=memref.Dim.from_source_and_index(src_memref, const_op)
+            memref_dim_ops+=[const_op, dim_size]
+            arg_ssa.append(dim_size.results[0])
+            arg_types.append(dim_size.results[0].type)
+
       locations[var_op]=idx
       idx+=1
       if len(var_op.bounds) > 0:
@@ -61,7 +81,7 @@ class RewriteTarget(RewritePattern):
                       properties={"stride_in_bytes": bound_op.stride_in_bytes},
                       result_types=res_types)
 
-        new_block.add_op(new_bounds_op)        
+        new_block.add_op(new_bounds_op)
         map_bounds=[new_bounds_op.results[0]]
 
       res_types=[]
@@ -72,26 +92,26 @@ class RewriteTarget(RewritePattern):
       new_mapinfo_ssa.append(mapinfo_op.results[0])
 
       new_block.add_op(mapinfo_op)
-              
+
     reg=op.region
     op.detach_region(reg)
 
-    new_omp_target_op=omp.TargetOp.build(operands=[[],[],[], new_mapinfo_ssa], regions=[reg])        
+    new_omp_target_op=omp.TargetOp.build(operands=[[],[],[], new_mapinfo_ssa], regions=[reg])
     new_block.add_op(new_omp_target_op)
     new_block.add_op(func.Return())
-    
+
     new_fn_type=builtin.FunctionType.from_lists(arg_types, [])
 
     body = Region()
     body.add_block(new_block)
-    
+
     new_func=func.FuncOp("tt_device", new_fn_type, body)
-    
+
     self.target_ops=[new_func]
-    
+
     call_fn=func.Call.create(properties={"callee": builtin.SymbolRefAttr("tt_device")}, operands=arg_ssa, result_types=[])
-    op.parent.insert_op_before(call_fn, op)
-    
+    op.parent.insert_ops_before(memref_dim_ops+[call_fn], op)
+
     op.parent.detach_op(op)
 
 @dataclass(frozen=True)
