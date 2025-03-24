@@ -20,16 +20,24 @@ from util.visitor import Visitor
 uint32 = builtin.IntegerType(32, signedness=builtin.Signedness.UNSIGNED)
 uint64 = builtin.IntegerType(64, signedness=builtin.Signedness.UNSIGNED)
 
-class GatherMemoryTypes(Visitor):
+class GatherDeviceFunctionArgs(Visitor):
+  def __init__(self):
+    self.args=[]
+
+  def traverse_func_op(self, func_op: func.FuncOp):
+    for arg in func_op.args:
+      self.args.append(arg)
+
+class GatherMemoryPassedToDevice(Visitor):
   def __init__(self):
     self.memory_types=[]
     self.references=[]
 
-  def traverse_alloca(self, alloca_op: memref.Alloca):
-    self.memory_types.append(alloca_op.results[0].type.element_type.element_type)
-    assert len(alloca_op.results[0].uses) == 1
-    assert isa(list(alloca_op.results[0].uses)[0].operation, memref.Load)
-    self.references.append(list(alloca_op.results[0].uses)[0].operation.results[0])
+  def traverse_target_op(self, target_op: omp.TargetOp):
+    for idx, map_var in enumerate(target_op.map_vars):
+      assert isa(map_var.type, builtin.MemRefType)
+      self.memory_types.append(map_var.type.element_type)
+      self.references.append(target_op.region.block.args[idx])
 
 class GatherFor(Visitor):
   def __init__(self):
@@ -58,6 +66,11 @@ class ConvertToTT(ModulePass):
     ssa_res=[]
     write_back_ops=[]
     for idx, t in enumerate(memory_type):
+      is_deref_memref=isa(t, builtin.MemRefType)
+      if is_deref_memref:
+        element_type=t.element_type
+      else:
+        element_type=t
       dm_op=data_movement.DMGetNocAddrFromBankId(builtin.IntegerAttr.from_int_and_width(1, 1), new_block.args[len(memory_type)+idx], new_block.args[idx])
       dm_op.results[0].name_hint = f"src{idx}_dram_noc_addr"
 
@@ -65,19 +78,25 @@ class ConvertToTT(ModulePass):
       cb_op=circular_buffer.CBGetWritePointer(const_op.results[0])
       cb_op.results[0].name_hint = "l1_write_addr_in"+str(idx)
 
-      assert t.width.data % 8 == 0
-      data_type_byte_width=arith.Constant.from_int_and_width(int(t.width.data / 8), 32)
+      assert element_type.width.data % 8 == 0
+      data_type_byte_width=arith.Constant.from_int_and_width(int(element_type.width.data / 8), 32)
       dt_width_conversion_op=builtin.UnrealizedConversionCastOp.get([data_type_byte_width.results[0]], [uint32])
       mem_size_bytes_op=arith.Muli(dt_width_conversion_op, new_block.args[(len(memory_type)*2)+idx])
       read_op=data_movement.DMNocAsyncRead(dm_op.results[0], cb_op.results[0], mem_size_bytes_op)
 
-      target_memref=builtin.MemRefType(t, [-1])
+      target_memref=builtin.MemRefType(element_type, [-1])
       conversion_op=builtin.UnrealizedConversionCastOp.get([cb_op.results[0]], [target_memref])
       conversion_op.results[0].name_hint = f"src{idx}_data"
 
       new_block.add_ops([dm_op, const_op, cb_op, data_type_byte_width, dt_width_conversion_op, mem_size_bytes_op, read_op, conversion_op])
       ssa_res.append(conversion_op.results[0])
-      references[idx].replace_by(conversion_op.results[0])
+
+      for use in references[idx].uses:
+        if isa(use.operation, memref.Load):
+          # Currently just doing this for passing array/data (e.g. memref of memref, ignoring constants but probably want to handle that too)
+          if is_deref_memref:
+            use.operation.detach()
+            use.operation.results[0].replace_by(conversion_op.results[0])
 
       write_op=data_movement.DMNocAsyncWrite(cb_op.results[0], dm_op.results[0], mem_size_bytes_op)
       write_back_ops.append(write_op)
@@ -164,8 +183,14 @@ class ConvertToTT(ModulePass):
 
     return new_module
 
-  def generate_host(self, module, memory_type):
+  def generate_host(self, module, memory_type, device_args):
     host_ops=[]
+
+    fn_in_types=[]
+    for arg in device_args:
+      fn_in_types.append(arg.type)
+
+    new_block=Block(arg_types=fn_in_types)
 
     zero_c_op=arith.Constant.from_int_and_width(0, 32)
     core_op=host.TTHostCore(zero_c_op.results[0], zero_c_op.results[0])
@@ -180,38 +205,56 @@ class ConvertToTT(ModulePass):
     program_op=host.TTCreateProgram()
     program_op.results[0].name_hint = "program"
 
-    size_c_op=arith.Constant.from_int_and_width(400, 32)
-    dram_config_op=host.TTCreateDRAMConfig(size_c_op, size_c_op)
-    dram_config_op.results[0].name_hint = "dram_config"
-
     one_c_op=arith.Constant.from_int_and_width(1, 32)
 
     host_ops+=[zero_c_op, core_op, device_op, command_queue_op,
-                program_op, size_c_op, dram_config_op, one_c_op]
+                program_op, one_c_op]
 
     buffer_create_ops=[]
 
     host_buffers=[]
     device_buffers=[]
+    current_arg_idx=0
     for idx, mem in enumerate(memory_type):
+      arg_ssa=new_block.args[current_arg_idx]
+      assert isa(arg_ssa.type, builtin.MemRefType)
+
+      element_type=arg_ssa.type.element_type
+      if isa(element_type, builtin.MemRefType): element_type=element_type.element_type
+
+      assert element_type.width.data % 8 == 0
+      data_type_byte_width=arith.Constant.from_int_and_width(int(element_type.width.data / 8), 32)
+
+      if isa(arg_ssa.type.element_type, builtin.MemRefType):
+        # This is an array, use the size provided to the function
+        new_conv=arith.IndexCastOp(new_block.args[current_arg_idx+2], builtin.i32)
+        size_ssa=arith.Muli(data_type_byte_width, new_conv)
+        current_arg_idx+=3
+        buffer_create_ops+=[data_type_byte_width, new_conv, size_ssa]
+      else:
+        # This is a scalar, number of elements is therefore one
+        size_ssa=data_type_byte_width
+        current_arg_idx+=1
+        buffer_create_ops+=[data_type_byte_width]
+
+      dram_config_op=host.TTCreateDRAMConfig(size_ssa, size_ssa)
+      dram_config_op.results[0].name_hint = "dram_config_"+str(idx)
+
       create_buffer_op=host.TTCreateBuffer(dram_config_op.results[0])
       create_buffer_op.results[0].name_hint = f"src{idx}_dram_buffer"
 
       device_buffers.append(create_buffer_op.results[0])
 
       idx_c_op=arith.Constant.from_int_and_width(idx, 32)
-      cb_config_op=host.TTCreateCBConfig(one_c_op.results[0], size_c_op.results[0], idx_c_op.results[0], "int")
+      cb_config_op=host.TTCreateCBConfig(one_c_op.results[0], size_ssa.results[0], idx_c_op.results[0], "int")
       cb_config_op.results[0].name_hint = f"cb_{idx}_config"
 
       create_cb_op=host.TTCreateCircularBuffer(program_op.results[0], core_op.results[0], cb_config_op.results[0])
       create_cb_op.results[0].name_hint = f"cb_{idx}"
 
-      data_buffer=memref.Alloc.get(mem, shape=[400])
-      data_buffer.results[0].name_hint = "host_src"+str(idx)
+      host_buffers.append(arg_ssa)
 
-      host_buffers.append(data_buffer)
-
-      buffer_create_ops+=[create_buffer_op, idx_c_op, cb_config_op, data_buffer]
+      buffer_create_ops+=[dram_config_op, create_buffer_op, idx_c_op, cb_config_op]
 
     host_ops+=buffer_create_ops
 
@@ -256,12 +299,14 @@ class ConvertToTT(ModulePass):
 
     host_ops+=[setRTArgs, enqueue_prog, *data_writes, finish_op, close_device, ret_op]
 
+    new_block.add_ops(host_ops)
+
     body = Region()
-    body.add_block(Block(host_ops))
+    body.add_block(new_block)
 
     func_op = func.FuncOp(
-      "main",
-      builtin.FunctionType.from_lists([], [builtin.i32]),
+      "host",
+      builtin.FunctionType.from_lists(fn_in_types, [builtin.i32]),
       body
     )
 
@@ -271,15 +316,18 @@ class ConvertToTT(ModulePass):
 
 
   def apply(self, ctx: MLContext, module: builtin.ModuleOp):
-    memref_visitor=GatherMemoryTypes()
+    memref_visitor=GatherMemoryPassedToDevice()
     memref_visitor.traverse(module)
 
     for_visitor=GatherFor()
     for_visitor.traverse(module)
 
+    device_func_visitor=GatherDeviceFunctionArgs()
+    device_func_visitor.traverse(module)
+
     target_func_op=self.generate_device(module, memref_visitor.memory_types, memref_visitor.references, for_visitor.for_op)
 
-    host_func_op=self.generate_host(module, memref_visitor.memory_types)
+    host_func_op=self.generate_host(module, memref_visitor.memory_types, device_func_visitor.args)
 
     for mod in module.regions[0].block.ops:
       assert isa(mod, builtin.ModuleOp)
