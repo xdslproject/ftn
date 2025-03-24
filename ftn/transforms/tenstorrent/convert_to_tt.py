@@ -48,7 +48,9 @@ class ConvertToTT(ModulePass):
   def generate_device(self, module, memory_type, references, for_op):
     assert for_op is not None
 
-    arg_types=[uint32]*len(memory_type)*2
+    # For each memref first passed in is memory addresses, then bank ids, and then memory sizes (number elements)
+
+    arg_types=[uint32]*len(memory_type)*3
 
     new_block = Block(arg_types=arg_types)
 
@@ -63,19 +65,21 @@ class ConvertToTT(ModulePass):
       cb_op=circular_buffer.CBGetWritePointer(const_op.results[0])
       cb_op.results[0].name_hint = "l1_write_addr_in"+str(idx)
 
-      size_op=arith.Constant.from_int_and_width(400, 32)
-      conversion_size_op=builtin.UnrealizedConversionCastOp.get([size_op.results[0]], [uint32])
-      read_op=data_movement.DMNocAsyncRead(dm_op.results[0], cb_op.results[0], conversion_size_op.results[0])
+      assert t.width.data % 8 == 0
+      data_type_byte_width=arith.Constant.from_int_and_width(int(t.width.data / 8), 32)
+      dt_width_conversion_op=builtin.UnrealizedConversionCastOp.get([data_type_byte_width.results[0]], [uint32])
+      mem_size_bytes_op=arith.Muli(dt_width_conversion_op, new_block.args[(len(memory_type)*2)+idx])
+      read_op=data_movement.DMNocAsyncRead(dm_op.results[0], cb_op.results[0], mem_size_bytes_op)
 
-      target_memref=builtin.MemRefType(t, [100])
+      target_memref=builtin.MemRefType(t, [-1])
       conversion_op=builtin.UnrealizedConversionCastOp.get([cb_op.results[0]], [target_memref])
       conversion_op.results[0].name_hint = f"src{idx}_data"
 
-      new_block.add_ops([dm_op, const_op, cb_op, size_op, conversion_size_op, read_op, conversion_op])
+      new_block.add_ops([dm_op, const_op, cb_op, data_type_byte_width, dt_width_conversion_op, mem_size_bytes_op, read_op, conversion_op])
       ssa_res.append(conversion_op.results[0])
       references[idx].replace_by(conversion_op.results[0])
 
-      write_op=data_movement.DMNocAsyncWrite(cb_op.results[0], dm_op.results[0], conversion_size_op.results[0])
+      write_op=data_movement.DMNocAsyncWrite(cb_op.results[0], dm_op.results[0], mem_size_bytes_op)
       write_back_ops.append(write_op)
 
     new_block.add_op(data_movement.DMNocAsyncReadBarrier())
