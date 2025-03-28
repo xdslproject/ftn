@@ -1,6 +1,7 @@
 from abc import ABC
 from typing import TypeVar, cast
 from dataclasses import dataclass
+from enum import Enum
 import itertools
 from xdsl.utils.hints import isa
 from xdsl.dialects import memref, scf, omp
@@ -8,7 +9,7 @@ import tenstorrent.dialects.data_movement as data_movement
 import tenstorrent.dialects.host as host
 import tenstorrent.dialects.circular_buffer as circular_buffer
 import tenstorrent.dialects.compute as compute
-from xdsl.ir import Operation, SSAValue, OpResult, Attribute, MLContext, Block, Region
+from xdsl.ir import Operation, SSAValue, OpResult, Attribute, MLContext, Block, Region, BlockArgument
 
 from xdsl.pattern_rewriter import (RewritePattern, PatternRewriter,
                                    op_type_rewrite_pattern,
@@ -20,6 +21,117 @@ from util.visitor import Visitor
 
 uint32 = builtin.IntegerType(32, signedness=builtin.Signedness.UNSIGNED)
 uint64 = builtin.IntegerType(64, signedness=builtin.Signedness.UNSIGNED)
+
+class LoopDescription():
+  # Describes a loop, with its lower and upper bound along with the iterator
+  # variable name and the loop operation itself
+  def __init__(self, lb, ub, step, iterator_ssa, loop_op):
+    self.lb=lb
+    self.ub=ub
+    self.step=step
+    self.iterator_ssa=iterator_ssa
+    self.loop_op=loop_op
+
+class GatherLoops(Visitor):
+  def __init__(self):
+    self.loop_description={}
+
+  def get_constant(token):
+    if isa(token, arith.Constant):
+      assert token.value.type == builtin.i32
+      return token.value.value.data
+    else:
+      assert False
+
+  def traverse_s_i_m_d_loop_op(self, simdloop: omp.SIMDLoopOp):
+    lb=GatherLoops.get_constant(simdloop.lowerBound[0].owner)
+    ub=GatherLoops.get_constant(simdloop.upperBound[0].owner)
+    step=GatherLoops.get_constant(simdloop.step[0].owner)
+
+    first_op=simdloop.body.block.ops.first
+    assert isa(first_op, memref.Store)
+    iterator_ssa=first_op.memref
+    self.loop_description[iterator_ssa]=LoopDescription(lb, ub, step, iterator_ssa, simdloop)
+    for op in simdloop.body.block.ops:
+      self.traverse(op)
+
+class GetArrayAccessValue(Visitor):
+  # Walks the index expression of an array (i.e. (a-1-1) and builds up expression
+  # tree based on this, supports sub, add, var_name and constants
+  class SideType(Enum):
+    CONSTANT = 1
+    VARIABLE = 2
+    EXPRESSION = 3
+
+  class ArithOp(Enum):
+    SUB = 1
+    ADD = 2
+    MUL = 3
+
+  class ExpressionDescription:
+    def __init__(self, lhs, lhs_t, rhs=None, rhs_t=None, arith_operation=None):
+      self.arith_operation=arith_operation
+      self.lhs=lhs
+      self.lhs_type=lhs_t
+      self.rhs=rhs
+      self.rhs_type=rhs_t
+
+  #def __init__(self):
+  #  self.expression=None
+  #  self.expression_t=None
+
+  def get_var_ssa(self):
+    # Gets variable ssa that have been referenced in the expression
+    var_ssas=[]
+    GetArrayAccessValue.search_var_names(var_ssas, self.expression, self.expression_t)
+    return var_ssas
+
+  def search_var_names(var_ssas, expr, expr_t):
+    # Recursive procedure to search all nested expressions to locate variable names
+    if expr_t == GetArrayAccessValue.SideType.VARIABLE:
+      var_ssas.append(expr)
+    elif expr_t == GetArrayAccessValue.SideType.EXPRESSION:
+      GetArrayAccessValue.search_var_names(var_ssas, expr.lhs, expr.lhs_type)
+      GetArrayAccessValue.search_var_names(var_ssas, expr.rhs, expr.rhs_type)
+
+  def traverse_constant(self, constant_op: arith.Constant):
+    # Grabs out constant value
+    assert constant_op.value.type == builtin.i32 or constant_op.value.type == builtin.i64 or isa(constant_op.value.type, builtin.IndexType)
+    self.expression=constant_op.value.value.data
+    self.expression_t=GetArrayAccessValue.SideType.CONSTANT
+
+  def handle_arith_op(self, arith_op, arith_op_type):
+    self.traverse(arith_op.lhs.owner)
+    lhs_v=self.expression
+    lhs_t=self.expression_t
+    self.traverse(arith_op.rhs.owner)
+    e=GetArrayAccessValue.ExpressionDescription(lhs_v, lhs_t, self.expression, self.expression_t, arith_op_type)
+    self.expression=e
+    self.expression_t=GetArrayAccessValue.SideType.EXPRESSION
+
+  def traverse_subi(self, subi_op: arith.Subi):
+    self.handle_arith_op(subi_op, GetArrayAccessValue.ArithOp.SUB)
+
+  def traverse_addi(self, addi_op: arith.Addi):
+    self.handle_arith_op(addi_op, GetArrayAccessValue.ArithOp.ADD)
+
+  def traverse_muli(self, addi_op: arith.Muli):
+    self.handle_arith_op(addi_op, GetArrayAccessValue.ArithOp.MUL)
+
+  def traverse_ext_u_i_op(self, extui_op: arith.ExtUIOp):
+    self.traverse(extui_op.input.owner)
+
+  def traverse_ext_s_i_op(self, extsi_op: arith.ExtSIOp):
+    self.traverse(extsi_op.input.owner)
+
+  def traverse_index_cast_op(self, convert_op: arith.IndexCastOp):
+    # We ignore converts apart from visiting the child
+    self.traverse(convert_op.input.owner)
+
+  def traverse_load(self, load_op: memref.Load):
+    # Signifies a variable
+    self.expression=load_op.memref
+    self.expression_t=GetArrayAccessValue.SideType.VARIABLE
 
 class GatherDeviceFunctionArgs(Visitor):
   def __init__(self):
@@ -40,6 +152,173 @@ class GatherMemoryPassedToDevice(Visitor):
       self.memory_types.append(map_var.type.element_type)
       self.references.append(target_op.region.block.args[idx])
 
+class GetStoreCalculationContributedOperations(Visitor):
+  # For a calculation this will gather up all the operations that contribute
+  # to it, for instance the arithmetic operations, LHS and RHS variables
+  # and constants, conversions etc
+
+  class ContributedOperation():
+    def walk(self, to_match):
+      if isa(self, to_match):
+        return [self]
+      return []
+
+  class ArithmeticOperation(ContributedOperation):
+    class ArithOpTypes(Enum):
+      SUB = 1
+      ADD = 2
+      MUL = 3
+      DIV = 4
+
+    def __init__(self, lhs, rhs, arith_type, op_data_type):
+      self.lhs=lhs
+      self.rhs=rhs
+      self.arith_type=arith_type
+      self.op_data_type=op_data_type
+      self.cb_idx=None
+
+    def walk(self, to_match):
+      matched_ops=[]
+      if isa(self, to_match):
+        matched_ops.append(self)
+      matched_ops+=self.lhs.walk(to_match)
+      matched_ops+=self.rhs.walk(to_match)
+      return matched_ops
+
+    def generate(self):
+      lhs_ops, lhs_cb_id=self.lhs.generate()
+      rhs_ops, rhs_cb_id=self.rhs.generate()
+
+      cb0_i_op=arith.Constant.from_int_and_width(lhs_cb_id, 32)
+      cb0_op=builtin.UnrealizedConversionCastOp.get([cb0_i_op], [uint32])
+
+      cb1_i_op=arith.Constant.from_int_and_width(rhs_cb_id, 32)
+      cb1_op=builtin.UnrealizedConversionCastOp.get([cb1_i_op], [uint32])
+
+      # Hardcoding out to 16, again needs to be figured out
+      const_16_i_op=arith.Constant.from_int_and_width(16, 32)
+      const_16_op=builtin.UnrealizedConversionCastOp.get([const_16_i_op], [uint32])
+      false_op=arith.Constant.from_int_and_width(0, 1)
+      binary_init_common_op=compute.BinaryOpInitCommon(cb0_op, cb1_op, const_16_op)
+      add_init_op=compute.AddInit(cb0_op, cb1_op, false_op)
+
+      zero_i_op=arith.Constant.from_int_and_width(0, 32)
+      zero_op=builtin.UnrealizedConversionCastOp.get([zero_i_op], [uint32])
+
+      dst_i_op=arith.Constant.from_int_and_width(0, 32)
+      dst_op=builtin.UnrealizedConversionCastOp.get([dst_i_op], [uint32])
+
+      acquire_regs_op=compute.RegsAcquire()
+
+      if (self.arith_type == GetStoreCalculationContributedOperations.ArithmeticOperation.ArithOpTypes.SUB):
+        arith_tile_op=compute.Sub(cb0_op, cb1_op, zero_op, zero_op, dst_op)
+      elif (self.arith_type == GetStoreCalculationContributedOperations.ArithmeticOperation.ArithOpTypes.ADD):
+        arith_tile_op=compute.Add(cb0_op, cb1_op, zero_op, zero_op, dst_op)
+      elif (self.arith_type == GetStoreCalculationContributedOperations.ArithmeticOperation.ArithOpTypes.MUL):
+        arith_tile_op=compute.Mul(cb0_op, cb1_op, zero_op, zero_op, dst_op)
+      elif (self.arith_type == GetStoreCalculationContributedOperations.ArithmeticOperation.ArithOpTypes.DIV):
+        # No divide provided
+        assert False
+      else:
+        assert False
+
+      commit_regs_op=compute.RegsCommit()
+
+      assert self.cb_idx is not None
+      cb_out_i_op=arith.Constant.from_int_and_width(self.cb_idx, 32)
+      cb_out_op=builtin.UnrealizedConversionCastOp.get([cb_out_i_op], [uint32])
+      wait_regs_op=compute.RegsWait()
+      pack_tile_op=compute.PackTile(builtin.IntegerAttr.from_index_int_value(0), zero_op, cb_out_op, zero_op)
+      release_regs_op=compute.RegsRelease()
+
+      return lhs_ops+rhs_ops+[cb0_i_op, cb0_op, cb1_i_op, cb1_op, const_16_i_op, const_16_op, false_op, binary_init_common_op, add_init_op,
+                zero_i_op, zero_op, dst_i_op, dst_op, acquire_regs_op,
+                arith_tile_op, commit_regs_op, cb_out_i_op, cb_out_op, wait_regs_op, pack_tile_op, release_regs_op], self.cb_idx
+
+
+  class ConstantOperation(ContributedOperation):
+    def __init__(self, value, op_data_type):
+      self.value=value
+      self.op_data_type=op_data_type
+
+    def generate(self):
+      # Currently don't support this as no easy way of writing a constant to a tile
+      assert False
+
+  class VariableOperation(ContributedOperation):
+    def __init__(self, var_ssa, var_type):
+      self.var_ssa=var_ssa
+      self.var_type=var_type
+      self.cb_idx=None
+
+    def generate(self):
+      assert self.cb_idx is not None
+      one_c=arith.Constant.from_int_and_width(1, 32)
+      const_op=arith.Constant.from_int_and_width(self.cb_idx, 32)
+      cb_waitfront_op=circular_buffer.CBWaitFront(const_op.results[0], one_c)
+
+      return [one_c, const_op, cb_waitfront_op], self.cb_idx
+
+  def __init__(self):
+    self.tree=None
+
+  def handle_binary_op(self, bin_op):
+    lhs=self.traverse(bin_op.lhs.owner)
+    rhs=self.traverse(bin_op.rhs.owner)
+    # These are returned by the visitor, returns a list due to potential of multiple visits
+    assert len(lhs) == 1
+    assert len(rhs) == 1
+    if isa(bin_op, arith.Subi) or isa(bin_op, arith.Subf):
+      arith_type=GetStoreCalculationContributedOperations.ArithmeticOperation.ArithOpTypes.SUB
+    elif isa(bin_op, arith.Muli) or isa(bin_op, arith.Mulf):
+      arith_type=GetStoreCalculationContributedOperations.ArithmeticOperation.ArithOpTypes.MUL
+    elif isa(bin_op, arith.Addi) or isa(bin_op, arith.Addf):
+      arith_type=GetStoreCalculationContributedOperations.ArithmeticOperation.ArithOpTypes.ADD
+    elif isa(bin_op, arith.DivUI) or isa(bin_op, arith.DivSI) or isa(bin_op, arith.Divf):
+      arith_type=GetStoreCalculationContributedOperations.ArithmeticOperation.ArithOpTypes.DIV
+    else:
+      assert False
+    arith_data_type = bin_op.results[0].type
+    return GetStoreCalculationContributedOperations.ArithmeticOperation(lhs[0], rhs[0], arith_type, arith_data_type)
+
+  def traverse_subi(self, subi_op:arith.Subi):
+    return self.handle_binary_op(subi_op)
+
+  def traverse_muli(self, muli_op:arith.Muli):
+    return self.handle_binary_op(muli_op)
+
+  def traverse_addi(self, addi_op:arith.Addi):
+    return self.handle_binary_op(addi_op)
+
+  def traverse_addf(self, addf_op:arith.Addf):
+    return self.handle_binary_op(addf_op)
+
+  def traverse_mulf(self, mulf_op:arith.Mulf):
+    return self.handle_binary_op(mulf_op)
+
+  def traverse_subf(self, subf_op:arith.Subf):
+    return self.handle_binary_op(subf_op)
+
+  def traverse_divf(self, divf_op:arith.Divf):
+    return self.handle_binary_op(divf_op)
+
+  def traverse_div_u_i(self, divui_op:arith.DivUI):
+    return self.handle_binary_op(divui_op)
+
+  def traverse_div_s_i(self, divsi_op:arith.DivSI):
+    return self.handle_binary_op(divsi_op)
+
+  def traverse_load(self, load_op:memref.Load):
+    return GetStoreCalculationContributedOperations.VariableOperation(load_op.memref, load_op.results[0].type)
+
+  def traverse_constant(self, constant_op:arith.Constant):
+    return GetStoreCalculationContributedOperations.ConstantOperation(constant_op.value, constant_op.results[0].type)
+
+  def traverse_store(self, store_op:memref.Store):
+    ret_vals=self.traverse(store_op.value.owner)
+    assert len(ret_vals) == 1
+    self.tree=ret_vals[0]
+
 class GatherComputeLoop(Visitor):
   def __init__(self):
     self.for_op=None
@@ -51,6 +330,67 @@ class GatherComputeLoop(Visitor):
   def traverse_s_i_m_d_loop_op(self, simdloop: omp.SIMDLoopOp):
     self.simd_loop=simdloop
 
+class BuildApplicableOpDependencyTrees(Visitor):
+  def __init__(self, loop_description):
+    self.loop_description=loop_description
+    self.dependency_trees=[]
+
+  def get_all_input_var_ssas(self, set_cb_idx=True):
+    input_var_ssas=[]
+    cb_idx=0
+    for dependency_tree in self.dependency_trees:
+      input_vars=dependency_tree[1].walk(GetStoreCalculationContributedOperations.VariableOperation)
+      for input_var in input_vars:
+        if set_cb_idx: input_var.cb_idx=cb_idx
+        input_var_ssas.append((input_var.var_ssa, cb_idx))
+        cb_idx+=1
+    return input_var_ssas
+
+  def get_all_output_var_ssas(self):
+    return [d[0].memref for d in self.dependency_trees]
+
+  def check_if_store_indexed_by_loops(self, store_op):
+    if len(store_op.indices) > 0:
+      all_var_names, var_to_loops=self.getLoopsThatIndexStore(store_op)
+      for k,v in var_to_loops.items():
+        if v == None: return False
+      return True
+    else:
+      return False
+
+  def getLoopsThatIndexStore(self, store_op):
+    # Get the loops that will index a store operations, i.e. if I have
+    # a(i,j) it will return descriptors to the loops that have iterator
+    # i and j, or if no loops drive these then None for those variables in the
+    # map.
+    # Check that this is indexed on the loop bounds
+    indexed_loops={}
+    all_var_ssas=[]
+
+    for index in store_op.indices:
+      gaav=GetArrayAccessValue()
+      gaav.traverse(index.owner)
+      get_var_ssas=gaav.get_var_ssa()
+      for var_ssa in get_var_ssas:
+        all_var_ssas.append(var_ssa)
+        if var_ssa in self.loop_description.keys():
+          indexed_loops[var_ssa]=self.loop_description[var_ssa]
+        else:
+          indexed_loops[var_ssa]=None
+    return all_var_ssas, indexed_loops
+
+  def traverse_store(self, store_op:memref.Store):
+    # First figure out if we care about this store, i.e. it is indexed by the loops
+    # that we looking to simd
+    vectorise=self.check_if_store_indexed_by_loops(store_op)
+    if vectorise:
+      # Now determine the dependency tree of operations that we are going to convert
+      # into vectorised TT operations
+      contributed_ops=GetStoreCalculationContributedOperations()
+      # Now get all the operations that contribute to the RHS (value stored)
+      contributed_ops.traverse(store_op)
+      self.dependency_trees.append((store_op, contributed_ops.tree))
+
 @dataclass(frozen=True)
 class ConvertToTT(ModulePass):
   """
@@ -58,12 +398,12 @@ class ConvertToTT(ModulePass):
   """
   name = 'convert-to-tt'
 
-  def generate_data_in(self, module, memory_type, references, new_block, generate_writeback=False):
+  def generate_data_in(self, module, memory_type, references, cb_idxs, new_block, generate_writeback=False):
     write_back_ops=[]
     push_back_ops=[]
     one_c=arith.Constant.from_int_and_width(1, 32)
     new_block.add_op(one_c)
-    for idx, t in enumerate(memory_type):
+    for idx, (t, ref, cb_idx) in enumerate(zip(memory_type, references, cb_idxs)):
       is_deref_memref=isa(t, builtin.MemRefType)
       if is_deref_memref:
         element_type=t.element_type
@@ -72,7 +412,7 @@ class ConvertToTT(ModulePass):
       dm_op=data_movement.DMGetNocAddrFromBankId(builtin.IntegerAttr.from_int_and_width(1, 1), new_block.args[len(memory_type)+idx], new_block.args[idx])
       dm_op.results[0].name_hint = f"src{idx}_dram_noc_addr"
 
-      const_op=arith.Constant.from_int_and_width(idx, 32)
+      const_op=arith.Constant.from_int_and_width(cb_idx, 32)
       cb_reserve_op=circular_buffer.CBReserveBack(const_op.results[0], one_c)
       cb_op=circular_buffer.CBGetWritePointer(const_op.results[0])
       cb_op.results[0].name_hint = "l1_write_addr_in"+str(idx)
@@ -89,7 +429,7 @@ class ConvertToTT(ModulePass):
 
       new_block.add_ops([dm_op, const_op, cb_reserve_op, cb_op, data_type_byte_width, dt_width_conversion_op, mem_size_bytes_op, read_op, conversion_op])
 
-      for use in references[idx].uses:
+      for use in ref.uses:
         if isa(use.operation, memref.Load):
           # Currently just doing this for passing array/data (e.g. memref of memref, ignoring constants but probably want to handle that too)
           if is_deref_memref:
@@ -106,12 +446,16 @@ class ConvertToTT(ModulePass):
 
     return push_back_ops, write_back_ops
 
-  def generate_device_rv_in(self, module, memory_type, references):
+  def generate_device_rv_in(self, module, arith_ops_generator):
     # For each memref first passed in is memory addresses, then bank ids, and then memory sizes (number elements)
+    input_var_ssas=arith_ops_generator.get_all_input_var_ssas()
+    memory_type=[ssa[0].type for ssa in input_var_ssas]
+    cb_idxs=[ssa[1] for ssa in input_var_ssas]
+
     arg_types=[uint32]*len(memory_type)*3
     new_block = Block(arg_types=arg_types)
 
-    push_back_ops, write_back_ops=self.generate_data_in(module, memory_type, references, new_block)
+    push_back_ops, write_back_ops=self.generate_data_in(module, memory_type, [ssa[0] for ssa in input_var_ssas], cb_idxs, new_block)
 
     new_block.add_ops(push_back_ops)
     new_block.add_op(func.Return())
@@ -127,10 +471,14 @@ class ConvertToTT(ModulePass):
 
     new_module=builtin.ModuleOp([func_op], {"kernel_type": builtin.StringAttr("data_in")})
 
-    return new_module
+    return new_module, (memory_type, cb_idxs, [ssa[0] for ssa in input_var_ssas])
 
-  def generate_device_rv_out(self, module, memory_type, references):
+  def generate_device_rv_out(self, module, arith_ops_generator):
      # For each memref first passed in is memory addresses, then bank ids, and then memory sizes (number elements)
+    output_var_ssas=arith_ops_generator.get_all_output_var_ssas()
+    memory_type=[ssa.type for ssa in output_var_ssas]
+    cb_idxs=[dt[1].cb_idx for dt in arith_ops_generator.dependency_trees]
+
     arg_types=[uint32]*len(memory_type)*3
     new_block = Block(arg_types=arg_types)
 
@@ -147,7 +495,7 @@ class ConvertToTT(ModulePass):
       dm_op=data_movement.DMGetNocAddrFromBankId(builtin.IntegerAttr.from_int_and_width(1, 1), new_block.args[len(memory_type)+idx], new_block.args[idx])
       dm_op.results[0].name_hint = f"src{idx}_dram_noc_addr"
 
-      const_op=arith.Constant.from_int_and_width(idx, 32)
+      const_op=arith.Constant.from_int_and_width(cb_idxs[idx], 32)
       cb_waitfront_op=circular_buffer.CBWaitFront(const_op.results[0], one_c)
       cb_op=circular_buffer.CBGetReadPointer(const_op.results[0])
       cb_op.results[0].name_hint = "l1_read_addr_in"+str(idx)
@@ -178,10 +526,9 @@ class ConvertToTT(ModulePass):
 
     new_module=builtin.ModuleOp([func_op], {"kernel_type": builtin.StringAttr("data_out")})
 
-    return new_module
+    return new_module, (memory_type, cb_idxs, output_var_ssas)
 
-
-  def generate_device_compute(self, module, memory_type, references, simd_loop):
+  def generate_device_compute(self, module, arith_ops_generator, simd_loop):
     assert simd_loop is not None
 
     simd_loop.detach()
@@ -189,47 +536,23 @@ class ConvertToTT(ModulePass):
     f_ub_add=simd_loop.upperBound[0].owner.detach()
     f_step=simd_loop.step[0].owner.detach()
 
-    one_c=arith.Constant.from_int_and_width(1, 32)
+    compute_ops=[]
+    out_cb_ids=[]
+    out_cb_idx=16
+    for dependency in arith_ops_generator.dependency_trees:
+      # This sets the output cb index on the first node in the
+      # dependency tree, as that will be an output
+      dependency[1].cb_idx=out_cb_idx
+      out_cb_idx+=1
+      compute_ops_dep, out_cb_id=dependency[1].generate()
+      compute_ops+=compute_ops_dep
+      out_cb_ids.append(out_cb_id)
 
-    compute_ops=[one_c]
-    for idx, t in enumerate(memory_type):
+    for idx in out_cb_ids:
       const_op=arith.Constant.from_int_and_width(idx, 32)
-      cb_waitfront_op=circular_buffer.CBWaitFront(const_op.results[0], one_c)
-      compute_ops+=[const_op, cb_waitfront_op]
-
-    cb1_i_op=arith.Constant.from_int_and_width(0, 32)
-    cb1_op=builtin.UnrealizedConversionCastOp.get([cb1_i_op], [uint32])
-    cb2_i_op=arith.Constant.from_int_and_width(1, 32)
-    cb2_op=builtin.UnrealizedConversionCastOp.get([cb2_i_op], [uint32])
-    const_16_i_op=arith.Constant.from_int_and_width(16, 32)
-    const_16_op=builtin.UnrealizedConversionCastOp.get([const_16_i_op], [uint32])
-    false_op=arith.Constant.from_int_and_width(0, 1)
-
-    binary_init_common_op=compute.BinaryOpInitCommon(cb1_op, cb2_op, const_16_op)
-    add_init_op=compute.AddInit(cb1_op, cb2_op, false_op)
-
-    zero_i_op=arith.Constant.from_int_and_width(0, 32)
-    zero_op=builtin.UnrealizedConversionCastOp.get([zero_i_op], [uint32])
-    dst_i_op=arith.Constant.from_int_and_width(0, 32)
-    dst_op=builtin.UnrealizedConversionCastOp.get([dst_i_op], [uint32])
-    acquire_regs_op=compute.RegsAcquire()
-    add_tile_op=compute.Add(cb1_op, cb2_op, zero_op, zero_op, dst_op)
-    commit_regs_op=compute.RegsCommit()
-
-    cb_out_i_op=arith.Constant.from_int_and_width(2, 32)
-    cb_out_op=builtin.UnrealizedConversionCastOp.get([cb_out_i_op], [uint32])
-    wait_regs_op=compute.RegsWait()
-    pack_tile_op=compute.PackTile(builtin.IntegerAttr.from_index_int_value(0), zero_op, cb_out_op, zero_op)
-    release_regs_op=compute.RegsRelease()
-
-    compute_ops+=[cb1_i_op, cb1_op, cb2_i_op, cb2_op, const_16_i_op, const_16_op, false_op, binary_init_common_op,
-                    add_init_op, zero_i_op, zero_op, dst_i_op, dst_op, acquire_regs_op,
-                    add_tile_op, commit_regs_op, cb_out_i_op, cb_out_op, wait_regs_op, pack_tile_op, release_regs_op]
-
-    for idx, t in enumerate(memory_type):
-      const_op=arith.Constant.from_int_and_width(idx, 32)
+      one_c=arith.Constant.from_int_and_width(1, 32)
       cb_popfront_op=circular_buffer.CBPopFront(const_op.results[0], one_c)
-      compute_ops+=[const_op, cb_popfront_op]
+      compute_ops+=[one_c, const_op, cb_popfront_op]
 
     new_block=Block()
     new_block.add_ops(compute_ops)
@@ -255,7 +578,7 @@ class ConvertToTT(ModulePass):
     arg_types=[uint32]*len(memory_type)*3
     new_block = Block(arg_types=arg_types)
 
-    push_back_ops, write_back_ops=self.generate_data_in(module, memory_type, references, new_block, True)
+    push_back_ops, write_back_ops=self.generate_data_in(module, memory_type, references, range(len(memory_type)), new_block, True)
 
     for_op.detach()
     f_lb_conv=for_op.lb.owner
@@ -340,7 +663,69 @@ class ConvertToTT(ModulePass):
 
     return new_module
 
-  def generate_host(self, module, memory_type, device_args):
+  def create_dram_buffer(self, element_type, size_arg_idx, dram_idx):
+    scalar_type=element_type
+    if isa(scalar_type, builtin.MemRefType): scalar_type=scalar_type.element_type
+    assert scalar_type.width.data % 8 == 0
+
+    buffer_create_ops=[]
+    data_type_byte_width=arith.Constant.from_int_and_width(int(scalar_type.width.data / 8), 32)
+    if isa(element_type, builtin.MemRefType):
+      # This is an array, use the size provided to the function
+      new_conv=arith.IndexCastOp(size_arg_idx, builtin.i32)
+      size_ssa=arith.Muli(data_type_byte_width, new_conv)
+      buffer_create_ops+=[data_type_byte_width, new_conv, size_ssa]
+    else:
+      # This is a scalar, number of elements is therefore one
+      size_ssa=data_type_byte_width
+      buffer_create_ops+=[data_type_byte_width]
+
+    dram_config_op=host.TTCreateDRAMConfig(size_ssa, size_ssa)
+    dram_config_op.results[0].name_hint = "dram_config_"+str(dram_idx)
+
+    create_buffer_op=host.TTCreateBuffer(dram_config_op.results[0])
+    create_buffer_op.results[0].name_hint = f"src{dram_idx}_dram_buffer"
+
+    return buffer_create_ops+[dram_config_op, create_buffer_op], create_buffer_op.results[0], size_ssa
+
+  def create_cb_on_host(self, program_op, core_op, cb_idx, size_ssa):
+    one_c_op=arith.Constant.from_int_and_width(1, 32)
+    idx_c_op=arith.Constant.from_int_and_width(cb_idx, 32)
+    cb_config_op=host.TTCreateCBConfig(one_c_op.results[0], size_ssa.results[0], idx_c_op.results[0], "int") # TODO fix type!
+    cb_config_op.results[0].name_hint = f"cb_{cb_idx}_config"
+
+    create_cb_op=host.TTCreateCircularBuffer(program_op.results[0], core_op.results[0], cb_config_op.results[0])
+    create_cb_op.results[0].name_hint = f"cb_{cb_idx}"
+    return [one_c_op, idx_c_op, cb_config_op, create_cb_op]
+
+  def create_data_kernel_on_host(self, program_op, core_op, source_file, name, rv_location, noc_id, dram_buffers, zero_c_op):
+    ops=[]
+    kernel_create_op=host.TTCreateKernel(program_op.results[0], core_op.results[0], source_file, rv_location, noc_id)
+    kernel_create_op.results[0].name_hint = name
+    ops.append(kernel_create_op)
+
+    # Set arguments for kernel
+    num_mem_accesses=len(dram_buffers)
+    rt_args=[None]*num_mem_accesses*2
+    for idx, buff in enumerate(dram_buffers):
+      mem_access=host.TTGetMemoryAddress(buff)
+      ops.append(mem_access)
+      rt_args[idx]=mem_access.results[0]
+      rt_args[idx+num_mem_accesses]=zero_c_op.results[0]
+
+    ops.append(host.TTSetRuntimeArgs(program_op.results[0], kernel_create_op.results[0], core_op.results[0], *rt_args))
+    return ops
+
+  def create_compute_kernel_on_host(self, program_op, core_op, source_file, name, math_fidelity, fp32_dest_acc_en, math_approx_mode):
+    ops=[]
+    kernel_create_op=host.TTCreateComputeKernel(program_op.results[0], core_op.results[0], source_file, math_fidelity, fp32_dest_acc_en, math_approx_mode)
+    kernel_create_op.results[0].name_hint = name
+    ops.append(kernel_create_op)
+
+    # Currently don't set any runtime args for the compute kernel, will likely need to set problem size (or number of iterations anyway)
+    return ops
+
+  def generate_host(self, module, input_descs, output_descs, intermediate_descs, device_args, data_in_core_only):
     host_ops=[]
 
     fn_in_types=[]
@@ -369,84 +754,63 @@ class ConvertToTT(ModulePass):
 
     buffer_create_ops=[]
 
-    host_buffers=[]
-    device_buffers=[]
-    current_arg_idx=0
-    for idx, mem in enumerate(memory_type):
-      arg_ssa=new_block.args[current_arg_idx]
+    device_buffers={}
+    data_sizes_for_cb={}
+
+    # Create DRAM buffers for the inputs
+    for input_type, cb_idx, input_idx in zip(input_descs[0], input_descs[1], input_descs[2]):
+      arg_ssa=new_block.args[input_idx]
       assert isa(arg_ssa.type, builtin.MemRefType)
 
-      element_type=arg_ssa.type.element_type
-      if isa(element_type, builtin.MemRefType): element_type=element_type.element_type
+      buf_ops, buf_ssa, size_ssa=self.create_dram_buffer(arg_ssa.type.element_type, new_block.args[input_idx+2], input_idx)
+      host_ops+=buf_ops
+      device_buffers[input_idx]=buf_ssa
+      data_sizes_for_cb[cb_idx]=size_ssa
 
-      assert element_type.width.data % 8 == 0
-      data_type_byte_width=arith.Constant.from_int_and_width(int(element_type.width.data / 8), 32)
+    # Create DRAM buffers for the outputs
+    for output_type, cb_idx, output_idx in zip(output_descs[0], output_descs[1], output_descs[2]):
+      if output_idx not in device_buffers.keys():
+        # Only create the buffer if it's not already created as an input
+        arg_ssa=new_block.args[output_idx]
+        assert isa(arg_ssa.type, builtin.MemRefType)
 
-      if isa(arg_ssa.type.element_type, builtin.MemRefType):
-        # This is an array, use the size provided to the function
-        new_conv=arith.IndexCastOp(new_block.args[current_arg_idx+2], builtin.i32)
-        size_ssa=arith.Muli(data_type_byte_width, new_conv)
-        current_arg_idx+=3
-        buffer_create_ops+=[data_type_byte_width, new_conv, size_ssa]
-      else:
-        # This is a scalar, number of elements is therefore one
-        size_ssa=data_type_byte_width
-        current_arg_idx+=1
-        buffer_create_ops+=[data_type_byte_width]
+        buf_ops, buf_ssa, size_ssa=self.create_dram_buffer(arg_ssa.type.element_type, new_block.args[output_idx+2], output_idx)
+        host_ops+=buf_ops
+        device_buffers[output_idx]=buf_ssa
+        data_sizes_for_cb[cb_idx]=size_ssa
 
-      dram_config_op=host.TTCreateDRAMConfig(size_ssa, size_ssa)
-      dram_config_op.results[0].name_hint = "dram_config_"+str(idx)
+    # Now create CBs for connecting the data reader core to the compute core
+    for input_type, cb_idx in zip(input_descs[0], input_descs[1]):
+      host_ops+=self.create_cb_on_host(program_op, core_op, cb_idx, data_sizes_for_cb[cb_idx])
 
-      create_buffer_op=host.TTCreateBuffer(dram_config_op.results[0])
-      create_buffer_op.results[0].name_hint = f"src{idx}_dram_buffer"
+    # Now create CBs for connecting the compute core to the data writer
+    for output_type, cb_idx in zip(output_descs[0], output_descs[1]):
+      host_ops+=self.create_cb_on_host(program_op, core_op, cb_idx, data_sizes_for_cb[cb_idx])
 
-      device_buffers.append(create_buffer_op.results[0])
-
-      idx_c_op=arith.Constant.from_int_and_width(idx, 32)
-      cb_config_op=host.TTCreateCBConfig(one_c_op.results[0], size_ssa.results[0], idx_c_op.results[0], "int")
-      cb_config_op.results[0].name_hint = f"cb_{idx}_config"
-
-      create_cb_op=host.TTCreateCircularBuffer(program_op.results[0], core_op.results[0], cb_config_op.results[0])
-      create_cb_op.results[0].name_hint = f"cb_{idx}"
-
-      host_buffers.append(arg_ssa)
-
-      buffer_create_ops+=[dram_config_op, create_buffer_op, idx_c_op, cb_config_op]
-
-    host_ops+=buffer_create_ops
-
+    # Issue writes into the DRAM buffers from the memory passed in
     false_decl = arith.Constant(builtin.IntegerAttr.from_int_and_width(0, 1))
     host_ops.append(false_decl)
+    for input_idx in input_descs[2]:
+      host_ops.append(host.TTEnqueueWriteBuffer(command_queue_op.results[0], device_buffers[input_idx], new_block.args[input_idx], false_decl))
 
-    data_reads=[]
-    for idx, mem in enumerate(memory_type):
-      enqueueWrite=host.TTEnqueueWriteBuffer(command_queue_op.results[0], device_buffers[idx], host_buffers[idx], false_decl)
-      data_reads+=[enqueueWrite]
+    host_ops+=self.create_data_kernel_on_host(program_op, core_op, "reader_kernel.cpp", "reader_kernel",
+                                host.RISCVCoreFlagsAttr([host.RISCVCoreFlags.DATAMOVEMENT_0]),
+                                0, [device_buffers[in_idx] for in_idx in input_descs[2]], zero_c_op)
 
-    host_ops+=data_reads
+    if not data_in_core_only:
+      host_ops+=self.create_data_kernel_on_host(program_op, core_op, "writer_kernel.cpp", "writer_kernel",
+                                host.RISCVCoreFlagsAttr([host.RISCVCoreFlags.DATAMOVEMENT_1]),
+                                1, [device_buffers[out_idx] for out_idx in output_descs[2]], zero_c_op)
 
-    kernel_create_op=host.TTCreateKernel(program_op.results[0], core_op.results[0], "ftn_kernel.cpp", host.RISCVCoreFlagsAttr([host.RISCVCoreFlags.DATAMOVEMENT_0]), 0)
-    kernel_create_op.results[0].name_hint = "kernel"
+      host_ops+=self.create_compute_kernel_on_host(program_op, core_op, "compute_kernel.cpp", "compute_kernel",
+                                host.MathFidelityFlagsAttr([host.MathFidelityFlags.HIFI4]), builtin.IntegerAttr(0, builtin.i1), builtin.IntegerAttr(0, builtin.i1))
 
-    host_ops.append(kernel_create_op)
+    host_ops.append(host.TTEnqueueProgram(command_queue_op.results[0], program_op.results[0], false_decl))
 
-    mem_access=[]
-    rt_args=[None]*len(memory_type)*2
-    for idx, mem in enumerate(memory_type):
-      mem_access.append(host.TTGetMemoryAddress(device_buffers[idx]))
-      rt_args[idx]=mem_access[-1].results[0]
-      rt_args[idx+len(memory_type)]=zero_c_op.results[0]
-
-    host_ops+=mem_access
-
-    setRTArgs=host.TTSetRuntimeArgs(program_op.results[0], kernel_create_op.results[0], core_op.results[0], *rt_args)
-
-    enqueue_prog=host.TTEnqueueProgram(command_queue_op.results[0], program_op.results[0], false_decl)
-
+    # Issue reads from the DRAM buffers into host memory
     data_writes=[]
-    for idx, mem in enumerate(memory_type):
-      enqueueRead=host.TTEnqueueReadBuffer(command_queue_op.results[0], device_buffers[idx], host_buffers[idx], false_decl)
-      data_writes+=[enqueueRead]
+    for output_idx in output_descs[2]:
+      host_ops.append(host.TTEnqueueReadBuffer(command_queue_op.results[0], device_buffers[output_idx], new_block.args[input_idx], false_decl))
 
     finish_op=host.TTFinish(command_queue_op.results[0])
 
@@ -454,7 +818,7 @@ class ConvertToTT(ModulePass):
 
     ret_op=func.Return(zero_c_op.results[0])
 
-    host_ops+=[setRTArgs, enqueue_prog, *data_writes, finish_op, close_device, ret_op]
+    host_ops+=[finish_op, close_device, ret_op]
 
     new_block.add_ops(host_ops)
 
@@ -471,6 +835,22 @@ class ConvertToTT(ModulePass):
 
     return new_module
 
+  def walk_to_get_inout_fn_arg_indexes(self, ssa_vals):
+    var_fn_indexes=[]
+    for a in ssa_vals:
+      assert isa(a.owner.memref, BlockArgument)
+      assert isa(a.owner.memref.owner, Block)
+      omp_target_op=a.owner.memref.owner.parent.parent
+      assert isa(omp_target_op, omp.TargetOp)
+
+      tgt_in_var=omp_target_op.map_vars[a.owner.memref.index].owner
+      assert isa(tgt_in_var, omp.MapInfoOp)
+      fn_var=tgt_in_var.var_ptr
+
+      assert len(fn_var) == 1
+      assert isa(fn_var[0], BlockArgument)
+      var_fn_indexes.append(fn_var[0].index)
+    return var_fn_indexes
 
   def apply(self, ctx: MLContext, module: builtin.ModuleOp):
     memref_visitor=GatherMemoryPassedToDevice()
@@ -487,15 +867,37 @@ class ConvertToTT(ModulePass):
       device_in_kernel_module=self.generate_device_all_on_rv(module, memref_visitor.memory_types, memref_visitor.references, for_visitor.for_op)
       device_out_kernel_module=None
       device_compute_kernel_module=None
+
+      # From the device function arguments we care about the memrefs (not the indexes which are start bounds and size)
+      # Therefore search through and extract these
+      data_access_idx=[]
+      for idx, arg in enumerate(device_func_visitor.args):
+        if isa(arg.type, builtin.MemRefType):
+          data_access_idx.append(idx)
+
+      assert len(memref_visitor.memory_types) == len(data_access_idx)
+      in_out_desc=[memref_visitor.memory_types, list(range(len(memref_visitor.memory_types))), data_access_idx]
+
+      host_func_op=self.generate_host(module, in_out_desc, in_out_desc, [], device_func_visitor.args, True)
     elif for_visitor.simd_loop is not None:
       # This is a simd loop, therefore need to split across the Tensix core
-      device_in_kernel_module=self.generate_device_rv_in(module, memref_visitor.memory_types, memref_visitor.references)
-      device_out_kernel_module=self.generate_device_rv_out(module, memref_visitor.memory_types, memref_visitor.references)
-      device_compute_kernel_module=self.generate_device_compute(module, memref_visitor.memory_types, memref_visitor.references, for_visitor.simd_loop)
+      loop_gather=GatherLoops()
+      loop_gather.traverse(module)
+      arith_ops_generator=BuildApplicableOpDependencyTrees(loop_gather.loop_description)
+      arith_ops_generator.traverse(module)
+
+      device_in_kernel_module, input_desc=self.generate_device_rv_in(module, arith_ops_generator)
+      device_compute_kernel_module=self.generate_device_compute(module, arith_ops_generator, for_visitor.simd_loop)
+      device_out_kernel_module, output_desc=self.generate_device_rv_out(module, arith_ops_generator)
+
+      input_var_fn_indexes=self.walk_to_get_inout_fn_arg_indexes(input_desc[2])
+      output_var_fn_indexes=self.walk_to_get_inout_fn_arg_indexes(output_desc[2])
+
+      in_pass=[input_desc[0], input_desc[1], input_var_fn_indexes]
+      out_pass=[output_desc[0], output_desc[1], output_var_fn_indexes]
+      host_func_op=self.generate_host(module, in_pass, out_pass, [], device_func_visitor.args, False)
     else:
       assert False
-
-    host_func_op=self.generate_host(module, memref_visitor.memory_types, device_func_visitor.args)
 
     for mod in module.regions[0].block.ops:
       assert isa(mod, builtin.ModuleOp)

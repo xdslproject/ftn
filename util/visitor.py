@@ -26,13 +26,15 @@ class Visitor:
         
         traverse = get_method(self, f"traverse_{class_name}")        
         if traverse:
-            traverse(operation)
+            return [traverse(operation)]
         else:
+            ret_ops=[]
             for r in operation.regions:
                 for b in r.blocks:
                     for op in b.ops:
-                        self.traverse(op)
+                        ret_ops.append(self.traverse(op))
+            return ret_ops
 
         visit = get_method(self, f"visit_{class_name}")
         if visit:
-            visit(operation)
+            return [visit(operation)]
