@@ -23,7 +23,7 @@ class RewriteTarget(RewritePattern):
     arg_types=[]
     arg_ssa=[]
 
-    idx=0
+    loc_idx=0
 
     locations={}
 
@@ -53,16 +53,17 @@ class RewriteTarget(RewritePattern):
             arg_ssa.append(dim_size.results[0])
             arg_types.append(dim_size.results[0].type)
 
-      locations[var_op]=idx
-      idx+=1
+      locations[var_op]=loc_idx
+      loc_idx+=1
       if len(var_op.bounds) > 0:
         bound_op=var_op.bounds[0].owner
         bound_op.parent.detach_op(bound_op)
         #self.target_ops+=[bound_op, var_op]
         arg_types.append(bound_op.lower[0].type)
         arg_ssa.append(bound_op.lower[0])
-        locations[bound_op]=idx
-        idx+=1
+        locations[bound_op]=loc_idx
+        # Add two, as second is the size
+        loc_idx+=2
       else:
         pass#self.target_ops+=[var_op]
 
