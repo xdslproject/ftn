@@ -186,6 +186,7 @@ class GetStoreCalculationContributedOperations(Visitor):
       return matched_ops
 
     def generate(self):
+      assert self.cb_idx is not None
       lhs_ops, lhs_cb_id=self.lhs.generate()
       rhs_ops, rhs_cb_id=self.rhs.generate()
 
@@ -195,11 +196,10 @@ class GetStoreCalculationContributedOperations(Visitor):
       cb1_i_op=arith.Constant.from_int_and_width(rhs_cb_id, 32)
       cb1_op=builtin.UnrealizedConversionCastOp.get([cb1_i_op], [uint32])
 
-      # Hardcoding out to 16, again needs to be figured out
-      const_16_i_op=arith.Constant.from_int_and_width(16, 32)
-      const_16_op=builtin.UnrealizedConversionCastOp.get([const_16_i_op], [uint32])
+      cb_out_i_op=arith.Constant.from_int_and_width(self.cb_idx, 32)
+      cb_out_op=builtin.UnrealizedConversionCastOp.get([cb_out_i_op], [uint32])
       false_op=arith.Constant.from_int_and_width(0, 1)
-      binary_init_common_op=compute.BinaryOpInitCommon(cb0_op, cb1_op, const_16_op)
+      binary_init_common_op=compute.BinaryOpInitCommon(cb0_op, cb1_op, cb_out_op)
       add_init_op=compute.AddInit(cb0_op, cb1_op, false_op)
 
       zero_i_op=arith.Constant.from_int_and_width(0, 32)
@@ -225,15 +225,13 @@ class GetStoreCalculationContributedOperations(Visitor):
       commit_regs_op=compute.RegsCommit()
 
       assert self.cb_idx is not None
-      cb_out_i_op=arith.Constant.from_int_and_width(self.cb_idx, 32)
-      cb_out_op=builtin.UnrealizedConversionCastOp.get([cb_out_i_op], [uint32])
       wait_regs_op=compute.RegsWait()
       pack_tile_op=compute.PackTile(builtin.IntegerAttr.from_index_int_value(0), zero_op, cb_out_op, zero_op)
       release_regs_op=compute.RegsRelease()
 
-      return lhs_ops+rhs_ops+[cb0_i_op, cb0_op, cb1_i_op, cb1_op, const_16_i_op, const_16_op, false_op, binary_init_common_op, add_init_op,
+      return lhs_ops+rhs_ops+[cb0_i_op, cb0_op, cb1_i_op, cb1_op, cb_out_i_op, cb_out_op, false_op, binary_init_common_op, add_init_op,
                 zero_i_op, zero_op, dst_i_op, dst_op, acquire_regs_op,
-                arith_tile_op, commit_regs_op, cb_out_i_op, cb_out_op, wait_regs_op, pack_tile_op, release_regs_op], self.cb_idx
+                arith_tile_op, commit_regs_op, wait_regs_op, pack_tile_op, release_regs_op], self.cb_idx
 
 
   class ConstantOperation(ContributedOperation):
