@@ -76,10 +76,6 @@ class GetArrayAccessValue(Visitor):
       self.rhs=rhs
       self.rhs_type=rhs_t
 
-  #def __init__(self):
-  #  self.expression=None
-  #  self.expression_t=None
-
   def get_var_ssa(self):
     # Gets variable ssa that have been referenced in the expression
     var_ssas=[]
@@ -152,6 +148,16 @@ class GatherMemoryPassedToDevice(Visitor):
       self.memory_types.append(map_var.type.element_type)
       self.references.append(target_op.region.block.args[idx])
 
+class IntermediateCBDescriptors():
+  def __init__(self, start_index):
+    self.intermediate_cb_idx=start_index
+    self.dependent_in_cb_indexes={}
+
+  def increment_cb(self, dependent_in_cb_index):
+    self.dependent_in_cb_indexes[self.intermediate_cb_idx]=dependent_in_cb_index
+    self.intermediate_cb_idx+=1
+    return self.intermediate_cb_idx-1
+
 class GetStoreCalculationContributedOperations(Visitor):
   # For a calculation this will gather up all the operations that contribute
   # to it, for instance the arithmetic operations, LHS and RHS variables
@@ -162,6 +168,9 @@ class GetStoreCalculationContributedOperations(Visitor):
       if isa(self, to_match):
         return [self]
       return []
+
+    def label_intermediates(self, intermediate_cb_descriptors):
+      pass
 
   class ArithmeticOperation(ContributedOperation):
     class ArithOpTypes(Enum):
@@ -176,6 +185,27 @@ class GetStoreCalculationContributedOperations(Visitor):
       self.arith_type=arith_type
       self.op_data_type=op_data_type
       self.cb_idx=None
+      self.is_intermediate=False
+      self.generated_compute_already=False
+
+    def get_cb_input_idx(self):
+      lhs_idxes=self.lhs.get_cb_input_idx()
+      rhs_idxes=self.rhs.get_cb_input_idx()
+
+      return lhs_idxes+rhs_idxes
+
+    def label_intermediates(self, intermediate_cb_descriptors):
+      self.is_intermediate=self.cb_idx is None
+      if self.cb_idx is None:
+        in_idxes=self.get_cb_input_idx()
+        assert len(in_idxes) > 0
+        # We build up all the input CBs that are dependencies here, and store the
+        # last one. This will be used to determine the size of the CB when it
+        # is created on the host
+        self.cb_idx=intermediate_cb_descriptors.increment_cb(in_idxes[-1])
+
+      self.lhs.label_intermediates(intermediate_cb_descriptors)
+      self.rhs.label_intermediates(intermediate_cb_descriptors)
 
     def walk(self, to_match):
       matched_ops=[]
@@ -184,6 +214,17 @@ class GetStoreCalculationContributedOperations(Visitor):
       matched_ops+=self.lhs.walk(to_match)
       matched_ops+=self.rhs.walk(to_match)
       return matched_ops
+
+    def generateCleanUp(self):
+      if self.is_intermediate:
+        # If this is outputting an intermediate CB then also need to clean that up too
+        one_c=arith.Constant.from_int_and_width(1, 32)
+        cb_id_op=arith.Constant.from_int_and_width(self.cb_idx, 32)
+        pop_front_op=circular_buffer.CBPopFront(cb_id_op, one_c)
+
+        return [one_c, cb_id_op, pop_front_op]
+      else:
+        return []
 
     def generate(self):
       assert self.cb_idx is not None
@@ -224,14 +265,32 @@ class GetStoreCalculationContributedOperations(Visitor):
 
       commit_regs_op=compute.RegsCommit()
 
+      lhs_clean_up_ops=self.lhs.generateCleanUp()
+      rhs_clean_up_ops=self.rhs.generateCleanUp()
+
+      one_op=arith.Constant.from_int_and_width(1, 32)
+
+      reserve_cb_out_op=circular_buffer.CBReserveBack(cb_out_i_op, one_op)
+
       assert self.cb_idx is not None
       wait_regs_op=compute.RegsWait()
       pack_tile_op=compute.PackTile(builtin.IntegerAttr.from_index_int_value(0), zero_op, cb_out_op, zero_op)
       release_regs_op=compute.RegsRelease()
 
-      return lhs_ops+rhs_ops+[cb0_i_op, cb0_op, cb1_i_op, cb1_op, cb_out_i_op, cb_out_op, false_op, binary_init_common_op, add_init_op,
-                zero_i_op, zero_op, dst_i_op, dst_op, acquire_regs_op,
-                arith_tile_op, commit_regs_op, wait_regs_op, pack_tile_op, release_regs_op], self.cb_idx
+      pushback_cb_out_op=circular_buffer.CBPushBack(cb_out_i_op, one_op)
+
+      self.generated_compute_already=True
+
+      compute_ops=lhs_ops+rhs_ops+[cb0_i_op, cb0_op, cb1_i_op, cb1_op, cb_out_i_op, cb_out_op, false_op, binary_init_common_op, add_init_op,
+                zero_i_op, zero_op, dst_i_op, dst_op, acquire_regs_op, arith_tile_op, commit_regs_op] + lhs_clean_up_ops+rhs_clean_up_ops + [
+                one_op, reserve_cb_out_op, wait_regs_op, pack_tile_op, release_regs_op, pushback_cb_out_op]
+
+      if self.is_intermediate:
+        # If this is an intermediate output then wait front as an input
+        # to the next maths operation
+        compute_ops.append(circular_buffer.CBWaitFront(cb_out_i_op, one_op))
+
+      return compute_ops, self.cb_idx
 
 
   class ConstantOperation(ContributedOperation):
@@ -243,19 +302,34 @@ class GetStoreCalculationContributedOperations(Visitor):
       # Currently don't support this as no easy way of writing a constant to a tile
       assert False
 
+    def generateCleanUp(self):
+      assert False
+
   class VariableOperation(ContributedOperation):
     def __init__(self, var_ssa, var_type):
       self.var_ssa=var_ssa
       self.var_type=var_type
       self.cb_idx=None
 
+    def get_cb_input_idx(self):
+      assert self.cb_idx is not None
+      return [self.cb_idx]
+
     def generate(self):
       assert self.cb_idx is not None
       one_c=arith.Constant.from_int_and_width(1, 32)
-      const_op=arith.Constant.from_int_and_width(self.cb_idx, 32)
-      cb_waitfront_op=circular_buffer.CBWaitFront(const_op.results[0], one_c)
+      cb_id_op=arith.Constant.from_int_and_width(self.cb_idx, 32)
+      cb_waitfront_op=circular_buffer.CBWaitFront(cb_id_op.results[0], one_c)
 
-      return [one_c, const_op, cb_waitfront_op], self.cb_idx
+      return [one_c, cb_id_op, cb_waitfront_op], self.cb_idx
+
+    def generateCleanUp(self):
+      assert self.cb_idx is not None
+      one_c=arith.Constant.from_int_and_width(1, 32)
+      cb_id_op=arith.Constant.from_int_and_width(self.cb_idx, 32)
+      pop_front_op=circular_buffer.CBPopFront(cb_id_op, one_c)
+
+      return [one_c, cb_id_op, pop_front_op]
 
   def __init__(self):
     self.tree=None
@@ -537,20 +611,15 @@ class ConvertToTT(ModulePass):
     compute_ops=[]
     out_cb_ids=[]
     out_cb_idx=16
+    intermediate_cb_descriptors=IntermediateCBDescriptors(24)
     for dependency in arith_ops_generator.dependency_trees:
       # This sets the output cb index on the first node in the
       # dependency tree, as that will be an output
       dependency[1].cb_idx=out_cb_idx
       out_cb_idx+=1
+      dependency[1].label_intermediates(intermediate_cb_descriptors)
       compute_ops_dep, out_cb_id=dependency[1].generate()
       compute_ops+=compute_ops_dep
-      out_cb_ids.append(out_cb_id)
-
-    for idx in out_cb_ids:
-      const_op=arith.Constant.from_int_and_width(idx, 32)
-      one_c=arith.Constant.from_int_and_width(1, 32)
-      cb_popfront_op=circular_buffer.CBPopFront(const_op.results[0], one_c)
-      compute_ops+=[one_c, const_op, cb_popfront_op]
 
     new_block=Block()
     new_block.add_ops(compute_ops)
@@ -567,7 +636,9 @@ class ConvertToTT(ModulePass):
 
     new_module=builtin.ModuleOp([func_op], {"kernel_type": builtin.StringAttr("compute")})
 
-    return new_module
+    # Output the new module IR and also the number of intermediate CBs needed
+    # as these must be created
+    return new_module, intermediate_cb_descriptors
 
 
   def generate_device_all_on_rv(self, module, memory_type, references, for_op):
@@ -785,6 +856,12 @@ class ConvertToTT(ModulePass):
     for output_type, cb_idx in zip(output_descs[0], output_descs[1]):
       host_ops+=self.create_cb_on_host(program_op, core_op, cb_idx, data_sizes_for_cb[cb_idx])
 
+    # Now create CBs for intermediate CBs, these are a little different as we already gathered
+    # the dependent CB which was input to the maths operation and we use that to determine
+    # the data size to use
+    for key,value in intermediate_descs.items():
+      host_ops+=self.create_cb_on_host(program_op, core_op, key, data_sizes_for_cb[value])
+
     # Issue writes into the DRAM buffers from the memory passed in
     false_decl = arith.Constant(builtin.IntegerAttr.from_int_and_width(0, 1))
     host_ops.append(false_decl)
@@ -876,7 +953,7 @@ class ConvertToTT(ModulePass):
       assert len(memref_visitor.memory_types) == len(data_access_idx)
       in_out_desc=[memref_visitor.memory_types, list(range(len(memref_visitor.memory_types))), data_access_idx]
 
-      host_func_op=self.generate_host(module, in_out_desc, in_out_desc, [], device_func_visitor.args, True)
+      host_func_op=self.generate_host(module, in_out_desc, in_out_desc, {}, device_func_visitor.args, True)
     elif for_visitor.simd_loop is not None:
       # This is a simd loop, therefore need to split across the Tensix core
       loop_gather=GatherLoops()
@@ -885,7 +962,7 @@ class ConvertToTT(ModulePass):
       arith_ops_generator.traverse(module)
 
       device_in_kernel_module, input_desc=self.generate_device_rv_in(module, arith_ops_generator)
-      device_compute_kernel_module=self.generate_device_compute(module, arith_ops_generator, for_visitor.simd_loop)
+      device_compute_kernel_module, intermediate_cb_descriptors=self.generate_device_compute(module, arith_ops_generator, for_visitor.simd_loop)
       device_out_kernel_module, output_desc=self.generate_device_rv_out(module, arith_ops_generator)
 
       input_var_fn_indexes=self.walk_to_get_inout_fn_arg_indexes(input_desc[2])
@@ -893,7 +970,7 @@ class ConvertToTT(ModulePass):
 
       in_pass=[input_desc[0], input_desc[1], input_var_fn_indexes]
       out_pass=[output_desc[0], output_desc[1], output_var_fn_indexes]
-      host_func_op=self.generate_host(module, in_pass, out_pass, [], device_func_visitor.args, False)
+      host_func_op=self.generate_host(module, in_pass, out_pass, intermediate_cb_descriptors.dependent_in_cb_indexes, device_func_visitor.args, False)
     else:
       assert False
 
