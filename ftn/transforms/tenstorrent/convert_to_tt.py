@@ -470,11 +470,13 @@ class ConvertToTT(ModulePass):
   """
   name = 'convert-to-tt'
 
+  default_simd_len: int = 512
+
   def generate_data_in(self, module, memory_type, references, cb_idxs, new_block, generate_writeback=False):
     write_back_ops=[]
     push_back_ops=[]
     one_c=arith.Constant.from_int_and_width(1, 32)
-    new_block.add_op(one_c)
+    read_ops=[one_c]
     for idx, (t, ref, cb_idx) in enumerate(zip(memory_type, references, cb_idxs)):
       is_deref_memref=isa(t, builtin.MemRefType)
       if is_deref_memref:
@@ -499,7 +501,7 @@ class ConvertToTT(ModulePass):
       conversion_op=builtin.UnrealizedConversionCastOp.get([cb_op.results[0]], [target_memref])
       conversion_op.results[0].name_hint = f"src{idx}_data"
 
-      new_block.add_ops([dm_op, const_op, cb_reserve_op, cb_op, data_type_byte_width, dt_width_conversion_op, mem_size_bytes_op, read_op, conversion_op])
+      read_ops+=[dm_op, const_op, cb_reserve_op, cb_op, data_type_byte_width, dt_width_conversion_op, mem_size_bytes_op, read_op, conversion_op]
 
       for use in ref.uses:
         if isa(use.operation, memref.Load):
@@ -514,11 +516,11 @@ class ConvertToTT(ModulePass):
         write_op=data_movement.DMNocAsyncWrite(cb_op.results[0], dm_op.results[0], mem_size_bytes_op)
         write_back_ops.append(write_op)
 
-    new_block.add_op(data_movement.DMNocAsyncReadBarrier())
+    read_ops.append(data_movement.DMNocAsyncReadBarrier())
 
-    return push_back_ops, write_back_ops
+    return read_ops, push_back_ops, write_back_ops
 
-  def generate_device_rv_in(self, module, arith_ops_generator):
+  def generate_device_rv_in(self, module, arith_ops_generator, loop_description):
     # For each memref first passed in is memory addresses, then bank ids, and then memory sizes (number elements)
     input_var_ssas=arith_ops_generator.get_all_input_var_ssas()
     memory_type=[ssa[0].type for ssa in input_var_ssas]
@@ -527,9 +529,15 @@ class ConvertToTT(ModulePass):
     arg_types=[uint32]*len(memory_type)*3
     new_block = Block(arg_types=arg_types)
 
-    push_back_ops, write_back_ops=self.generate_data_in(module, memory_type, [ssa[0] for ssa in input_var_ssas], cb_idxs, new_block)
+    read_ops, push_back_ops, write_back_ops=self.generate_data_in(module, memory_type, [ssa[0] for ssa in input_var_ssas], cb_idxs, new_block)
 
-    new_block.add_ops(push_back_ops)
+    # Just handle unnested loops for now
+    assert len(list(loop_description.values())) == 1
+    loop_descriptor=list(loop_description.values())[0]
+
+    outer_loop_ops=self.generate_simd_loop(loop_descriptor, read_ops+push_back_ops)
+
+    new_block.add_ops(outer_loop_ops)
     new_block.add_op(func.Return())
 
     body = Region()
@@ -545,7 +553,7 @@ class ConvertToTT(ModulePass):
 
     return new_module, (memory_type, cb_idxs, [ssa[0] for ssa in input_var_ssas])
 
-  def generate_device_rv_out(self, module, arith_ops_generator):
+  def generate_device_rv_out(self, module, arith_ops_generator, loop_description):
      # For each memref first passed in is memory addresses, then bank ids, and then memory sizes (number elements)
     output_var_ssas=arith_ops_generator.get_all_output_var_ssas()
     memory_type=[ssa.type for ssa in output_var_ssas]
@@ -557,7 +565,7 @@ class ConvertToTT(ModulePass):
     pop_front_ops=[]
 
     one_c=arith.Constant.from_int_and_width(1, 32)
-    new_block.add_op(one_c)
+    rv_out_ops=[one_c]
     for idx, t in enumerate(memory_type):
       is_deref_memref=isa(t, builtin.MemRefType)
       if is_deref_memref:
@@ -578,13 +586,20 @@ class ConvertToTT(ModulePass):
       mem_size_bytes_op=arith.Muli(dt_width_conversion_op, new_block.args[(len(memory_type)*2)+idx])
       read_op=data_movement.DMNocAsyncWrite(cb_op.results[0], dm_op.results[0], mem_size_bytes_op)
 
-      new_block.add_ops([dm_op, const_op, cb_waitfront_op, cb_op, data_type_byte_width, dt_width_conversion_op, mem_size_bytes_op, read_op])
+      rv_out_ops+=[dm_op, const_op, cb_waitfront_op, cb_op, data_type_byte_width, dt_width_conversion_op, mem_size_bytes_op, read_op]
 
       pop_front_ops.append(circular_buffer.CBPopFront(const_op.results[0], one_c))
 
-    new_block.add_op(data_movement.DMNocAsyncWriteBarrier())
-    new_block.add_ops(pop_front_ops)
+    rv_out_ops.append(data_movement.DMNocAsyncWriteBarrier())
+    rv_out_ops+=pop_front_ops
 
+    # Just handle unnested loops for now
+    assert len(list(loop_description.values())) == 1
+    loop_descriptor=list(loop_description.values())[0]
+
+    outer_loop_ops=self.generate_simd_loop(loop_descriptor, rv_out_ops)
+
+    new_block.add_ops(outer_loop_ops)
     new_block.add_op(func.Return())
 
     body = Region()
@@ -600,7 +615,34 @@ class ConvertToTT(ModulePass):
 
     return new_module, (memory_type, cb_idxs, output_var_ssas)
 
-  def generate_device_compute(self, module, arith_ops_generator, simd_loop):
+  def generate_simd_loop(self, loop_descriptor, contained_ops):
+    # For the moment assume we know this and it is a constant, should extend
+    # to be an SSA value too
+    if loop_descriptor.loop_op.simdlen is not None:
+      simd_len=loop_descriptor.loop_op.simdlen.value.data
+    else:
+      simd_len=self.default_simd_len
+
+    # To do, are assuming lower bound is 1 here, should be more flexible
+    upper_bound=int(loop_descriptor.ub / simd_len)
+    if upper_bound * simd_len < loop_descriptor.ub: upper_bound+=1
+
+    ub_const=arith.Constant.create(properties={"value": builtin.IntegerAttr.from_index_int_value(upper_bound)},
+                                               result_types=[builtin.i32])
+    lb_const=arith.Constant.create(properties={"value": builtin.IntegerAttr.from_index_int_value(loop_descriptor.lb)},
+                                               result_types=[builtin.i32])
+    step_const=arith.Constant.create(properties={"value": builtin.IntegerAttr.from_index_int_value(loop_descriptor.step)},
+                                               result_types=[builtin.i32])
+
+    for_block=Block(arg_types=[builtin.i32])
+    for_block.add_ops(contained_ops)
+    for_block.add_op(scf.Yield())
+
+    scf_for_loop=scf.For(lb_const, ub_const, step_const, [], for_block)
+
+    return [ub_const, lb_const, step_const, scf_for_loop]
+
+  def generate_device_compute(self, module, arith_ops_generator, simd_loop, loop_description):
     assert simd_loop is not None
 
     simd_loop.detach()
@@ -621,8 +663,14 @@ class ConvertToTT(ModulePass):
       compute_ops_dep, out_cb_id=dependency[1].generate()
       compute_ops+=compute_ops_dep
 
+    # Just handle unnested loops for now
+    assert len(list(loop_description.values())) == 1
+    loop_descriptor=list(loop_description.values())[0]
+
+    outer_loop_ops=self.generate_simd_loop(loop_descriptor, compute_ops)
+
     new_block=Block()
-    new_block.add_ops(compute_ops)
+    new_block.add_ops(outer_loop_ops)
     new_block.add_op(func.Return())
 
     body = Region()
@@ -647,7 +695,9 @@ class ConvertToTT(ModulePass):
     arg_types=[uint32]*len(memory_type)*3
     new_block = Block(arg_types=arg_types)
 
-    push_back_ops, write_back_ops=self.generate_data_in(module, memory_type, references, range(len(memory_type)), new_block, True)
+    read_ops, push_back_ops, write_back_ops=self.generate_data_in(module, memory_type, references, range(len(memory_type)), new_block, True)
+
+    new_block.add_ops(read_ops)
 
     for_op.detach()
     f_lb_conv=for_op.lb.owner
@@ -961,9 +1011,9 @@ class ConvertToTT(ModulePass):
       arith_ops_generator=BuildApplicableOpDependencyTrees(loop_gather.loop_description)
       arith_ops_generator.traverse(module)
 
-      device_in_kernel_module, input_desc=self.generate_device_rv_in(module, arith_ops_generator)
-      device_compute_kernel_module, intermediate_cb_descriptors=self.generate_device_compute(module, arith_ops_generator, for_visitor.simd_loop)
-      device_out_kernel_module, output_desc=self.generate_device_rv_out(module, arith_ops_generator)
+      device_in_kernel_module, input_desc=self.generate_device_rv_in(module, arith_ops_generator, loop_gather.loop_description)
+      device_compute_kernel_module, intermediate_cb_descriptors=self.generate_device_compute(module, arith_ops_generator, for_visitor.simd_loop, loop_gather.loop_description)
+      device_out_kernel_module, output_desc=self.generate_device_rv_out(module, arith_ops_generator, loop_gather.loop_description)
 
       input_var_fn_indexes=self.walk_to_get_inout_fn_arg_indexes(input_desc[2])
       output_var_fn_indexes=self.walk_to_get_inout_fn_arg_indexes(output_desc[2])
