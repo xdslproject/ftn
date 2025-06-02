@@ -2,9 +2,10 @@ from abc import ABC
 from typing import TypeVar, cast
 from dataclasses import dataclass
 import itertools
+from xdsl.context import Context
 from xdsl.utils.hints import isa
 from xdsl.dialects import memref, scf
-from xdsl.ir import Operation, SSAValue, OpResult, Attribute, MLContext, Block, Region
+from xdsl.ir import Operation, SSAValue, OpResult, Attribute, Block, Region
 
 from xdsl.pattern_rewriter import (RewritePattern, PatternRewriter,
                                    op_type_rewrite_pattern,
@@ -18,7 +19,7 @@ class GatherReferencedMemrefs(Visitor):
   def __init__(self):
     self.referenced_memrefs=[]
 
-  def traverse_alloca(self, alloca_op: memref.Alloca):
+  def traverse_alloca(self, alloca_op: memref.AllocaOp):
     assert isa(alloca_op.results[0].type, memref.MemRefType)
     if isa(alloca_op.results[0].type.element_type, memref.MemRefType):
       self.referenced_memrefs.append(alloca_op.results[0])
@@ -28,7 +29,7 @@ class CheckMemrefsForReassign(Visitor):
     self.referenced_memrefs=referenced_memrefs
     self.reassigned_memrefs=[]
 
-  def traverse_store(self, store_op: memref.Store):
+  def traverse_store(self, store_op: memref.StoreOp):
     assert isa(store_op.memref.type, memref.MemRefType)
     if isa(store_op.memref.type.element_type, memref.MemRefType):
       if store_op.memref in self.referenced_memrefs:
@@ -40,7 +41,7 @@ class GatherAccessedRefMemrefs(Visitor):
     self.referenced_memrefs=referenced_memrefs
     self.accessed_ref_memrefs=[]
 
-  def traverse_load(self, load_op: memref.Load):
+  def traverse_load(self, load_op: memref.LoadOp):
     assert isa(load_op.memref.type, memref.MemRefType)
     if isa(load_op.memref.type.element_type, memref.MemRefType):
       if load_op.memref in self.referenced_memrefs:
@@ -51,7 +52,7 @@ class CheckForLoop(Visitor):
   def __init__(self, referenced_memrefs):
     self.referenced_memrefs=referenced_memrefs
 
-  def traverse_for(self, for_op: scf.For):
+  def traverse_for(self, for_op: scf.ForOp):
     check_for_reassign=CheckMemrefsForReassign(self.referenced_memrefs)
     check_for_reassign.traverse(for_op)
 
@@ -78,7 +79,7 @@ class RewriteFor(RewritePattern):
     self.referenced_memrefs=referenced_memrefs
 
   @op_type_rewrite_pattern
-  def match_and_rewrite(self, op: scf.For, rewriter: PatternRewriter, /):
+  def match_and_rewrite(self, op: scf.ForOp, rewriter: PatternRewriter, /):
     for_loop_analyser=CheckForLoop(self.referenced_memrefs)
     for_loop_analyser.traverse(op)
 
@@ -87,7 +88,7 @@ class RewriteReferenceLoads(RewritePattern):
     self.load_to_mem=load_to_mem
 
   @op_type_rewrite_pattern
-  def match_and_rewrite(self, op: memref.Load, rewriter: PatternRewriter, /):
+  def match_and_rewrite(self, op: memref.LoadOp, rewriter: PatternRewriter, /):
     assert isa(op.memref.type, memref.MemRefType)
     if isa(op.memref.type.element_type, memref.MemRefType) and op.memref in self.load_to_mem.keys():
       rewriter.replace_matched_op([], [self.load_to_mem[op.memref]])
@@ -99,7 +100,7 @@ class MergeMemRefDeref(ModulePass):
   """
   name = 'merge-memref-deref'
 
-  def apply(self, ctx: MLContext, module: builtin.ModuleOp):
+  def apply(self, ctx: Context, module: builtin.ModuleOp):
     memref_visitor=GatherReferencedMemrefs()
     memref_visitor.traverse(module)
 

@@ -12,16 +12,17 @@ from xdsl.ir import SSAValue, BlockArgument
 from xdsl.irdl import Operand
 from xdsl.utils.hints import isa
 from util.visitor import Visitor
-from xdsl.ir import Operation, SSAValue, OpResult, Attribute, MLContext, Block, Region
+from xdsl.context import Context
+from xdsl.ir import Operation, SSAValue, OpResult, Attribute, Block, Region
 
 from xdsl.pattern_rewriter import (RewritePattern, PatternRewriter,
                                    op_type_rewrite_pattern,
                                    PatternRewriteWalker,
                                    GreedyRewritePatternApplier)
 from xdsl.passes import ModulePass
-from xdsl.dialects import builtin, func, llvm, arith, memref, scf, cf, linalg, omp
-from xdsl.dialects.experimental import math
+from xdsl.dialects import builtin, func, llvm, arith, memref, scf, cf, linalg, omp, math
 from ftn.dialects import ftn_relative_cf
+from xdsl.traits import SymbolTable
 
 ArgIntent = Enum('ArgIntent', ['IN', 'OUT', 'INOUT', 'UNKNOWN'])
 LoopStepDirection = Enum('LoopStepDirection', ['INCREMENT', 'DECREMENT', 'UNKNOWN'])
@@ -112,7 +113,7 @@ class GatherFIRGlobals(Visitor):
   def __init__(self, program_state):
     self.program_state=program_state
 
-  def traverse_global(self, global_op: fir.Global):
+  def traverse_global(self, global_op: fir.GlobalOp):
     if global_op.constant is not None:
       gfir=GlobalFIRComponent(global_op.sym_name.data, global_op.type, global_op)
       self.program_state.fir_global_constants[global_op.sym_name.data]=gfir
@@ -124,7 +125,7 @@ class GatherFunctionInformation(Visitor):
   def get_declare_from_arg_uses(self, arg_uses):
     for use in arg_uses:
       # It can unbox characters into a declare, if so then just follow it through
-      if isa(use.operation, fir.Unboxchar):
+      if isa(use.operation, fir.UnboxcharOp):
         ub_dec=self.get_declare_from_arg_uses(use.operation.results[0].uses)
         if ub_dec is not None: return ub_dec
       if isa(use.operation, hlfir.DeclareOp):
@@ -248,7 +249,7 @@ def translate_program(program_state: ProgramState, input_module: builtin.ModuleO
       if isa(fn, func.FuncOp):
         fn_op=translate_function(program_state, global_ctx, fn)
         if fn_op is not None: block.add_op(fn_op)
-      elif isa(fn, fir.Global):
+      elif isa(fn, fir.GlobalOp):
         global_op=translate_global(program_state, global_ctx, fn)
         if global_op is not None:
           block.add_op(global_op)
@@ -257,7 +258,7 @@ def translate_program(program_state: ProgramState, input_module: builtin.ModuleO
     body.add_block(block)
     return builtin.ModuleOp(body)
 
-def translate_global(program_state, global_ctx, global_op: fir.Global):
+def translate_global(program_state, global_ctx, global_op: fir.GlobalOp):
   if global_op.sym_name.data == "_QQEnvironmentDefaults":return None
   assert len(global_op.regions) == 1
   assert len(global_op.regions[0].blocks) == 1
@@ -278,12 +279,12 @@ def translate_global(program_state, global_ctx, global_op: fir.Global):
   elif isa(global_op.type, fir.IntegerType) or isa(global_op.type, builtin.AnyFloat) or isa(global_op.type, fir.SequenceType):
     assert len(ops_list)==1
     global_contained_op=ops_list[0]
-    if isa(global_contained_op, memref.Global):
+    if isa(global_contained_op, memref.GlobalOp):
       # If this is a memref global operation then simply return that and are done
       return global_contained_op
     else:
       # Otherwise need to package in llvm.GlobalOp
-      assert (isa(global_contained_op, arith.Constant) or isa(global_contained_op, llvm.ZeroOp))
+      assert (isa(global_contained_op, arith.ConstantOp) or isa(global_contained_op, llvm.ZeroOp))
       return_op=llvm.ReturnOp.build(operands=[global_contained_op.results[0]])
 
       return llvm.GlobalOp(global_contained_op.results[0].type, global_op.sym_name, "internal",
@@ -387,8 +388,8 @@ def translate_function(program_state: ProgramState, ctx: SSAValueCtx, fn: func.F
       # Ignore none types, these are simply omitted
       return_types.append(convert_fir_type_to_standard_if_needed(rt))
 
-  fn_identifier=fn.sym_name
-  if fn_identifier.data == "_QQmain":
+  fn_identifier=fn.sym_name.data
+  if fn_identifier == "_QQmain":
     fn_identifier="main"
 
   new_fn_type=builtin.FunctionType.from_lists(fn_in_arg_types, return_types)
@@ -412,59 +413,61 @@ def translate_stmt(program_state: ProgramState, ctx: SSAValueCtx, op: Operation)
 def try_translate_stmt(program_state: ProgramState, ctx: SSAValueCtx, op: Operation):
   if isa(op, hlfir.DeclareOp):
     return translate_declare(program_state, ctx, op)
-  elif isa(op, fir.DoLoop):
+  elif isa(op, fir.DoLoopOp):
     return translate_do_loop(program_state, ctx, op)
-  elif isa(op, fir.IterateWhile):
+  elif isa(op, fir.IterateWhileOp):
     return translate_iterate_while(program_state, ctx, op)
-  elif isa(op, fir.Alloca):
+  elif isa(op, fir.AllocaOp):
     # Will only process this if it is an internal flag,
     # otherwise pick up as part of the declareop
     return translate_alloca(program_state, ctx, op)
-  elif isa(op, arith.Constant):
+  elif isa(op, arith.ConstantOp):
     return []
-  elif isa(op, fir.HasValue):
+  elif isa(op, fir.HasValueOp):
     return translate_expr(program_state, ctx, op.resval)
-  elif isa(op, fir.Load):
+  elif isa(op, fir.LoadOp):
     return []
-  elif (isa(op, arith.Addi) or isa(op, arith.Subi) or isa(op, arith.Muli) or isa(op, arith.DivUI) or isa(op, arith.DivSI) or
-      isa(op, arith.FloorDivSI) or isa(op, arith.CeilDivSI) or isa(op, arith.CeilDivUI) or isa(op, arith.RemUI) or
-      isa(op, arith.RemSI) or isa(op, arith.MinUI) or isa(op, arith.MaxUI) or isa(op, arith.MinSI) or isa(op, arith.MaxSI) or
-      isa(op, arith.AndI) or isa(op, arith.OrI) or isa(op, arith.XOrI) or isa(op, arith.ShLI) or isa(op, arith.ShRUI) or
-      isa(op, arith.ShRSI) or isa(op, arith.AddUIExtended)):
+  elif (isa(op, arith.AddiOp) or isa(op, arith.SubiOp) or isa(op, arith.MuliOp) or isa(op, arith.DivUIOp) or isa(op, arith.DivSIOp) or
+      isa(op, arith.FloorDivSIOp) or isa(op, arith.CeilDivSIOp) or isa(op, arith.CeilDivUIOp) or isa(op, arith.RemUIOp) or
+      isa(op, arith.RemSIOp) or isa(op, arith.MinUIOp) or isa(op, arith.MaxUIOp) or isa(op, arith.MinSIOp) or isa(op, arith.MaxSIOp) or
+      isa(op, arith.AndIOp) or isa(op, arith.OrIOp) or isa(op, arith.XOrIOp) or isa(op, arith.ShLIOp) or isa(op, arith.ShRUIOp) or
+      isa(op, arith.ShRSIOp) or isa(op, arith.AddUIExtendedOp)):
     return []
-  elif (isa(op, arith.Addf) or isa(op, arith.Subf) or isa(op, arith.Mulf) or isa(op, arith.Divf) or isa(op, arith.Maximumf) or
-      isa(op, arith.Maxnumf) or isa(op, arith.Minimumf) or isa(op, arith.Minnumf)):
+  elif (isa(op, arith.AddfOp) or isa(op, arith.SubfOp) or isa(op, arith.MulfOp) or isa(op, arith.DivfOp) or isa(op, arith.MaximumfOp) or
+      isa(op, arith.MaxnumfOp) or isa(op, arith.MinimumfOp) or isa(op, arith.MinnumfOp)):
     return []
-  elif isa(op, func.Return):
+  elif isa(op, func.ReturnOp):
     return translate_return(program_state, ctx, op)
   elif isa(op, hlfir.AssignOp):
     return translate_assign(program_state, ctx, op)
-  elif isa(op, fir.Store):
+  elif isa(op, fir.StoreOp):
     # Used internally by some ops still, e.g. to store loop bounds per iteration
     return translate_store(program_state, ctx, op)
-  elif isa(op, fir.Result):
+  elif isa(op, fir.ResultOp):
     return translate_result(program_state, ctx, op)
-  elif isa(op, fir.Call):
+  elif isa(op, fir.CallOp):
     return translate_call(program_state, ctx, op)
-  elif isa(op, fir.Freemem):
+  elif isa(op, fir.FreememOp):
     return translate_freemem(program_state, ctx, op)
-  elif isa(op, fir.If):
+  elif isa(op, fir.IfOp):
     return translate_conditional(program_state, ctx, op)
-  elif isa(op, cf.Branch):
+  elif isa(op, cf.BranchOp):
     return translate_branch(program_state, ctx, op)
-  elif isa(op, omp.TargetOp):
-    return translate_omp_target(program_state, ctx, op)
-  elif isa(op, omp.TerminatorOp):
-    return [omp.TerminatorOp.create()]
-  elif isa(op, omp.SIMDLoopOp):
-    return translate_omp_simdloop(program_state, ctx, op)
-  elif isa(op, omp.TeamsOp):
-    return translate_omp_team(program_state, ctx, op)
-  elif isa(op, omp.YieldOp):
-    return [omp.YieldOp.create()]
-  elif isa(op, cf.ConditionalBranch):
+  #elif isa(op, omp.TargetOp):
+  #  return translate_omp_target(program_state, ctx, op)
+  #elif isa(op, omp.TerminatorOp):
+  #  return [omp.TerminatorOp.create()]
+  #elif isa(op, omp.SIMDLoopOp):
+  #  return translate_omp_simdloop(program_state, ctx, op)
+  #elif isa(op, omp.TeamsOp):
+  #  return translate_omp_team(program_state, ctx, op)
+  #elif isa(op, omp.ParallelOp):
+  #  return translate_omp_parallel(program_state, ctx, op)
+  #elif isa(op, omp.YieldOp):
+  #  return [omp.YieldOp.create()]
+  elif isa(op, cf.ConditionalBranchOp):
     return translate_conditional_branch(program_state, ctx, op)
-  elif isa(op, fir.Unreachable):
+  elif isa(op, fir.UnreachableOp):
     return [llvm.UnreachableOp()]
   else:
     return None
@@ -480,50 +483,50 @@ def translate_expr(program_state: ProgramState, ctx: SSAValueCtx, ssa_value: SSA
     raise Exception(f"Could not translate `{ssa_value.owner}' as an expression")
 
 def try_translate_expr(program_state: ProgramState, ctx: SSAValueCtx, op: Operation):
-  if isa(op, arith.Constant):
+  if isa(op, arith.ConstantOp):
     return translate_constant(program_state, ctx, op)
-  elif (isa(op, arith.Addi) or isa(op, arith.Subi) or isa(op, arith.Muli) or isa(op, arith.DivUI) or isa(op, arith.DivSI) or
-      isa(op, arith.FloorDivSI) or isa(op, arith.CeilDivSI) or isa(op, arith.CeilDivUI) or isa(op, arith.RemUI) or
-      isa(op, arith.RemSI) or isa(op, arith.MinUI) or isa(op, arith.MaxUI) or isa(op, arith.MinSI) or isa(op, arith.MaxSI) or
-      isa(op, arith.AndI) or isa(op, arith.OrI) or isa(op, arith.XOrI) or isa(op, arith.ShLI) or isa(op, arith.ShRUI) or
-      isa(op, arith.ShRSI) or isa(op, arith.AddUIExtended)):
+  elif (isa(op, arith.AddiOp) or isa(op, arith.SubiOp) or isa(op, arith.MuliOp) or isa(op, arith.DivUIOp) or isa(op, arith.DivSIOp) or
+      isa(op, arith.FloorDivSIOp) or isa(op, arith.CeilDivSIOp) or isa(op, arith.CeilDivUIOp) or isa(op, arith.RemUIOp) or
+      isa(op, arith.RemSIOp) or isa(op, arith.MinUIOp) or isa(op, arith.MaxUIOp) or isa(op, arith.MinSIOp) or isa(op, arith.MaxSIOp) or
+      isa(op, arith.AndIOp) or isa(op, arith.OrIOp) or isa(op, arith.XOrIOp) or isa(op, arith.ShLIOp) or isa(op, arith.ShRUIOp) or
+      isa(op, arith.ShRSIOp) or isa(op, arith.AddUIExtendedOp)):
     return translate_integer_binary_arithmetic(program_state, ctx, op)
-  elif (isa(op, arith.Addf) or isa(op, arith.Subf) or isa(op, arith.Mulf) or isa(op, arith.Divf) or isa(op, arith.Maximumf) or
-      isa(op, arith.Maxnumf) or isa(op, arith.Minimumf) or isa(op, arith.Minnumf)):
+  elif (isa(op, arith.AddfOp) or isa(op, arith.SubfOp) or isa(op, arith.MulfOp) or isa(op, arith.DivfOp) or isa(op, arith.MaximumfOp) or
+      isa(op, arith.MaxnumfOp) or isa(op, arith.MinimumfOp) or isa(op, arith.MinnumfOp)):
     return translate_float_binary_arithmetic(program_state, ctx, op)
-  elif isa(op, arith.Negf):
+  elif isa(op, arith.NegfOp):
     return translate_float_unary_arithmetic(program_state, ctx, op)
-  elif isa(op, fir.Load):
+  elif isa(op, fir.LoadOp):
     return translate_load(program_state, ctx, op)
-  elif isa(op, fir.Convert):
+  elif isa(op, fir.ConvertOp):
     return translate_convert(program_state, ctx, op)
-  elif isa(op, fir.DoLoop):
+  elif isa(op, fir.DoLoopOp):
     # Do loop can be either an expression or statement
     return translate_do_loop(program_state, ctx, op)
-  elif isa(op, fir.IterateWhile):
+  elif isa(op, fir.IterateWhileOp):
     return translate_iterate_while(program_state, ctx, op)
   elif isa(op, hlfir.DeclareOp):
     return translate_declare(program_state, ctx, op)
-  elif isa(op, arith.Cmpi) or isa(op, arith.Cmpf):
+  elif isa(op, arith.CmpiOp) or isa(op, arith.CmpfOp):
     return translate_cmp(program_state, ctx, op)
-  elif isa(op, fir.Call):
+  elif isa(op, fir.CallOp):
     return translate_call(program_state, ctx, op)
-  elif isa(op, fir.StringLit):
+  elif isa(op, fir.StringLitOp):
     return translate_string_literal(program_state, ctx, op)
   elif isa(op, fir.AddressOf):
     return translate_address_of(program_state, ctx, op)
   elif isa(op, hlfir.NoReassocOp) or isa(op, fir.NoReassoc):
     return translate_reassoc(program_state, ctx, op)
-  elif isa(op, fir.ZeroBits):
+  elif isa(op, fir.ZeroBitsOp):
     return translate_zerobits(program_state, ctx, op)
-  elif isa(op, fir.BoxAddr):
+  elif isa(op, fir.BoxAddrOp):
     # Ignore box address, just process argument and link to results of that
     expr_list=translate_expr(program_state, ctx, op.val)
     ctx[op.results[0]]=ctx[op.val]
     return expr_list
-  elif isa(op, arith.Select):
+  elif isa(op, arith.SelectOp):
     return translate_select(program_state, ctx, op)
-  elif isa(op, fir.Embox) or isa(op, fir.Emboxchar):
+  elif isa(op, fir.EmboxOp) or isa(op, fir.EmboxcharOp):
     expr_ops=translate_expr(program_state, ctx, op.memref)
     ctx[op.results[0]]=ctx[op.memref.owner.results[0]]
     return expr_ops
@@ -535,7 +538,7 @@ def try_translate_expr(program_state: ProgramState, ctx: SSAValueCtx, op: Operat
     expr_ops=translate_expr(program_state, ctx, op.var)
     ctx[op.results[0]]=ctx[op.var]
     return expr_ops
-  elif isa(op, fir.Rebox):
+  elif isa(op, fir.ReboxOp):
     expr_ops=translate_expr(program_state, ctx, op.box)
     ctx[op.results[0]]=ctx[op.box]
     return expr_ops
@@ -543,7 +546,7 @@ def try_translate_expr(program_state: ProgramState, ctx: SSAValueCtx, op: Operat
     return translate_dotproduct(program_state, ctx, op)
   elif isa(op, hlfir.CopyInOp):
     return translate_copyin(program_state, ctx, op)
-  elif isa(op, fir.Absent):
+  elif isa(op, fir.AbsentOp):
     return translate_absent(program_state, ctx, op)
   elif isa(op, hlfir.SumOp):
     return translate_sum(program_state, ctx, op)
@@ -562,7 +565,7 @@ def try_translate_expr(program_state: ProgramState, ctx: SSAValueCtx, op: Operat
         return translate_math_operation(program_state, ctx, op)
     return None
 
-def translate_absent(program_state: ProgramState, ctx: SSAValueCtx, op: fir.Absent):
+def translate_absent(program_state: ProgramState, ctx: SSAValueCtx, op: fir.AbsentOp):
   if ctx.contains(op.results[0]): return []
 
   null_ptr=llvm.ZeroOp(llvm.LLVMPointerType.opaque())
@@ -593,7 +596,7 @@ def translate_matmul(program_state: ProgramState, ctx: SSAValueCtx, op: hlfir.Ma
   else:
     rhs_load_ssa=ctx[op.rhs]
 
-  output_memref_op=memref.Alloca.get(lhs_load_ssa.type.element_type, shape=lhs_load_ssa.type.shape)
+  output_memref_op=memref.AllocaOp.get(lhs_load_ssa.type.element_type, shape=lhs_load_ssa.type.shape)
   matmul_op=linalg.MatmulOp((lhs_load_ssa, rhs_load_ssa), [output_memref_op.results[0]])
 
   ctx[op.results[0]]=output_memref_op.results[0]
@@ -617,9 +620,9 @@ def translate_dotproduct(program_state: ProgramState, ctx: SSAValueCtx, op: hlfi
   else:
     rhs_load_ssa=ctx[op.rhs]
 
-  output_memref_op=memref.Alloca.get(op.results[0].type, shape=[])
+  output_memref_op=memref.AllocaOp.get(op.results[0].type, shape=[])
   dot_op=linalg.DotOp((lhs_load_ssa, rhs_load_ssa), [output_memref_op])
-  extract_op=memref.Load.get(output_memref_op, [])
+  extract_op=memref.LoadOp.get(output_memref_op, [])
 
   ctx[op.results[0]]=extract_op.results[0]
 
@@ -637,7 +640,7 @@ def translate_transpose(program_state: ProgramState, ctx: SSAValueCtx, op: hlfir
   else:
     array_load_ssa=ctx[op.array]
 
-  output_memref_op=memref.Alloca.get(array_load_ssa.type.element_type, shape=array_load_ssa.type.shape)
+  output_memref_op=memref.AllocaOp.get(array_load_ssa.type.element_type, shape=array_load_ssa.type.shape)
 
   transpose_op=linalg.TransposeOp(array_load_ssa, output_memref_op, builtin.DenseArrayBase.create_dense_int_or_index(builtin.i32, [1, 0]))
 
@@ -658,12 +661,12 @@ def translate_sum(program_state: ProgramState, ctx: SSAValueCtx, op: hlfir.SumOp
   else:
     array_load_ssa=ctx[op.array]
 
-  output_memref_op=memref.Alloca.get(op.results[0].type, shape=[])
+  output_memref_op=memref.AllocaOp.get(op.results[0].type, shape=[])
 
   block=Block(arg_types=[op.results[0].type, op.results[0].type])
   if isa(op.results[0].type, builtin.IntegerType):
-    zero_const=arith.Constant.from_int_and_width(0, op.results[0].type)
-    add_op=arith.Addi(block.args[0], block.args[1])
+    zero_const=arith.ConstantOp.from_int_and_width(0, op.results[0].type)
+    add_op=arith.AddiOp(block.args[0], block.args[1])
   elif isa(op.results[0].type, builtin.AnyFloat):
     if isa(op.results[0].type, builtin.Float16Type):
       width=16
@@ -673,26 +676,26 @@ def translate_sum(program_state: ProgramState, ctx: SSAValueCtx, op: hlfir.SumOp
       width=64
     else:
       assert False
-    zero_const=arith.Constant.from_float_and_width(0.0, width)
-    add_op=arith.Addf(block.args[0], block.args[1])
+    zero_const=arith.ConstantOp.from_float_and_width(0.0, width)
+    add_op=arith.AddfOp(block.args[0], block.args[1])
   else:
     assert False
 
   yield_op=linalg.YieldOp(add_op)
 
   # We need to initialise the output memref to zero
-  initialise_output_memref=memref.Store.get(zero_const, output_memref_op.results[0], [])
+  initialise_output_memref=memref.StoreOp.get(zero_const, output_memref_op.results[0], [])
 
   block.add_ops([add_op, yield_op])
 
   reduce_op=linalg.ReductionOp([array_load_ssa], [output_memref_op], builtin.DenseArrayBase.create_dense_int_or_index(builtin.i32, [0]), Region([block]))
-  extract_op=memref.Load.get(output_memref_op, [])
+  extract_op=memref.LoadOp.get(output_memref_op, [])
 
   ctx[op.results[0]]=extract_op.results[0]
 
   return ops_list+[output_memref_op, zero_const, initialise_output_memref, reduce_op, extract_op]
 
-def translate_zerobits(program_state: ProgramState, ctx: SSAValueCtx, op: fir.ZeroBits):
+def translate_zerobits(program_state: ProgramState, ctx: SSAValueCtx, op: fir.ZeroBitsOp):
   # This often appears in global regions for array declaration, if so then we need to
   # handle differently as can not use a memref in LLVM global operations
   result_type=op.results[0].type
@@ -711,8 +714,8 @@ def translate_zerobits(program_state: ProgramState, ctx: SSAValueCtx, op: fir.Ze
     if isa(tgt_type, memref.MemRefType):
       # If this is a memref type, then use memref.global here, we don't need to update the context
       # as it is used directly as a global region (it isn't embedded in anything)
-      assert isa(op.parent.parent.parent, fir.Global)
-      global_memref=memref.Global.get(op.parent.parent.parent.sym_name, convert_fir_type_to_standard(result_type), None)
+      assert isa(op.parent.parent.parent, fir.GlobalOp)
+      global_memref=memref.GlobalOp.get(op.parent.parent.parent.sym_name, convert_fir_type_to_standard(result_type), None)
       return [global_memref]
     else:
       # Otherwise is not a memref, so need to allocate as LLVM compatible operation
@@ -723,26 +726,26 @@ def translate_zerobits(program_state: ProgramState, ctx: SSAValueCtx, op: fir.Ze
       ctx[op.results[0]]=zero_op.results[0]
       return [zero_op]
   else:
-    memref_alloc=memref.Alloc.get(base_type, shape=array_sizes)
+    memref_alloc=memref.AllocOp.get(base_type, shape=array_sizes)
     ctx[op.results[0]]=memref_alloc.results[0]
     return [memref_alloc]
 
-def translate_select(program_state: ProgramState, ctx: SSAValueCtx, op: arith.Select):
+def translate_select(program_state: ProgramState, ctx: SSAValueCtx, op: arith.SelectOp):
   if ctx.contains(op.results[0]): return []
 
   cond_ops_list=translate_expr(program_state, ctx, op.cond)
   lhs_ops_list=translate_expr(program_state, ctx, op.lhs)
   rhs_ops_list=translate_expr(program_state, ctx, op.rhs)
 
-  select_op=arith.Select(ctx[op.cond], ctx[op.lhs], ctx[op.rhs])
+  select_op=arith.SelectOp(ctx[op.cond], ctx[op.lhs], ctx[op.rhs])
 
   ctx[op.results[0]]=select_op.results[0]
 
   return cond_ops_list+lhs_ops_list+rhs_ops_list+[select_op]
 
-def translate_reassoc(program_state: ProgramState, ctx: SSAValueCtx, op: fir.NoReassoc | hlfir.NoReassocOp):
+def translate_reassoc(program_state: ProgramState, ctx: SSAValueCtx, op: fir.NoReassocOp | hlfir.NoReassocOp):
   if ctx.contains(op.results[0]): return []
-  if isa(op, fir.NoReassoc):
+  if isa(op, fir.NoReassocOp):
     expr_list=translate_expr(program_state, ctx, op.val)
   elif isa(op, hlfir.NoReassocOp):
     expr_list=translate_expr(program_state, ctx, op.var)
@@ -750,7 +753,7 @@ def translate_reassoc(program_state: ProgramState, ctx: SSAValueCtx, op: fir.NoR
   ctx[op.results[0]]=ctx[op.var]
   return expr_list
 
-def translate_address_of(program_state: ProgramState, ctx: SSAValueCtx, op: fir.AddressOf):
+def translate_address_of(program_state: ProgramState, ctx: SSAValueCtx, op: fir.AddressOfOp):
   if ctx.contains(op.results[0]): return []
 
   assert isa(op.results[0].type, fir.ReferenceType)
@@ -759,21 +762,21 @@ def translate_address_of(program_state: ProgramState, ctx: SSAValueCtx, op: fir.
   ctx[op.results[0]]=global_lookup.results[0]
   return [global_lookup]
 
-def translate_string_literal(program_state: ProgramState, ctx: SSAValueCtx, op: fir.StringLit):
+def translate_string_literal(program_state: ProgramState, ctx: SSAValueCtx, op: fir.StringLitOp):
   str_type=llvm.LLVMArrayType.from_size_and_type(op.size.value.data, builtin.IntegerType(8))
   str_global_op=llvm.GlobalOp(str_type, "temporary_identifier", "internal", 0, True, value=op.value, unnamed_addr=0)
   return [str_global_op]
 
-def translate_cmp(program_state: ProgramState, ctx: SSAValueCtx, op: arith.Cmpi | arith.Cmpf):
+def translate_cmp(program_state: ProgramState, ctx: SSAValueCtx, op: arith.CmpiOp | arith.CmpfOp):
   if ctx.contains(op.results[0]): return []
 
   lhs_expr_ops=translate_expr(program_state, ctx, op.lhs)
   rhs_expr_ops=translate_expr(program_state, ctx, op.rhs)
 
-  if isa(op, arith.Cmpi):
-    comparison_op=arith.Cmpi(ctx[op.lhs], ctx[op.rhs], op.predicate.value.data)
-  elif isa(op, arith.Cmpf):
-    comparison_op=arith.Cmpf(ctx[op.lhs], ctx[op.rhs], op.predicate.value.data)
+  if isa(op, arith.CmpiOp):
+    comparison_op=arith.CmpiOp(ctx[op.lhs], ctx[op.rhs], op.predicate.value.data)
+  elif isa(op, arith.CmpfOp):
+    comparison_op=arith.CmpfOp(ctx[op.lhs], ctx[op.rhs], op.predicate.value.data)
   else:
     assert False
 
@@ -781,7 +784,7 @@ def translate_cmp(program_state: ProgramState, ctx: SSAValueCtx, op: arith.Cmpi 
   return lhs_expr_ops+rhs_expr_ops+[comparison_op]
 
 
-def translate_convert(program_state: ProgramState, ctx: SSAValueCtx, op: fir.Convert):
+def translate_convert(program_state: ProgramState, ctx: SSAValueCtx, op: fir.ConvertOp):
   if ctx.contains(op.results[0]): return []
   value_ops=translate_expr(program_state, ctx, op.value)
   in_type=op.value.type
@@ -854,7 +857,7 @@ def translate_convert(program_state: ProgramState, ctx: SSAValueCtx, op: fir.Con
       # Reverse shape_size to get it from Fortran allocation to C/MLIR allocation
       shape_size.reverse()
       target_type=memref.MemRefType(convert_fir_type_to_standard(out_type.type.type), shape_size)
-      cast_op=memref.Cast.get(ctx[op.value], target_type)
+      cast_op=memref.CastOp.get(ctx[op.value], target_type)
 
       ctx[op.results[0]]=cast_op.results[0]
       new_conv=[cast_op]
@@ -886,7 +889,7 @@ def translate_convert(program_state: ProgramState, ctx: SSAValueCtx, op: fir.Con
   if new_conv is None:
     raise Exception(f"Could not convert between `{in_type}' and `{out_type}`")
   return value_ops+new_conv
-
+'''
 def translate_omp_mapinfo(program_state: ProgramState, ctx: SSAValueCtx, op: omp.MapInfoOp):
   var_ptr_ops=[]
   var_ptr_ssa=[]
@@ -950,6 +953,36 @@ def translate_omp_bounds(program_state: ProgramState, ctx: SSAValueCtx, op: omp.
                       result_types=[omp.DataBoundsTy()])
 
   return lower_ops+upper_ops+extent_ops+stride_ops+start_ops+[bounds_op]
+
+def translate_omp_parallel(program_state: ProgramState, ctx: SSAValueCtx, op: omp.TeamsOp):
+  arg_ssa=[]
+  arg_ops=[]
+
+  if op.if_expr_var is not None:
+    ops=translate_expr(program_state, ctx, op.if_expr_var)
+    arg_ops+=ops
+    arg_ssa.append([ops[-1].results[0]])
+  else:
+    arg_ssa.append([])
+
+  if op.num_threads_var is not None:
+    ops=translate_expr(program_state, ctx, op.num_threads_var)
+    arg_ops+=ops
+    arg_ssa.append([ops[-1].results[0]])
+  else:
+    arg_ssa.append([])
+
+  arg_ssa+=[[],[],[]]
+
+  new_block = Block()
+
+  region_body_ops=[]
+  for single_op in op.region.blocks[0].ops:
+    region_body_ops+=translate_stmt(program_state, ctx, single_op)
+
+  new_block.add_ops(region_body_ops)
+
+  return arg_ops+[omp.ParallelOp.build(operands=arg_ssa, regions=[Region([new_block])], properties={})]
 
 def translate_omp_team(program_state: ProgramState, ctx: SSAValueCtx, op: omp.TeamsOp):
   arg_ssa=[]
@@ -1045,7 +1078,7 @@ def translate_omp_target(program_state: ProgramState, ctx: SSAValueCtx, op: omp.
   target_op=omp.TargetOp.build(operands=[[],[],[],map_var_ssa], regions=[Region([new_block])], properties=new_props)
 
   return map_var_ops+[target_op]
-
+'''
 def handle_conditional_true_or_false_region(program_state: ProgramState, ctx: SSAValueCtx, region: Region):
   arg_types=[]
   for arg in region.blocks[0].args:
@@ -1065,14 +1098,14 @@ def handle_conditional_true_or_false_region(program_state: ProgramState, ctx: SS
 
   return new_block
 
-def check_if_condition_is_end_fn_allocatable_automatic_free(condition_op: arith.Cmpi | arith.Cmpf):
-  if isa(condition_op, arith.Cmpi):
-    if isa(condition_op.lhs.owner, fir.Convert):
+def check_if_condition_is_end_fn_allocatable_automatic_free(condition_op: arith.CmpiOp | arith.CmpfOp):
+  if isa(condition_op, arith.CmpiOp):
+    if isa(condition_op.lhs.owner, fir.ConvertOp):
       return (isa(condition_op.lhs.owner.value.type, fir.HeapType) and
                 isa(condition_op.lhs.owner.results[0].type, builtin.IntegerType))
   return False
 
-def translate_conditional(program_state: ProgramState, ctx: SSAValueCtx, op: fir.If):
+def translate_conditional(program_state: ProgramState, ctx: SSAValueCtx, op: fir.IfOp):
   # Each function automatically deallocates scope local allocatable arrays at the end,
   # check to see if that is the purpose of this conditional. If so then just ignore it
   is_final_auto_free=check_if_condition_is_end_fn_allocatable_automatic_free(op.condition.owner)
@@ -1087,7 +1120,7 @@ def translate_conditional(program_state: ProgramState, ctx: SSAValueCtx, op: fir
 
   return conditional_expr_ops+[scf_if]
 
-def translate_branch(program_state: ProgramState, ctx: SSAValueCtx, op: cf.Branch):
+def translate_branch(program_state: ProgramState, ctx: SSAValueCtx, op: cf.BranchOp):
   current_fn_identifier=program_state.getCurrentFnState().fn_identifier
   target_block_index=program_state.function_definitions[current_fn_identifier].blocks.index(op.successor)
 
@@ -1096,11 +1129,11 @@ def translate_branch(program_state: ProgramState, ctx: SSAValueCtx, op: cf.Branc
   for arg in op.arguments:
     ops_list+=translate_expr(program_state, ctx, arg)
     block_ssas.append(ctx[arg])
-  relative_branch=ftn_relative_cf.Branch(current_fn_identifier, target_block_index, *block_ssas)
+  relative_branch=ftn_relative_cf.BranchOp(current_fn_identifier, target_block_index, *block_ssas)
   ops_list.append(relative_branch)
   return ops_list
 
-def translate_conditional_branch(program_state: ProgramState, ctx: SSAValueCtx, op: cf.ConditionalBranch):
+def translate_conditional_branch(program_state: ProgramState, ctx: SSAValueCtx, op: cf.ConditionalBranchOp):
   current_fn_identifier=program_state.getCurrentFnState().fn_identifier
   then_block_index=program_state.function_definitions[current_fn_identifier].blocks.index(op.then_block)
   else_block_index=program_state.function_definitions[current_fn_identifier].blocks.index(op.else_block)
@@ -1117,16 +1150,16 @@ def translate_conditional_branch(program_state: ProgramState, ctx: SSAValueCtx, 
     ops_list+=translate_expr(program_state, ctx, arg)
     else_block_ssas.append(ctx[arg])
 
-  relative_cond_branch=ftn_relative_cf.ConditionalBranch(current_fn_identifier, ctx[op.cond], then_block_index, then_block_ssas, else_block_index, else_block_ssas)
+  relative_cond_branch=ftn_relative_cf.ConditionalBranchOp(current_fn_identifier, ctx[op.cond], then_block_index, then_block_ssas, else_block_index, else_block_ssas)
   ops_list.append(relative_cond_branch)
 
   return ops_list
 
 def generate_dereference_memref(memref_ssa):
-  load_op=memref.Load.get(memref_ssa, [])
+  load_op=memref.LoadOp.get(memref_ssa, [])
   return load_op, load_op.results[0]
 
-def translate_load(program_state: ProgramState, ctx: SSAValueCtx, op: fir.Load):
+def translate_load(program_state: ProgramState, ctx: SSAValueCtx, op: fir.LoadOp):
   if ctx.contains(op.results[0]): return []
 
   # If this is a block argument, then it might be a scalar if it's in only. Therefore
@@ -1149,7 +1182,7 @@ def translate_load(program_state: ProgramState, ctx: SSAValueCtx, op: fir.Load):
       else:
         # Otherwise assume it is a scalar
 
-        load_op=memref.Load.get(ctx[op.memref], [])
+        load_op=memref.LoadOp.get(ctx[op.memref], [])
         ctx[op.results[0]]=load_op.results[0]
         return [load_op]
     elif isa(ctx[op.memref].type, llvm.LLVMPointerType):
@@ -1167,12 +1200,12 @@ def translate_load(program_state: ProgramState, ctx: SSAValueCtx, op: fir.Load):
   elif isa(op.memref.owner, hlfir.DesignateOp):
     # Array value
     assert op.memref.owner.indices is not None
-    assert isa(op.memref.owner.memref.owner, hlfir.DeclareOp) or isa(op.memref.owner.memref.owner, fir.Load)
+    assert isa(op.memref.owner.memref.owner, hlfir.DeclareOp) or isa(op.memref.owner.memref.owner, fir.LoadOp)
     ops_list, indexes_ssa=array_access_components(program_state, ctx, op.memref.owner)
 
     if isa(op.memref.owner.memref.owner, hlfir.DeclareOp):
       src_ssa=op.memref.owner.memref
-    elif isa(op.memref.owner.memref.owner, fir.Load):
+    elif isa(op.memref.owner.memref.owner, fir.LoadOp):
       src_ssa=op.memref.owner.memref.owner.memref
     else:
       assert False
@@ -1188,23 +1221,23 @@ def translate_load(program_state: ProgramState, ctx: SSAValueCtx, op: fir.Load):
     # the order of the contiguous dimension (F is least, whereas C/MLIR is highest)
     indexes_ssa_reversed=indexes_ssa.copy()
     indexes_ssa_reversed.reverse()
-    load_op=memref.Load.get(load_ssa, indexes_ssa_reversed)
+    load_op=memref.LoadOp.get(load_ssa, indexes_ssa_reversed)
     ops_list.append(load_op)
     ctx[op.results[0]]=load_op.results[0]
     return ops_list
-  elif isa(op.memref.owner, fir.Alloca):
+  elif isa(op.memref.owner, fir.AllocaOp):
     # This is used for loading an internal variable
     assert isa(op.memref.owner.results[0].type, fir.ReferenceType)
 
-    load_op=memref.Load.get(ctx[op.memref], [])
+    load_op=memref.LoadOp.get(ctx[op.memref], [])
     ctx[op.results[0]]=load_op.results[0]
     return [load_op]
   else:
     assert False
 
-def translate_freemem(program_state: ProgramState, ctx: SSAValueCtx, op: fir.Freemem):
-  assert isa(op.heapref.owner, fir.BoxAddr)
-  assert isa(op.heapref.owner.val.owner, fir.Load)
+def translate_freemem(program_state: ProgramState, ctx: SSAValueCtx, op: fir.FreememOp):
+  assert isa(op.heapref.owner, fir.BoxAddrOp)
+  assert isa(op.heapref.owner.val.owner, fir.LoadOp)
   memref_ssa=op.heapref.owner.val.owner.memref
 
   ops_list=[]
@@ -1215,33 +1248,33 @@ def translate_freemem(program_state: ProgramState, ctx: SSAValueCtx, op: fir.Fre
   else:
     load_ssa=ctx[memref_ssa]
 
-  ops_list.append(memref.Dealloc.get(load_ssa))
+  ops_list.append(memref.DeallocOp.get(load_ssa))
   return ops_list
 
-def translate_result(program_state: ProgramState, ctx: SSAValueCtx, op: fir.Result):
+def translate_result(program_state: ProgramState, ctx: SSAValueCtx, op: fir.ResultOp):
   ops_list=[]
   ssa_list=[]
   for operand in op.operands:
     expr_ops=translate_expr(program_state, ctx, operand)
     ops_list+=expr_ops
     ssa_list.append(ctx[operand])
-  yield_op=scf.Yield(*ssa_list)
+  yield_op=scf.YieldOp(*ssa_list)
   return ops_list+[yield_op]
 
 def remove_array_size_convert(op):
   # This is for array size, they are often converted from
   # integer to index, so work back to find the original integer
-  if isa(op, fir.Convert):
+  if isa(op, fir.ConvertOp):
     assert isa(op.results[0].type, builtin.IndexType)
     assert isa(op.value.type, builtin.IntegerType)
     return op.value.owner
   return op
 
 def create_index_constant(val: int):
-  return arith.Constant.create(properties={"value": builtin.IntegerAttr.from_index_int_value(val)},
+  return arith.ConstantOp.create(properties={"value": builtin.IntegerAttr.from_index_int_value(val)},
                                                result_types=[builtin.IndexType()])
 
-def generate_var_dim_size_load(ctx: SSAValueCtx, op: fir.Load):
+def generate_var_dim_size_load(ctx: SSAValueCtx, op: fir.LoadOp):
   # Generates operations to load the size of a dimension from a variable
   # and ensure that it is typed as an index
   var_ssa=ctx[op.memref]
@@ -1249,7 +1282,7 @@ def generate_var_dim_size_load(ctx: SSAValueCtx, op: fir.Load):
   if isa(var_ssa.type, builtin.MemRefType):
     # If this is a memref then we need to load it to
     # retrieve the index value
-    load_op=memref.Load.get(var_ssa, [])
+    load_op=memref.LoadOp.get(var_ssa, [])
     ops_list+=[load_op]
     var_ssa=load_op.results[0]
   if not isa(var_ssa.type, builtin.IndexType):
@@ -1265,9 +1298,9 @@ def handle_array_size_lu_bound(program_state: ProgramState, ctx: SSAValueCtx, bo
   # or the corresponding ssa and ops if it is driven by a variable
   bound_val=load_ssa=load_ops=None
   bound_op=remove_array_size_convert(bound_op)
-  if isa(bound_op, arith.Constant):
+  if isa(bound_op, arith.ConstantOp):
     bound_val=bound_op.value.value.data
-  elif isa(bound_op, fir.Load):
+  elif isa(bound_op, fir.LoadOp):
     load_ssa, load_ops=generate_var_dim_size_load(ctx, bound_op)
   else:
     # Otherwise this is a general expression, therefore translate that and
@@ -1278,12 +1311,12 @@ def handle_array_size_lu_bound(program_state: ProgramState, ctx: SSAValueCtx, bo
   return bound_val, load_ssa, load_ops
 
 
-def translate_store(program_state: ProgramState, ctx: SSAValueCtx, op: fir.Store):
+def translate_store(program_state: ProgramState, ctx: SSAValueCtx, op: fir.StoreOp):
   # This is used for internal program components, such as loop indexes and storing
   # allocated memory to an allocatable
-  if isa(op.value.owner, fir.Embox):
+  if isa(op.value.owner, fir.EmboxOp):
     # This is a allocating memory for an allocatable array
-    if isa(op.value.owner.memref.owner, fir.Allocmem):
+    if isa(op.value.owner.memref.owner, fir.AllocmemOp):
       assert isa(op.value.owner.memref.owner.results[0].type, fir.HeapType)
       assert isa(op.value.owner.memref.owner.results[0].type.type, fir.SequenceType)
       base_type=op.value.owner.memref.owner.results[0].type.type.type
@@ -1291,7 +1324,7 @@ def translate_store(program_state: ProgramState, ctx: SSAValueCtx, op: fir.Store
         assert isa(dim_shape, fir.DeferredAttr)
 
       assert len(op.value.owner.shape) == 1
-      default_start_idx_mode=isa(op.value.owner.shape[0].owner, fir.Shape)
+      default_start_idx_mode=isa(op.value.owner.shape[0].owner, fir.ShapeOp)
 
       dim_sizes=[]
       dim_starts=[]
@@ -1299,22 +1332,22 @@ def translate_store(program_state: ProgramState, ctx: SSAValueCtx, op: fir.Store
       dim_ssas=[]
       ops_list=[]
       for shape in op.value.owner.memref.owner.shape:
-        assert isa(shape.owner, arith.Select)
+        assert isa(shape.owner, arith.SelectOp)
         # Flang adds a guard to ensure that non-negative size is used, hence select
         # the actual provided size is the lhs
         size_op=remove_array_size_convert(shape.owner.lhs.owner)
-        if isa(size_op, arith.Constant):
+        if isa(size_op, arith.ConstantOp):
           # Default sized
           dim_sizes.append(size_op.value.value.data)
           const_op=create_index_constant(size_op.value.value.data)
           ops_list.append(const_op)
           dim_ssas.append(const_op.results[0])
-        elif isa(size_op, arith.Addi):
+        elif isa(size_op, arith.AddiOp):
           # Start dim is offset, this does the substract, then add one
           # so we need to work back to calculate
-          assert isa(size_op.rhs.owner, arith.Constant)
+          assert isa(size_op.rhs.owner, arith.ConstantOp)
           assert size_op.rhs.owner.value.value.data == 1
-          assert isa(size_op.lhs.owner, arith.Subi)
+          assert isa(size_op.lhs.owner, arith.SubiOp)
 
           upper_bound_val, upper_load_ssa, upper_load_ops=handle_array_size_lu_bound(program_state, ctx, size_op.lhs.owner.lhs.owner, size_op.lhs.owner.lhs)
           if upper_bound_val is not None:
@@ -1357,13 +1390,13 @@ def translate_store(program_state: ProgramState, ctx: SSAValueCtx, op: fir.Store
               lower_load_ssa=lower_const_op.results[0]
 
             one_const_op=create_index_constant(1)
-            sub_op=arith.Subi(upper_load_ssa, lower_load_ssa)
-            add_op=arith.Addi(sub_op, one_const_op)
+            sub_op=arith.SubiOp(upper_load_ssa, lower_load_ssa)
+            add_op=arith.AddiOp(sub_op, one_const_op)
             ops_list+=[one_const_op, sub_op, add_op]
             dim_ssas.append(add_op.results[0])
             dim_sizes.append(add_op.results[0])
 
-        elif isa(size_op, fir.Load):
+        elif isa(size_op, fir.LoadOp):
           # Sized based off a variable rather than constant, therefore need
           # to load this and convert to an index if it is an integer
           load_ssa, load_ops=generate_var_dim_size_load(ctx, size_op)
@@ -1385,10 +1418,10 @@ def translate_store(program_state: ProgramState, ctx: SSAValueCtx, op: fir.Store
       # the order of the contiguous dimension (F is least, whereas C/MLIR is highest)
       dim_ssa_reversed=dim_ssas.copy()
       dim_ssa_reversed.reverse()
-      memref_allocation_op=memref_alloca_op=memref.Alloc.get(base_type, shape=[-1]*len(dim_ssas), dynamic_sizes=dim_ssa_reversed)
+      memref_allocation_op=memref_alloca_op=memref.AllocOp.get(base_type, shape=[-1]*len(dim_ssas), dynamic_sizes=dim_ssa_reversed)
       ops_list.append(memref_allocation_op)
 
-      store_op=memref.Store.get(memref_allocation_op.results[0], ctx[op.memref.owner.results[0]], [])
+      store_op=memref.StoreOp.get(memref_allocation_op.results[0], ctx[op.memref.owner.results[0]], [])
       ops_list.append(store_op)
       #ctx[op.memref.owner.results[0]]=memref_allocation_op.results[0]
       #ctx[op.memref.owner.results[1]]=memref_allocation_op.results[0]
@@ -1399,7 +1432,7 @@ def translate_store(program_state: ProgramState, ctx: SSAValueCtx, op: fir.Store
       program_state.getCurrentFnState().array_info[array_name]=ArrayDescription(array_name, dim_sizes, dim_starts, dim_ends)
 
       return ops_list
-    elif isa(op.value.owner.memref.owner, fir.ZeroBits):
+    elif isa(op.value.owner.memref.owner, fir.ZeroBitsOp):
       pass
     else:
       assert False
@@ -1408,10 +1441,10 @@ def translate_store(program_state: ProgramState, ctx: SSAValueCtx, op: fir.Store
     expr_ops=translate_expr(program_state, ctx, op.value)
 
     if isa(op.memref.owner, hlfir.DeclareOp):
-      storage_op=memref.Store.get(ctx[op.value], ctx[op.memref], [])
-    elif isa(op.memref.owner, fir.Alloca):
+      storage_op=memref.StoreOp.get(ctx[op.value], ctx[op.memref], [])
+    elif isa(op.memref.owner, fir.AllocaOp):
       assert ctx[op.memref] is not None
-      storage_op=memref.Store.get(ctx[op.value], ctx[op.memref], [])
+      storage_op=memref.StoreOp.get(ctx[op.value], ctx[op.memref], [])
     else:
       assert False
     return expr_ops+[storage_op]
@@ -1422,7 +1455,7 @@ def array_access_components(program_state: ProgramState, ctx: SSAValueCtx, op:hl
   # start index to the physical start index of 0
   if isa(op.memref.owner, hlfir.DeclareOp):
     array_name=op.memref.owner.uniq_name.data
-  elif isa(op.memref.owner, fir.Load):
+  elif isa(op.memref.owner, fir.LoadOp):
     assert isa(op.memref.owner.memref.owner, hlfir.DeclareOp)
     array_name=op.memref.owner.memref.owner.uniq_name.data
   else:
@@ -1445,9 +1478,9 @@ def array_access_components(program_state: ProgramState, ctx: SSAValueCtx, op:hl
       assert dim_start >= 0
       if dim_start > 0:
         # If zero start then we are good, otherwise need to zero index this
-        offset_const=arith.Constant.create(properties={"value": builtin.IntegerAttr.from_index_int_value(dim_start)},
+        offset_const=arith.ConstantOp.create(properties={"value": builtin.IntegerAttr.from_index_int_value(dim_start)},
                                              result_types=[builtin.IndexType()])
-        subtract_op=arith.Subi(index_ssa, offset_const)
+        subtract_op=arith.SubiOp(index_ssa, offset_const)
         ops_list+=[offset_const, subtract_op]
         indexes_ssa.append(subtract_op.results[0])
       else:
@@ -1456,7 +1489,7 @@ def array_access_components(program_state: ProgramState, ctx: SSAValueCtx, op:hl
       # This is not a constant literal in the code, therefore use the variable that drives this
       # which was generated previously, so just link to this
       assert ctx[dim_start] is not None
-      subtract_op=arith.Subi(index_ssa, ctx[dim_start])
+      subtract_op=arith.SubiOp(index_ssa, ctx[dim_start])
       ops_list.append(subtract_op)
       indexes_ssa.append(subtract_op.results[0])
     else:
@@ -1484,7 +1517,7 @@ def translate_assign(program_state: ProgramState, ctx: SSAValueCtx, op: hlfir.As
           else:
             assert False
 
-          if isa(op.lhs.owner, fir.Load):
+          if isa(op.lhs.owner, fir.LoadOp):
             assert isa(op.lhs.owner.results[0].type, fir.BoxType)
             assert isa(op.lhs.owner.results[0].type.type, fir.HeapType)
             assert isa(op.lhs.owner.results[0].type.type.type, fir.SequenceType)
@@ -1528,7 +1561,7 @@ def translate_assign(program_state: ProgramState, ctx: SSAValueCtx, op: hlfir.As
       else:
         assert isa(op.rhs.owner.results[0].type, fir.ReferenceType)
 
-        storage_op=memref.Store.get(ctx[op.lhs], ctx[op.rhs], [])
+        storage_op=memref.StoreOp.get(ctx[op.lhs], ctx[op.rhs], [])
         return expr_lhs_ops+expr_rhs_ops+[storage_op]
     elif isa(ctx[op.rhs].type, llvm.LLVMPointerType):
       storage_op=llvm.StoreOp(ctx[op.lhs], ctx[op.rhs])
@@ -1541,7 +1574,7 @@ def translate_assign(program_state: ProgramState, ctx: SSAValueCtx, op: hlfir.As
     ops_list, indexes_ssa=array_access_components(program_state, ctx, op.rhs.owner)
     if isa(op.rhs.owner.memref.owner, hlfir.DeclareOp):
       memref_reference=op.rhs.owner.memref
-    elif isa(op.rhs.owner.memref.owner, fir.Load):
+    elif isa(op.rhs.owner.memref.owner, fir.LoadOp):
       memref_reference=op.rhs.owner.memref.owner.memref
     else:
       assert False
@@ -1556,15 +1589,15 @@ def translate_assign(program_state: ProgramState, ctx: SSAValueCtx, op: hlfir.As
     # the order of the contiguous dimension (F is least, whereas C/MLIR is highest)
     indexes_ssa_reversed=indexes_ssa.copy()
     indexes_ssa_reversed.reverse()
-    storage_op=memref.Store.get(ctx[op.lhs], load_ssa, indexes_ssa_reversed)
+    storage_op=memref.StoreOp.get(ctx[op.lhs], load_ssa, indexes_ssa_reversed)
     ops_list.append(storage_op)
     return expr_lhs_ops+ops_list
   else:
     assert False
 
-def translate_constant(program_state: ProgramState, ctx: SSAValueCtx, op: arith.Constant):
+def translate_constant(program_state: ProgramState, ctx: SSAValueCtx, op: arith.ConstantOp):
   if ctx.contains(op.results[0]): return []
-  new_const=arith.Constant(op.value, op.results[0].type)
+  new_const=arith.ConstantOp(op.value, op.results[0].type)
   ctx[op.results[0]]=new_const.results[0]
   return [new_const]
 
@@ -1584,9 +1617,9 @@ def handle_call_argument(program_state: ProgramState, ctx: SSAValueCtx, fn_name:
       # Otherwise we need to pack the constant into a memref and pass this
       assert isa(arg_defn.arg_type, fir.ReferenceType)
       ops_list=translate_expr(program_state, ctx, arg.owner.source)
-      memref_alloca_op=memref.Alloca.get(convert_fir_type_to_standard(arg_defn.arg_type.type), shape=[])
+      memref_alloca_op=memref.AllocaOp.get(convert_fir_type_to_standard(arg_defn.arg_type.type), shape=[])
 
-      storage_op=memref.Store.get(ctx[arg.owner.source], memref_alloca_op.results[0], [])
+      storage_op=memref.StoreOp.get(ctx[arg.owner.source], memref_alloca_op.results[0], [])
       ctx[arg]=memref_alloca_op.results[0]
       return ops_list+[memref_alloca_op, storage_op], True
   else:
@@ -1600,7 +1633,7 @@ def handle_call_argument(program_state: ProgramState, ctx: SSAValueCtx, fn_name:
         # The function will accept a constant, but we are currently passing a memref
         # therefore need to load the value and pass this
 
-        load_op=memref.Load.get(ctx[arg], [])
+        load_op=memref.LoadOp.get(ctx[arg], [])
 
         # arg is already in our ctx from above, so remove it and add in the load as
         # we want to reference that instead
@@ -1608,13 +1641,13 @@ def handle_call_argument(program_state: ProgramState, ctx: SSAValueCtx, fn_name:
         ctx[arg]=load_op.results[0]
         ops_list+=[load_op]
       elif not arg_defn.is_scalar and not arg_defn.is_allocatable and isa(ctx[arg].type, memref.MemRefType) and isa(ctx[arg].type.element_type, memref.MemRefType):
-        load_op=memref.Load.get(ctx[arg], [])
+        load_op=memref.LoadOp.get(ctx[arg], [])
         del ctx[arg]
         ctx[arg]=load_op.results[0]
         ops_list+=[load_op]
     return ops_list, False
 
-def handle_movealloc_intrinsic_call(program_state: ProgramState, ctx: SSAValueCtx, op: fir.Call):
+def handle_movealloc_intrinsic_call(program_state: ProgramState, ctx: SSAValueCtx, op: fir.CallOp):
   src_ssa=op.args[1]
   dst_ssa=op.args[0]
 
@@ -1623,11 +1656,11 @@ def handle_movealloc_intrinsic_call(program_state: ProgramState, ctx: SSAValueCt
 
   assert isa(ctx[src_ssa].type, memref.MemRefType)
   assert isa(ctx[dst_ssa].type, memref.MemRefType)
-  load_op=memref.Load.get(ctx[src_ssa], [])
-  store_op=memref.Store.get(load_op.results[0], ctx[dst_ssa], [])
+  load_op=memref.LoadOp.get(ctx[src_ssa], [])
+  store_op=memref.StoreOp.get(load_op.results[0], ctx[dst_ssa], [])
   return [load_op, store_op]
 
-def translate_call(program_state: ProgramState, ctx: SSAValueCtx, op: fir.Call):
+def translate_call(program_state: ProgramState, ctx: SSAValueCtx, op: fir.CallOp):
   if len(op.results) > 0 and ctx.contains(op.results[0]): return []
 
   fn_name=clean_func_name(op.callee.string_value())
@@ -1658,7 +1691,7 @@ def translate_call(program_state: ProgramState, ctx: SSAValueCtx, op: fir.Call):
       return_types.append(convert_fir_type_to_standard_if_needed(ret.type))
       return_ssas.append(ret)
 
-  call_op=func.Call(op.callee, arg_ssa, return_types)
+  call_op=func.CallOp(op.callee, arg_ssa, return_types)
 
   if program_state.function_definitions[fn_name].is_definition_only and not are_temps_allocated:
     for idx, ret_ssa in enumerate(return_ssas):
@@ -1673,7 +1706,7 @@ def translate_call(program_state: ProgramState, ctx: SSAValueCtx, op: fir.Call):
 
     return [alloca_scope_op]
 
-def translate_iterate_while(program_state: ProgramState, ctx: SSAValueCtx, op: fir.IterateWhile):
+def translate_iterate_while(program_state: ProgramState, ctx: SSAValueCtx, op: fir.IterateWhileOp):
   # FIR's iterate while is like the do loop as it has a numeric counter but it also has an i1
   # flag to drive whether to continue (flag=true) or exit (flag=false). We map this to scf.While
   # however it's a bit of a different operation, so we need to more manual things here to achieve this
@@ -1691,7 +1724,7 @@ def translate_iterate_while(program_state: ProgramState, ctx: SSAValueCtx, op: f
   zero_const=create_index_constant(0)
   # Will be true if smaller than zero, this is needed because if counting backwards
   # then check it is larger or equal to the upper bound, otherwise it's smaller or equals
-  step_op_lt_zero=arith.Cmpi(ctx[op.step], zero_const, 2)
+  step_op_lt_zero=arith.CmpiOp(ctx[op.step], zero_const, 2)
   step_zero_check_ops=[zero_const, step_op_lt_zero]
 
   assert len(op.regions)==1
@@ -1702,14 +1735,14 @@ def translate_iterate_while(program_state: ProgramState, ctx: SSAValueCtx, op: f
   before_block = Block(arg_types=arg_types)
 
   # Build the index check, the one to use depends on whether the step is positive or not
-  true_cmp_op=arith.Cmpi(before_block.args[0], ctx[op.upperBound], 5)
+  true_cmp_op=arith.CmpiOp(before_block.args[0], ctx[op.upperBound], 5)
   true_cmp_block=[true_cmp_op, scf.Yield(true_cmp_op)]
-  false_cmp_op=arith.Cmpi(before_block.args[0], ctx[op.upperBound], 3)
+  false_cmp_op=arith.CmpiOp(before_block.args[0], ctx[op.upperBound], 3)
   false_cmp_block=[false_cmp_op, scf.Yield(false_cmp_op)]
-  index_comparison=scf.If(step_op_lt_zero, builtin.i1, true_cmp_block, false_cmp_block)
+  index_comparison=scf.IfOp(step_op_lt_zero, builtin.i1, true_cmp_block, false_cmp_block)
 
   # True if both are true, false otherwise (either the counter or bool can quit out of loop)
-  or_comparison=arith.AndI(index_comparison, before_block.args[1])
+  or_comparison=arith.AndIOp(index_comparison, before_block.args[1])
   condition_op=scf.Condition(or_comparison, *before_block.args)
 
   before_block.add_ops([index_comparison, or_comparison, condition_op])
@@ -1724,7 +1757,7 @@ def translate_iterate_while(program_state: ProgramState, ctx: SSAValueCtx, op: f
     loop_body_ops+=translate_stmt(program_state, ctx, loop_op)
 
   # This updates the loop counter
-  update_loop_idx=arith.Addi(after_block.args[0], ctx[op.step])
+  update_loop_idx=arith.AddiOp(after_block.args[0], ctx[op.step])
 
   # Now we grab out the loop update to return, the true or false flag, and the initarg
   yield_op=loop_body_ops[-1]
@@ -1755,7 +1788,7 @@ def get_loop_arg_val_if_known(ssa):
   if isa(ssa_base.owner, arith.IndexCastOp):
     ssa_base=ssa_base.owner.input
 
-  if isa(ssa_base.owner, arith.Constant):
+  if isa(ssa_base.owner, arith.ConstantOp):
     assert isa(ssa_base.type, builtin.IndexType) or isa(ssa_base.type, builtin.IntegerType)
     val=ssa_base.owner.value.value.data
     return val
@@ -1776,8 +1809,8 @@ def determine_loop_step_direction(step_ssa):
 def generate_index_inversion_at_start_of_loop(index_ssa, lower_ssa, upper_ssa, target_type):
   # This is the index inversion required at the start of the loop if working backwards
   inversion_ops=[]
-  reduce_idx_from_start=arith.Subi(index_ssa, lower_ssa)
-  invert_idx=arith.Subi(upper_ssa, reduce_idx_from_start)
+  reduce_idx_from_start=arith.SubiOp(index_ssa, lower_ssa)
+  invert_idx=arith.SubiOp(upper_ssa, reduce_idx_from_start)
   inversion_ops+=[reduce_idx_from_start, invert_idx]
   if isa(target_type, builtin.IntegerType):
     index_cast=arith.IndexCastOp(invert_idx.results[0], target_type)
@@ -1792,7 +1825,7 @@ def generate_convert_step_to_absolute(step_ssa):
   cast_abs=arith.IndexCastOp(step_absolute.results[0], builtin.IndexType())
   return [cast_int, step_absolute, cast_abs], cast_abs.results[0]
 
-def translate_do_loop(program_state: ProgramState, ctx: SSAValueCtx, op: fir.DoLoop):
+def translate_do_loop(program_state: ProgramState, ctx: SSAValueCtx, op: fir.DoLoopOp):
   if ctx.contains(op.results[1]):
     for fir_result in op.results[1:]:
       assert ctx.contains(fir_result)
@@ -1852,7 +1885,7 @@ def translate_do_loop(program_state: ProgramState, ctx: SSAValueCtx, op: fir.DoL
     # variable. The same as the above, but support for decrement is driven
     # by conditionals
     loop_one_const=create_index_constant(1)
-    loop_idx_cmp=arith.Cmpi(ctx[op.step], loop_one_const, 2) # checking if step is less than 1
+    loop_idx_cmp=arith.CmpiOp(ctx[op.step], loop_one_const, 2) # checking if step is less than 1
 
     reduction_ops=generate_index_inversion_at_start_of_loop(new_block.args[0], lower_bound, upper_bound, op.regions[0].blocks[0].args[1].type)
     # We are going to wrap this in a conditional, therefore yield the result of the index inversion
@@ -1868,7 +1901,7 @@ def translate_do_loop(program_state: ProgramState, ctx: SSAValueCtx, op: fir.DoL
     # then indexes will be high to low, i.e. do high, low, step but these need swapped
     # for the scf loop. This is driven by the conditional on the step
     outer_const=create_index_constant(1)
-    outer_idx_cmp=arith.Cmpi(ctx[op.step], outer_const, 2)
+    outer_idx_cmp=arith.CmpiOp(ctx[op.step], outer_const, 2)
     nscf_if=scf.If(outer_idx_cmp.results[0], [upper_bound.type, lower_bound.type], [scf.Yield(upper_bound, lower_bound)], [scf.Yield(lower_bound, upper_bound)])
     lower_bound=nscf_if.results[0]
     upper_bound=nscf_if.results[1]
@@ -1888,7 +1921,7 @@ def translate_do_loop(program_state: ProgramState, ctx: SSAValueCtx, op: fir.DoL
   # We need to add one to the upper index, as scf.for is not inclusive on the
   # top bound, whereas fir for loops are
   one_val_op=create_index_constant(1)
-  add_op=arith.Addi(upper_bound, one_val_op)
+  add_op=arith.AddiOp(upper_bound, one_val_op)
   initarg_ops+=[one_val_op, add_op]
   upper_bound=add_op.results[0]
 
@@ -1896,30 +1929,30 @@ def translate_do_loop(program_state: ProgramState, ctx: SSAValueCtx, op: fir.DoL
   # the iterargs. Therefore need to rebuild the yield with the first argument (the index)
   # removed from it
   yield_op=loop_body_ops[-1]
-  assert isa(yield_op, scf.Yield)
-  new_yieldop=scf.Yield(*yield_op.arguments[1:])
+  assert isa(yield_op, scf.YieldOp)
+  new_yieldop=scf.YieldOp(*yield_op.arguments[1:])
   del loop_body_ops[-1]
   loop_body_ops.append(new_yieldop)
 
   new_block.add_ops(loop_body_ops)
 
-  scf_for_loop=scf.For(lower_bound, upper_bound, ctx[op.step], [ctx[op.initArgs]], new_block)
+  scf_for_loop=scf.ForOp(lower_bound, upper_bound, ctx[op.step], [ctx[op.initArgs]], new_block)
 
   for index, scf_result in enumerate(scf_for_loop.results):
     ctx[op.results[index+1]]=scf_result
 
   return lower_bound_ops+upper_bound_ops+step_ops+initarg_ops+[scf_for_loop]
 
-def translate_return(program_state: ProgramState, ctx: SSAValueCtx, op: func.Return):
+def translate_return(program_state: ProgramState, ctx: SSAValueCtx, op: func.ReturnOp):
   ssa_to_return=[]
   args_ops=[]
   for arg in op.arguments:
     args_ops+=translate_expr(program_state, ctx, arg)
     ssa_to_return.append(ctx[arg])
-  new_return=func.Return(*ssa_to_return)
+  new_return=func.ReturnOp(*ssa_to_return)
   return args_ops+[new_return]
 
-def translate_alloca(program_state: ProgramState, ctx: SSAValueCtx, op: fir.Alloca):
+def translate_alloca(program_state: ProgramState, ctx: SSAValueCtx, op: fir.AllocaOp):
   if ctx.contains(op.results[0]): return []
 
   # If any use of the result is the declareop, then ignore this as
@@ -1927,7 +1960,7 @@ def translate_alloca(program_state: ProgramState, ctx: SSAValueCtx, op: fir.Allo
   for use in op.results[0].uses:
     if isa(use.operation, hlfir.DeclareOp): return[]
 
-  memref_alloca_op=memref.Alloca.get(convert_fir_type_to_standard(op.in_type), shape=[])
+  memref_alloca_op=memref.AllocaOp.get(convert_fir_type_to_standard(op.in_type), shape=[])
   ctx[op.results[0]]=memref_alloca_op.results[0]
   return [memref_alloca_op]
 
@@ -1941,7 +1974,7 @@ def translate_declare(program_state: ProgramState, ctx: SSAValueCtx, op: hlfir.D
     assert isa(op.results[0].type.type.type, fir.HeapType)
     assert isa(op.results[0].type.type.type.type, fir.SequenceType)
     num_dims=len(op.results[0].type.type.type.type.shape)
-    alloc_memref_container=memref.Alloca.get(memref.MemRefType(op.results[0].type.type.type.type.type, shape=num_dims*[-1]), shape=[])
+    alloc_memref_container=memref.AllocaOp.get(memref.MemRefType(op.results[0].type.type.type.type.type, shape=num_dims*[-1]), shape=[])
     ctx[op.results[0]]=alloc_memref_container.results[0]
     ctx[op.results[1]]=alloc_memref_container.results[0]
     return [alloc_memref_container]
@@ -1961,9 +1994,9 @@ def translate_declare(program_state: ProgramState, ctx: SSAValueCtx, op: hlfir.D
   else:
     if op.shape is not None:
       # There is a shape we can use in determining the size
-      if isa(op.shape.owner, fir.Shape):
+      if isa(op.shape.owner, fir.ShapeOp):
         dim_sizes, dim_starts, dim_ends=gather_static_shape_dims_from_shape(op.shape.owner)
-      elif isa(op.shape.owner, fir.ShapeShift):
+      elif isa(op.shape.owner, fir.ShapeShiftOp):
         dim_sizes, dim_starts, dim_ends=gather_static_shape_dims_from_shapeshift(op.shape.owner)
       else:
         assert False
@@ -1997,8 +2030,8 @@ def translate_declare(program_state: ProgramState, ctx: SSAValueCtx, op: hlfir.D
       end_ssas=[]
       for dim in range(num_dims):
         dim_idx_op=create_index_constant(dim)
-        get_dim_op=memref.Dim.from_source_and_index(ctx[op.memref], dim_idx_op)
-        add_arith_op=arith.Addi(get_dim_op.results[0], one_op.results[0])
+        get_dim_op=memref.DimOp.from_source_and_index(ctx[op.memref], dim_idx_op)
+        add_arith_op=arith.AddiOp(get_dim_op.results[0], one_op.results[0])
         ops_list+=[dim_idx_op, get_dim_op, add_arith_op]
         size_ssas.append(get_dim_op.results[0])
         end_ssas.append(add_arith_op.results[0])
@@ -2014,13 +2047,13 @@ def dims_has_static_size(dims):
     if not isa(dim, int): return False
   return True
 
-def gather_static_shape_dims_from_shape(shape_op: fir.Shape):
+def gather_static_shape_dims_from_shape(shape_op: fir.ShapeOp):
   # fir.Shape is for default, 1 indexed arrays
   dim_sizes=[]
   dim_starts=[]
   assert shape_op.extents is not None
   for extent in shape_op.extents:
-    if isa(extent.owner, arith.Constant):
+    if isa(extent.owner, arith.ConstantOp):
       assert isa(extent.owner.result.type, builtin.IndexType)
       dim_sizes.append(extent.owner.value.value.data)
     else:
@@ -2028,7 +2061,7 @@ def gather_static_shape_dims_from_shape(shape_op: fir.Shape):
   dim_starts=[1]*len(dim_sizes)
   return dim_sizes, dim_starts, dim_sizes
 
-def gather_static_shape_dims_from_shapeshift(shape_op: fir.ShapeShift):
+def gather_static_shape_dims_from_shapeshift(shape_op: fir.ShapeShiftOp):
   # fir.ShapeShift is for arrays indexed on a value other than 1
   dim_sizes=[]
   dim_starts=[]
@@ -2037,13 +2070,13 @@ def gather_static_shape_dims_from_shapeshift(shape_op: fir.ShapeShift):
   # Now iterate in pairs of low, high e.g. (low, high), (low, high) etc
   paired_vals=list(zip(shape_op.pairs[::2], shape_op.pairs[1::2]))
   for low_arg, high_arg in paired_vals:
-    if isa(low_arg.owner, arith.Constant):
+    if isa(low_arg.owner, arith.ConstantOp):
       assert isa(low_arg.owner.result.type, builtin.IndexType)
       dim_starts.append(low_arg.owner.value.value.data)
     else:
       dim_starts.append(low_arg)
 
-    if isa(high_arg.owner, arith.Constant):
+    if isa(high_arg.owner, arith.ConstantOp):
       assert isa(high_arg.owner.result.type, builtin.IndexType)
       dim_sizes.append(high_arg.owner.value.value.data)
     else:
@@ -2064,7 +2097,7 @@ def define_stack_array_var(program_state: ProgramState, ctx: SSAValueCtx,
 
   # It might be one of tree things - allocated from a global, an alloca in fir
   # for stack local variable, or an array function argument that is statically sized
-  assert (isa(op.memref.owner, fir.AddressOf) or isa(op.memref.owner, fir.Alloca) or
+  assert (isa(op.memref.owner, fir.AddressOfOp) or isa(op.memref.owner, fir.AllocaOp) or
           (op.memref.owner, Block))
 
   if isa(op.memref.owner, Block):
@@ -2093,18 +2126,18 @@ def define_stack_array_var(program_state: ProgramState, ctx: SSAValueCtx,
     ctx[op.results[0]] = ctx[op.memref]
     ctx[op.results[1]] = ctx[op.memref]
     return []
-  elif isa(op.memref.owner, fir.AddressOf):
+  elif isa(op.memref.owner, fir.AddressOfOp):
     memref_lookup=memref.GetGlobal.get(op.memref.owner.symbol.string_value(), convert_fir_type_to_standard(fir_array_type))
     ctx[op.results[0]] = memref_lookup.results[0]
     ctx[op.results[1]] = memref_lookup.results[0]
     return [memref_lookup]
-  elif isa(op.memref.owner, fir.Alloca):
+  elif isa(op.memref.owner, fir.AllocaOp):
     # Issue an allocation on the stack
     # Reverse the indicies as Fortran and C/MLIR are opposite in terms of
     # the order of the contiguous dimension (F is least, whereas C/MLIR is highest)
     dim_sizes_reversed=dim_sizes.copy()
     dim_sizes_reversed.reverse()
-    memref_alloca_op=memref.Alloca.get(convert_fir_type_to_standard(fir_array_type.type), shape=dim_sizes_reversed)
+    memref_alloca_op=memref.AllocaOp.get(convert_fir_type_to_standard(fir_array_type.type), shape=dim_sizes_reversed)
     ctx[op.results[0]] = memref_alloca_op.results[0]
     ctx[op.results[1]] = memref_alloca_op.results[0]
     return [memref_alloca_op]
@@ -2117,19 +2150,19 @@ def define_scalar_var(program_state: ProgramState, ctx: SSAValueCtx, op: hlfir.D
     return []
   if isa(op.memref, OpResult):
     allocation_op=op.memref.owner
-    if isa(allocation_op, fir.Alloca):
+    if isa(allocation_op, fir.AllocaOp):
       assert isa(allocation_op.results[0].type, fir.ReferenceType)
       assert allocation_op.results[0].type.type == allocation_op.in_type
-      memref_alloca_op=memref.Alloca.get(convert_fir_type_to_standard(allocation_op.in_type), shape=[])
+      memref_alloca_op=memref.AllocaOp.get(convert_fir_type_to_standard(allocation_op.in_type), shape=[])
       ctx[op.results[0]] = memref_alloca_op.results[0]
       ctx[op.results[1]] = memref_alloca_op.results[0]
       return [memref_alloca_op]
-    elif isa(allocation_op, fir.AddressOf):
+    elif isa(allocation_op, fir.AddressOfOp):
       expr_ops=translate_expr(program_state, ctx, op.memref)
       ctx[op.results[0]] = ctx[allocation_op.results[0]]
       ctx[op.results[1]] = ctx[allocation_op.results[0]]
       return expr_ops
-    elif isa(allocation_op, fir.Unboxchar):
+    elif isa(allocation_op, fir.UnboxcharOp):
       expr_ops=translate_expr(program_state, ctx, allocation_op.boxchar)
       ctx[op.results[0]] = ctx[allocation_op.results[0]]
       ctx[op.results[1]] = ctx[allocation_op.results[0]]
@@ -2149,8 +2182,8 @@ def translate_float_unary_arithmetic(program_state: ProgramState, ctx: SSAValueC
   result_type=op.results[0].type
   unary_arith_op=None
 
-  if isa(op, arith.Negf):
-    unary_arith_op=arith.Negf(operand_ssa, fast_math_attr)
+  if isa(op, arith.NegfOp):
+    unary_arith_op=arith.NegfOp(operand_ssa, fast_math_attr)
   else:
     raise Exception(f"Could not translate `{op}' as a unary float operation")
 
@@ -2168,22 +2201,22 @@ def translate_float_binary_arithmetic(program_state: ProgramState, ctx: SSAValue
   result_type=op.results[0].type
   bin_arith_op=None
 
-  if isa(op, arith.Addf):
-    bin_arith_op=arith.Addf(lhs_ssa, rhs_ssa, fast_math_attr, result_type)
-  elif isa(op, arith.Subf):
-    bin_arith_op=arith.Subf(lhs_ssa, rhs_ssa, fast_math_attr, result_type)
-  elif isa(op, arith.Mulf):
-    bin_arith_op=arith.Mulf(lhs_ssa, rhs_ssa, fast_math_attr, result_type)
-  elif isa(op, arith.Divf):
-    bin_arith_op=arith.Divf(lhs_ssa, rhs_ssa, fast_math_attr, result_type)
-  elif isa(op, arith.Maximumf):
-    bin_arith_op=arith.Maximumf(lhs_ssa, rhs_ssa, fast_math_attr, result_type)
-  elif isa(op, arith.Maxnumf):
-    bin_arith_op=arith.Maxnumf(lhs_ssa, rhs_ssa, fast_math_attr, result_type)
-  elif isa(op, arith.Minimumf):
-    bin_arith_op=arith.Minimumf(lhs_ssa, rhs_ssa, fast_math_attr, result_type)
-  elif isa(op, arith.Minnumf):
-    bin_arith_op=arith.Minnumf(lhs_ssa, rhs_ssa, fast_math_attr, result_type)
+  if isa(op, arith.AddfOp):
+    bin_arith_op=arith.AddfOp(lhs_ssa, rhs_ssa, fast_math_attr, result_type)
+  elif isa(op, arith.SubfOp):
+    bin_arith_op=arith.SubfOp(lhs_ssa, rhs_ssa, fast_math_attr, result_type)
+  elif isa(op, arith.MulfOp):
+    bin_arith_op=arith.MulfOp(lhs_ssa, rhs_ssa, fast_math_attr, result_type)
+  elif isa(op, arith.DivfOp):
+    bin_arith_op=arith.DivfOp(lhs_ssa, rhs_ssa, fast_math_attr, result_type)
+  elif isa(op, arith.MaximumfOp):
+    bin_arith_op=arith.MaximumfOp(lhs_ssa, rhs_ssa, fast_math_attr, result_type)
+  elif isa(op, arith.MaxnumfOp):
+    bin_arith_op=arith.MaxnumfOp(lhs_ssa, rhs_ssa, fast_math_attr, result_type)
+  elif isa(op, arith.MinimumfOp):
+    bin_arith_op=arith.MinimumfOp(lhs_ssa, rhs_ssa, fast_math_attr, result_type)
+  elif isa(op, arith.MinnumfOp):
+    bin_arith_op=arith.MinnumfOp(lhs_ssa, rhs_ssa, fast_math_attr, result_type)
   else:
     raise Exception(f"Could not translate `{op}' as a binary float operation")
 
@@ -2199,48 +2232,48 @@ def translate_integer_binary_arithmetic(program_state: ProgramState, ctx: SSAVal
   rhs_ssa=ctx[op.rhs]
   bin_arith_op=None
 
-  if isa(op, arith.Addi):
-    bin_arith_op=arith.Addi(lhs_ssa, rhs_ssa)
-  elif isa(op, arith.Subi):
-    bin_arith_op=arith.Subi(lhs_ssa, rhs_ssa)
-  elif isa(op, arith.Muli):
-    bin_arith_op=arith.Muli(lhs_ssa, rhs_ssa)
-  elif isa(op, arith.DivUI):
-    bin_arith_op=arith.DivUI(lhs_ssa, rhs_ssa)
-  elif isa(op, arith.DivSI):
-    bin_arith_op=arith.DivSI(lhs_ssa, rhs_ssa)
-  elif isa(op, arith.FloorDivSI):
-    bin_arith_op=arith.FloorDivSI(lhs_ssa, rhs_ssa)
-  elif isa(op, arith.CeilDivSI):
-    bin_arith_op=arith.CeilDivSI(lhs_ssa, rhs_ssa)
-  elif isa(op, arith.CeilDivUI):
-    bin_arith_op=arith.CeilDivUI(lhs_ssa, rhs_ssa)
-  elif isa(op, arith.RemUI):
-    bin_arith_op=arith.RemUI(lhs_ssa, rhs_ssa)
-  elif isa(op, arith.RemSI):
-    bin_arith_op=arith.RemSI(lhs_ssa, rhs_ssa)
-  elif isa(op, arith.MinUI):
-    bin_arith_op=arith.MinUI(lhs_ssa, rhs_ssa)
-  elif isa(op, arith.MaxUI):
-    bin_arith_op=arith.MaxUI(lhs_ssa, rhs_ssa)
-  elif isa(op, arith.MinSI):
-    bin_arith_op=arith.MinSI(lhs_ssa, rhs_ssa)
-  elif isa(op, arith.MaxSI):
-    bin_arith_op=arith.MaxSI(lhs_ssa, rhs_ssa)
-  elif isa(op, arith.AndI):
-    bin_arith_op=arith.AndI(lhs_ssa, rhs_ssa)
-  elif isa(op, arith.OrI):
-    bin_arith_op=arith.OrI(lhs_ssa, rhs_ssa)
-  elif isa(op, arith.XOrI):
-    bin_arith_op=arith.XOrI(lhs_ssa, rhs_ssa)
-  elif isa(op, arith.ShLI):
-    bin_arith_op=arith.ShLI(lhs_ssa, rhs_ssa)
-  elif isa(op, arith.ShRUI):
-    bin_arith_op=arith.ShRUI(lhs_ssa, rhs_ssa)
-  elif isa(op, arith.ShRSI):
-    bin_arith_op=arith.ShRSI(lhs_ssa, rhs_ssa)
-  elif isa(op, arith.AddUIExtended):
-    bin_arith_op=arith.AddUIExtended(lhs_ssa, rhs_ssa)
+  if isa(op, arith.AddiOp):
+    bin_arith_op=arith.AddiOp(lhs_ssa, rhs_ssa)
+  elif isa(op, arith.SubiOp):
+    bin_arith_op=arith.SubiOp(lhs_ssa, rhs_ssa)
+  elif isa(op, arith.MuliOp):
+    bin_arith_op=arith.MuliOp(lhs_ssa, rhs_ssa)
+  elif isa(op, arith.DivUIOp):
+    bin_arith_op=arith.DivUIOp(lhs_ssa, rhs_ssa)
+  elif isa(op, arith.DivSIOp):
+    bin_arith_op=arith.DivSIOp(lhs_ssa, rhs_ssa)
+  elif isa(op, arith.FloorDivSIOp):
+    bin_arith_op=arith.FloorDivSIOp(lhs_ssa, rhs_ssa)
+  elif isa(op, arith.CeilDivSIOp):
+    bin_arith_op=arith.CeilDivSIOp(lhs_ssa, rhs_ssa)
+  elif isa(op, arith.CeilDivUIOp):
+    bin_arith_op=arith.CeilDivUIOp(lhs_ssa, rhs_ssa)
+  elif isa(op, arith.RemUIOp):
+    bin_arith_op=arith.RemUIOp(lhs_ssa, rhs_ssa)
+  elif isa(op, arith.RemSIOp):
+    bin_arith_op=arith.RemSIOp(lhs_ssa, rhs_ssa)
+  elif isa(op, arith.MinUIOp):
+    bin_arith_op=arith.MinUIOp(lhs_ssa, rhs_ssa)
+  elif isa(op, arith.MaxUIOp):
+    bin_arith_op=arith.MaxUIOp(lhs_ssa, rhs_ssa)
+  elif isa(op, arith.MinSIOp):
+    bin_arith_op=arith.MinSIOp(lhs_ssa, rhs_ssa)
+  elif isa(op, arith.MaxSIOp):
+    bin_arith_op=arith.MaxSIOp(lhs_ssa, rhs_ssa)
+  elif isa(op, arith.AndIOp):
+    bin_arith_op=arith.AndIOp(lhs_ssa, rhs_ssa)
+  elif isa(op, arith.OrIOp):
+    bin_arith_op=arith.OrIOp(lhs_ssa, rhs_ssa)
+  elif isa(op, arith.XOrIOp):
+    bin_arith_op=arith.XOrIOp(lhs_ssa, rhs_ssa)
+  elif isa(op, arith.ShLIOp):
+    bin_arith_op=arith.ShLIOp(lhs_ssa, rhs_ssa)
+  elif isa(op, arith.ShRUIOp):
+    bin_arith_op=arith.ShRUIOp(lhs_ssa, rhs_ssa)
+  elif isa(op, arith.ShRSIOp):
+    bin_arith_op=arith.ShRSIOp(lhs_ssa, rhs_ssa)
+  elif isa(op, arith.AddUIExtendedOp):
+    bin_arith_op=arith.AddUIExtendedOp(lhs_ssa, rhs_ssa)
   else:
     raise Exception(f"Could not translate `{op}' as a binary integer operation")
 
@@ -2371,13 +2404,16 @@ class RewriteFIRToStandard(ModulePass):
   """
   name = 'rewrite-fir-to-standard'
 
-  def apply(self, ctx: MLContext, input_module: builtin.ModuleOp):
+  def apply(self, ctx: Context, input_module: builtin.ModuleOp):
     program_state=ProgramState()
     fn_visitor=GatherFunctionInformation(program_state)
     fn_visitor.traverse(input_module)
     global_visitor=GatherFIRGlobals(program_state)
     global_visitor.traverse(input_module)
     res_module = translate_program(program_state, input_module)
+    # Detach the Fortran block first
+    input_module.body.detach_block(input_module.body.block)
+    # Move blocks from newly created module to the input module region
     res_module.regions[0].move_blocks(input_module.regions[0])
 
     # Clean out module attributes to remove dlti and fir specific ones
@@ -2388,7 +2424,6 @@ class RewriteFIRToStandard(ModulePass):
 
     fn_gatherer=GatherFunctions()
     fn_gatherer.traverse(input_module)
-
 
     walker = PatternRewriteWalker(GreedyRewritePatternApplier([
               RewriteRelativeBranch(fn_gatherer.functions),

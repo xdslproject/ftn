@@ -31,6 +31,14 @@ with open(sys.argv[1]) as file:
       else:
         print("Warning, could not convert hex value '{hex_val}' to float, defaulting to existing value", file=sys.stderr)
         to_add_line=line
+    if "\\00" in line:
+      # Ensure we don't have null terminator at the end
+      line=line.replace("\\00", "")
+      t1=line.split("size = ")
+      on_num=t1[1].split(" :", 1)
+      new_len=int(on_num[0])-1
+
+      to_add_line=t1[0]+"size = "+str(new_len)+" :"+on_num[1]
     else:
       to_add_line=line
     lines+=to_add_line

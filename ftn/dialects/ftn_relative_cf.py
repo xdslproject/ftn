@@ -15,6 +15,7 @@ from xdsl.irdl import (
     irdl_op_definition,
     operand_def,
     prop_def,
+    traits_def,
     successor_def,
     var_operand_def,
 )
@@ -28,7 +29,7 @@ class Branch(IRDLOperation):
     successor: IntegerAttr = prop_def(IntegerAttr)
     function_name: StringAttr = prop_def(StringAttr)
 
-    traits = frozenset([IsTerminator()])
+    traits = traits_def(IsTerminator())
 
     def __init__(self, function_name: str | StringAttr, dest: int | IntegerAttr, *ops: Operation | SSAValue):
         if isa(dest, int):
@@ -54,7 +55,7 @@ class ConditionalBranch(IRDLOperation):
     else_block: IntegerAttr = prop_def(IntegerAttr)
     function_name: StringAttr = prop_def(StringAttr)
 
-    traits = frozenset([IsTerminator()])
+    traits = traits_def(IsTerminator())
 
     def __init__(
         self,
