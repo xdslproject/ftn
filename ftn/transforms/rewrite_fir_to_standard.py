@@ -192,24 +192,37 @@ class GatherFunctionInformation(Visitor):
             assert len(func_op.body.blocks) >= 1
             # Even if the body has more than one block, we only care about the first block as that is
             # the entry point from the function, so it has the function arguments in it
+            print(fn_name)
             for block_arg in func_op.body.blocks[0].args:
                 declare_op = self.get_declare_from_arg_uses(block_arg.uses)
-                assert declare_op is not None
-                arg_type = declare_op.results[0].type
-                base_type = self.get_base_type(arg_type)
-                is_scalar = declare_op.shape is None and not isa(
-                    base_type, fir.SequenceType
-                )
-                arg_name = declare_op.uniq_name.data
-                is_allocatable = self.check_if_has_allocatable_attr(declare_op)
-                # This is a bit strange, in a module we have modulenamePprocname, however
-                # flang then uses modulenameFprocname for array literal string names
-                # assert fn_name.replace("P", "F")+"E" in arg_name
-                # arg_name=arg_name.split(fn_name.replace("P", "F")+"E")[1]
-                arg_intent = self.map_ftn_attrs_to_intent(declare_op.fortran_attrs)
-                arg_def = ArgumentDefinition(
-                    arg_name, is_scalar, arg_type, arg_intent, is_allocatable
-                )
+                if declare_op is not None:
+                  arg_type = declare_op.results[0].type
+                  base_type = self.get_base_type(arg_type)
+                  is_scalar = declare_op.shape is None and not isa(
+                      base_type, fir.SequenceType
+                  )
+                  arg_name = declare_op.uniq_name.data
+                  is_allocatable = self.check_if_has_allocatable_attr(declare_op)
+                  # This is a bit strange, in a module we have modulenamePprocname, however
+                  # flang then uses modulenameFprocname for array literal string names
+                  # assert fn_name.replace("P", "F")+"E" in arg_name
+                  # arg_name=arg_name.split(fn_name.replace("P", "F")+"E")[1]
+                  arg_intent = self.map_ftn_attrs_to_intent(declare_op.fortran_attrs)
+                  arg_def = ArgumentDefinition(
+                      arg_name, is_scalar, arg_type, arg_intent, is_allocatable
+                  )
+                else:
+                  # This is a special case of the main, program entry point, function inserted by Flang
+                  assert fn_name == "main"
+                  arg_type=block_arg.type
+                  base_type=self.get_base_type(arg_type)
+                  is_scalar=True
+                  arg_name=builtin.StringAttr("")
+                  is_allocatable=False
+                  arg_intent=ArgIntent.INOUT
+                  arg_def = ArgumentDefinition(
+                      arg_name, is_scalar, arg_type, arg_intent, is_allocatable
+                  )
                 fn_def.add_arg_def(arg_def)
         self.program_state.addFunctionDefinition(fn_name, fn_def)
 
@@ -641,9 +654,9 @@ def try_translate_expr(program_state: ProgramState, ctx: SSAValueCtx, op: Operat
         return translate_call(program_state, ctx, op)
     elif isa(op, fir.StringLitOp):
         return translate_string_literal(program_state, ctx, op)
-    elif isa(op, fir.AddressOf):
+    elif isa(op, fir.AddressOfOp):
         return translate_address_of(program_state, ctx, op)
-    elif isa(op, hlfir.NoReassocOp) or isa(op, fir.NoReassoc):
+    elif isa(op, hlfir.NoReassocOp) or isa(op, fir.NoReassocOp):
         return translate_reassoc(program_state, ctx, op)
     elif isa(op, fir.ZeroBitsOp):
         return translate_zerobits(program_state, ctx, op)
@@ -1315,20 +1328,25 @@ def handle_conditional_true_or_false_region(
     program_state: ProgramState, ctx: SSAValueCtx, region: Region
 ):
     arg_types = []
-    for arg in region.blocks[0].args:
-        arg_types.append(arg.type)
+
+    if len(region.blocks) > 0:
+        for arg in region.blocks[0].args:
+            arg_types.append(arg.type)
 
     new_block = Block(arg_types=arg_types)
 
-    for fir_arg, std_arg in zip(region.blocks[0].args, new_block.args):
-        ctx[fir_arg] = std_arg
+    if len(region.blocks) > 0:
+        for fir_arg, std_arg in zip(region.blocks[0].args, new_block.args):
+            ctx[fir_arg] = std_arg
 
-    region_body_ops = []
-    for single_op in region.blocks[0].ops:
-        region_body_ops += translate_stmt(program_state, ctx, single_op)
+        region_body_ops = []
+        for single_op in region.blocks[0].ops:
+            region_body_ops += translate_stmt(program_state, ctx, single_op)
 
-    assert isa(region_body_ops[-1], scf.Yield)
-    new_block.add_ops(region_body_ops)
+        assert isa(region_body_ops[-1], scf.YieldOp)
+        new_block.add_ops(region_body_ops)
+    else:
+        new_block.add_op(scf.YieldOp())
 
     return new_block
 
@@ -1362,7 +1380,7 @@ def translate_conditional(program_state: ProgramState, ctx: SSAValueCtx, op: fir
         program_state, ctx, op.regions[1]
     )
 
-    scf_if = scf.If(ctx[op.condition], [], [true_block], [false_block])
+    scf_if = scf.IfOp(ctx[op.condition], [], [true_block], [false_block])
 
     return conditional_expr_ops + [scf_if]
 
@@ -1949,7 +1967,11 @@ def handle_call_argument(
 ):
     if isa(arg.owner, hlfir.AssociateOp):
         # This is a scalar that we are passing by value
-        assert arg.owner.uniq_name.data == "adapt.valuebyref"
+        if arg.owner.uniq_name is not None:
+          assert arg.owner.uniq_name.data == "adapt.valuebyref"
+        else:
+          # This might be added as an attribute instead, allow this
+          assert "adapt.valuebyref" in arg.owner.attributes
         arg_defn = program_state.function_definitions[fn_name].args[arg_index]
         # For now we just work with scalars here, could pass arrays by literal too
         assert arg_defn.is_scalar
