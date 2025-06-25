@@ -2989,12 +2989,12 @@ class RewriteRelativeConditionalBranch(RewritePattern):
 
 
 @dataclass(frozen=True)
-class RewriteFIRToStandard(ModulePass):
+class RewriteFIRToCore(ModulePass):
     """
     This is the entry point for the transformation pass which will then apply the rewriter
     """
 
-    name = "rewrite-fir-to-standard"
+    name = "rewrite-fir-to-core"
 
     def apply(self, ctx: Context, input_module: builtin.ModuleOp):
         program_state = ProgramState()

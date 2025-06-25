@@ -12,7 +12,7 @@ if [ -f $filename_no_ext".mlir" ]; then
 	if [ -f $filename_no_ext"_pre.mlir" ]; then
 	echo "  -> Completed, results in '"$filename_no_ext"_pre.mlir'"
 		echo "Lowering to standard dialects"
-		ftn-opt $filename_no_ext"_pre.mlir" -p rewrite-fir-to-standard,merge-memref-deref -o $filename_no_ext"_res.mlir"
+		ftn-opt $filename_no_ext"_pre.mlir" -p rewrite-fir-to-core,merge-memref-deref -o $filename_no_ext"_res.mlir"
 		if [ -s $filename_no_ext"_res.mlir" ]; then
 			echo "  -> Completed, results in '"$filename_no_ext"_res.mlir'"
 			echo "Postprocessing xDSL MLIR to compatible form"
