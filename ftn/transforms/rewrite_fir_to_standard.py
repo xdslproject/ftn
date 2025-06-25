@@ -192,7 +192,6 @@ class GatherFunctionInformation(Visitor):
             assert len(func_op.body.blocks) >= 1
             # Even if the body has more than one block, we only care about the first block as that is
             # the entry point from the function, so it has the function arguments in it
-            print(fn_name)
             for block_arg in func_op.body.blocks[0].args:
                 declare_op = self.get_declare_from_arg_uses(block_arg.uses)
                 if declare_op is not None:
@@ -466,8 +465,6 @@ def translate_function(program_state: ProgramState, ctx: SSAValueCtx, fn: func.F
             return_types.append(convert_fir_type_to_standard_if_needed(rt))
 
     fn_identifier = fn.sym_name.data
-    if fn_identifier == "_QQmain":
-        fn_identifier = "main"
 
     new_fn_type = builtin.FunctionType.from_lists(fn_in_arg_types, return_types)
 
@@ -2025,6 +2022,17 @@ def handle_call_argument(
                 del ctx[arg]
                 ctx[arg] = load_op.results[0]
                 ops_list += [load_op]
+        elif fn_name == "_FortranAProgramStart" and arg_index == 3:
+          # This is a hack, Flang currently generates incorrect typing for passing memory to the program initialisation
+          # routine. As func.call verifies this we can not get away with it, so must extract the llvm pointer
+          # from the memref and pass this directly
+          assert isa(ctx[arg].type, memref.MemRefType)
+          extract_ptr_as_idx_op=memref.ExtractAlignedPointerAsIndexOp.get(ctx[arg])
+          i64_idx_op=arith.IndexCastOp(extract_ptr_as_idx_op.results[0], builtin.i64)
+          ptr_op=llvm.IntToPtrOp(i64_idx_op.results[0])
+          ops_list+=[extract_ptr_as_idx_op, i64_idx_op, ptr_op]
+          del ctx[arg]
+          ctx[arg]=ptr_op.results[0]
         return ops_list, False
 
 
@@ -2902,8 +2910,6 @@ class RewriteRelativeBranch(RewritePattern):
         self, op: ftn_relative_cf.Branch, rewriter: PatternRewriter, /
     ):
         containing_fn_name = op.function_name.data
-        if containing_fn_name == "_QQmain":
-            containing_fn_name = "main"
         assert containing_fn_name in self.functions.keys()
         assert (
             len(self.functions[containing_fn_name].regions[0].blocks)
@@ -2927,8 +2933,6 @@ class RewriteRelativeConditionalBranch(RewritePattern):
         self, op: ftn_relative_cf.ConditionalBranch, rewriter: PatternRewriter, /
     ):
         containing_fn_name = op.function_name.data
-        if containing_fn_name == "_QQmain":
-            containing_fn_name = "main"
         assert containing_fn_name in self.functions.keys()
         assert (
             len(self.functions[containing_fn_name].regions[0].blocks)
