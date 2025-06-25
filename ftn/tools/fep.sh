@@ -4,7 +4,7 @@ filename_no_ext="${1%.*}"
 
 rm -f $filename_no_ext".mlir" $filename_no_ext"_pre.mlir" $filename_no_ext"_res.mlir" $filename_no_ext"_post.mlir" $filename_no_ext"_res.bc" $filename_no_ext
 echo "Running Flang"
-flang-new -fc1 -emit-hlfir -mmlir -mlir-print-op-generic $1
+flang -fc1 -J /home/nick/projects/xdsl/dl_timer -emit-hlfir -mmlir -mlir-print-op-generic $1
 if [ -f $filename_no_ext".mlir" ]; then
 	echo "  -> Completed, results in '$filename_no_ext.mlir'"
 	echo "Preprocessing to xDSL compatible form"
@@ -25,7 +25,7 @@ if [ -f $filename_no_ext".mlir" ]; then
 					echo "  -> Completed, results in '"$filename_no_ext"_res.bc'"
 					echo "Building executable"
 					#flang-new -O3 -o $filename_no_ext $filename_no_ext"_res.bc"
-					clang -O3 -o $filename_no_ext $filename_no_ext"_res.bc" -lFortran_main -lFortranRuntime -lFortranDecimal -lm -lgcc
+					clang -O3 -o $filename_no_ext $filename_no_ext"_res.bc" -lFortranRuntime -lFortranDecimal -lm -lgcc
 					if [ -f $filename_no_ext ]; then
 						echo "  -> Completed, executable in '$filename_no_ext'"
 					fi
