@@ -385,6 +385,11 @@ def convert_fir_type_to_standard(fir_type, ref_as_mem_ref=True):
         )
     elif isa(fir_type, fir.LogicalType):
         return builtin.i1
+    elif isa(fir_type, builtin.TupleType):
+        new_types=[]
+        for ty in fir_type.types:
+          new_types.append(convert_fir_type_to_standard(ty, ref_as_mem_ref))
+        return builtin.TupleType(new_types)
     else:
         return fir_type
 
@@ -871,6 +876,29 @@ def translate_sum(program_state: ProgramState, ctx: SSAValueCtx, op: hlfir.SumOp
         extract_op,
     ]
 
+def check_if_has_type(match_type, type_to_search):
+  if isa(type_to_search, match_type):
+    return True
+  elif isa(type_to_search, memref.MemRefType):
+    return check_if_has_type(match_type, type_to_search.element_type)
+  return False
+
+def remove_tuple_type_from_memref(src_type):
+  # This is a hack as Flang generates a fir.ref with tuple, however
+  # this is not allowed in a memref. Therefore we find the most
+  # significant member of the tuple and build memref from that
+  if isa(src_type, builtin.TupleType):
+    for ty in src_type.types:
+      if isa(ty, memref.MemRefType): return ty
+    return src_type.types[0]
+  elif isa(src_type, memref.MemRefType):
+    base_type=remove_tuple_type_from_memref(src_type.element_type)
+    return memref.MemRefType(
+            base_type, src_type.shape, builtin.NoneAttr(), builtin.NoneAttr()
+        )
+  else:
+    return src_type
+
 
 def translate_zerobits(
     program_state: ProgramState, ctx: SSAValueCtx, op: fir.ZeroBitsOp
@@ -885,7 +913,11 @@ def translate_zerobits(
             assert isa(d, builtin.IntegerAttr)
             array_sizes.append(d.value.data)
     else:
-        base_type = result_type
+        base_type = convert_fir_type_to_standard(result_type)
+        if check_if_has_type(builtin.TupleType, base_type):
+          # Flang will generate a fir.ref of tuple for a zero bits fed into the program entry point
+          # this can not be represented in core MLIR dialects, so we strip out the tuple component
+          base_type=remove_tuple_type_from_memref(base_type)
         array_sizes = [1]
 
     if program_state.isInGlobal():
