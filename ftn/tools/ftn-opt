@@ -6,7 +6,7 @@ from io import IOBase
 
 from xdsl.dialects.builtin import ModuleOp
 
-from ftn.transforms.to_core.rewrite_fir_to_core import RewriteFIRToCore
+from ftn.transforms.rewrite_fir_to_core import RewriteFIRToCore
 from ftn.transforms.merge_memref_deref import MergeMemRefDeref
 #from ftn.transforms.extract_target import ExtractTarget
 #from ftn.transforms.isolate_target import IsolateTarget
