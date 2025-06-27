@@ -1,21 +1,8 @@
-from xdsl.ir import SSAValue, BlockArgument
-from xdsl.irdl import Operand
+from xdsl.ir import BlockArgument
 from xdsl.utils.hints import isa
-from util.visitor import Visitor
-from xdsl.context import Context
 from xdsl.dialects.experimental import fir, hlfir
-from xdsl.ir import Operation, SSAValue, OpResult, Attribute, Block, Region
-
-from xdsl.pattern_rewriter import (
-    RewritePattern,
-    PatternRewriter,
-    op_type_rewrite_pattern,
-    PatternRewriteWalker,
-    GreedyRewritePatternApplier,
-)
-from xdsl.passes import ModulePass
-from xdsl.dialects import builtin, func, llvm, arith, memref, scf, cf, linalg, omp, math
-from ftn.dialects import ftn_relative_cf
+from xdsl.ir import Operation, OpResult
+from xdsl.dialects import builtin, llvm, arith, memref
 
 from ftn.transforms.to_core.misc.fortran_code_description import (
     ProgramState,
@@ -142,7 +129,7 @@ def translate_assign(program_state: ProgramState, ctx: SSAValueCtx, op: hlfir.As
     if isa(op.rhs.owner, hlfir.DeclareOp):
         expr_rhs_ops = expressions.translate_expr(program_state, ctx, op.rhs)
         # Scalar value or assign entire array to another
-        if isa(ctx[op.rhs].type, memref.MemRefType):
+        if isa(ctx[op.rhs].type, builtin.MemRefType):
             if isa(op.rhs.owner.results[0].type, fir.BoxType) or (
                 isa(op.rhs.owner.results[0].type, fir.ReferenceType)
                 and (isa(op.rhs.owner.results[0].type.type, fir.BoxType))
@@ -197,13 +184,13 @@ def translate_assign(program_state: ProgramState, ctx: SSAValueCtx, op: hlfir.As
                 )
                 assert lhs_element_type == rhs_array_op.type
                 # We don't check the array sizes are the same, probably should but might need to be dynamic
-                if isa(ctx[op.lhs].type.element_type, memref.MemRefType):
+                if isa(ctx[op.lhs].type.element_type, builtin.MemRefType):
                     load_op, lhs_load_ssa = generate_dereference_memref(ctx[op.lhs])
                     expr_lhs_ops.append(load_op)
                 else:
                     lhs_load_ssa = ctx[op.lhs]
 
-                if isa(ctx[op.rhs].type.element_type, memref.MemRefType):
+                if isa(ctx[op.rhs].type.element_type, builtin.MemRefType):
                     load_op, rhs_load_ssa = generate_dereference_memref(ctx[op.rhs])
                     expr_rhs_ops.append(load_op)
                 else:
@@ -234,8 +221,8 @@ def translate_assign(program_state: ProgramState, ctx: SSAValueCtx, op: hlfir.As
         else:
             assert False
 
-        assert isa(ctx[memref_reference].type, memref.MemRefType)
-        if isa(ctx[memref_reference].type.element_type, memref.MemRefType):
+        assert isa(ctx[memref_reference].type, builtin.MemRefType)
+        if isa(ctx[memref_reference].type.element_type, builtin.MemRefType):
             load_op, load_ssa = generate_dereference_memref(ctx[memref_reference])
             ops_list.append(load_op)
         else:
@@ -424,13 +411,13 @@ def translate_load(program_state: ProgramState, ctx: SSAValueCtx, op: fir.LoadOp
     # check to see if this is a block argument and whether type is not memref, if so
     # just link directly. Otherwise it must be a memref
     if isa(ctx[op.memref], BlockArgument) and not isa(
-        ctx[op.memref].type, memref.MemRefType
+        ctx[op.memref].type, builtin.MemRefType
     ):
         ctx[op.results[0]] = ctx[op.memref]
         return []
     elif isa(op.memref.owner, hlfir.DeclareOp):
         # Scalar value
-        if isa(ctx[op.memref].type, memref.MemRefType):
+        if isa(ctx[op.memref].type, builtin.MemRefType):
             # This is held in a memref, it is a variable in the user's code,
             # therefore load it up
             assert isa(op.memref.owner.results[0].type, fir.ReferenceType)
@@ -474,8 +461,8 @@ def translate_load(program_state: ProgramState, ctx: SSAValueCtx, op: fir.LoadOp
         else:
             assert False
 
-        assert isa(ctx[src_ssa].type, memref.MemRefType)
-        if isa(ctx[src_ssa].type.element_type, memref.MemRefType):
+        assert isa(ctx[src_ssa].type, builtin.MemRefType)
+        if isa(ctx[src_ssa].type.element_type, builtin.MemRefType):
             load_op, load_ssa = generate_dereference_memref(ctx[src_ssa])
             ops_list.append(load_op)
         else:

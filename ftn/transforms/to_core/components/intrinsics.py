@@ -1,33 +1,12 @@
-from abc import ABC
-from enum import Enum
-import itertools
-import copy
-from functools import reduce
-from typing import TypeVar, cast
-from dataclasses import dataclass
 from xdsl.dialects.experimental import fir, hlfir
-from dataclasses import dataclass, field
-from typing import Dict, Optional
-from xdsl.ir import SSAValue, BlockArgument
-from xdsl.irdl import Operand
 from xdsl.utils.hints import isa
-from util.visitor import Visitor
-from xdsl.context import Context
-from xdsl.ir import Operation, SSAValue, OpResult, Attribute, Block, Region
-
-from xdsl.pattern_rewriter import (
-    RewritePattern,
-    PatternRewriter,
-    op_type_rewrite_pattern,
-    PatternRewriteWalker,
-    GreedyRewritePatternApplier,
-)
-from xdsl.passes import ModulePass
-from xdsl.dialects import builtin, func, llvm, arith, memref, scf, cf, linalg, omp, math
-from ftn.dialects import ftn_relative_cf
+from xdsl.ir import Block, Region
+from xdsl.dialects import builtin, arith, memref, linalg
 
 from ftn.transforms.to_core.misc.fortran_code_description import ProgramState
 from ftn.transforms.to_core.misc.ssa_context import SSAValueCtx
+
+from ftn.transforms.to_core.utils import generate_dereference_memref
 
 import ftn.transforms.to_core.expressions as expressions
 
@@ -38,13 +17,13 @@ def translate_matmul(program_state: ProgramState, ctx: SSAValueCtx, op: hlfir.Ma
     lhs_ops_list = expressions.translate_expr(program_state, ctx, op.lhs)
     rhs_ops_list = expressions.translate_expr(program_state, ctx, op.rhs)
 
-    if isa(ctx[op.lhs].type.element_type, memref.MemRefType):
+    if isa(ctx[op.lhs].type.element_type, builtin.MemRefType):
         load_op, lhs_load_ssa = generate_dereference_memref(ctx[op.lhs])
         lhs_ops_list.append(load_op)
     else:
         lhs_load_ssa = ctx[op.lhs]
 
-    if isa(ctx[op.rhs].type.element_type, memref.MemRefType):
+    if isa(ctx[op.rhs].type.element_type, builtin.MemRefType):
         load_op, rhs_load_ssa = generate_dereference_memref(ctx[op.rhs])
         rhs_ops_list.append(load_op)
     else:
@@ -70,13 +49,13 @@ def translate_dotproduct(
     lhs_ops_list = expressions.translate_expr(program_state, ctx, op.lhs)
     rhs_ops_list = expressions.translate_expr(program_state, ctx, op.rhs)
 
-    if isa(ctx[op.lhs].type.element_type, memref.MemRefType):
+    if isa(ctx[op.lhs].type.element_type, builtin.MemRefType):
         load_op, lhs_load_ssa = generate_dereference_memref(ctx[op.lhs])
         lhs_ops_list.append(load_op)
     else:
         lhs_load_ssa = ctx[op.lhs]
 
-    if isa(ctx[op.rhs].type.element_type, memref.MemRefType):
+    if isa(ctx[op.rhs].type.element_type, builtin.MemRefType):
         load_op, rhs_load_ssa = generate_dereference_memref(ctx[op.rhs])
         rhs_ops_list.append(load_op)
     else:
@@ -100,7 +79,7 @@ def translate_transpose(
     array_ops_list = expressions.translate_expr(program_state, ctx, op.array)
 
     ops_list = []
-    if isa(ctx[op.array].type.element_type, memref.MemRefType):
+    if isa(ctx[op.array].type.element_type, builtin.MemRefType):
         load_op, array_load_ssa = generate_dereference_memref(ctx[op.array])
         ops_list.append(load_op)
     else:
@@ -128,7 +107,7 @@ def translate_sum(program_state: ProgramState, ctx: SSAValueCtx, op: hlfir.SumOp
     array_ops_list = expressions.translate_expr(program_state, ctx, op.array)
 
     ops_list = []
-    if isa(ctx[op.array].type.element_type, memref.MemRefType):
+    if isa(ctx[op.array].type.element_type, builtin.MemRefType):
         load_op, array_load_ssa = generate_dereference_memref(ctx[op.array])
         ops_list.append(load_op)
     else:
@@ -191,8 +170,8 @@ def handle_movealloc_intrinsic_call(
     src_list = expressions.translate_expr(program_state, ctx, src_ssa)
     dst_list = expressions.translate_expr(program_state, ctx, dst_ssa)
 
-    assert isa(ctx[src_ssa].type, memref.MemRefType)
-    assert isa(ctx[dst_ssa].type, memref.MemRefType)
+    assert isa(ctx[src_ssa].type, builtin.MemRefType)
+    assert isa(ctx[dst_ssa].type, builtin.MemRefType)
     load_op = memref.LoadOp.get(ctx[src_ssa], [])
     store_op = memref.StoreOp.get(load_op.results[0], ctx[dst_ssa], [])
     return [load_op, store_op]

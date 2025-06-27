@@ -1,37 +1,14 @@
-from abc import ABC
-from enum import Enum
-import itertools
-import copy
-from functools import reduce
-from typing import TypeVar, cast
-from dataclasses import dataclass
 from xdsl.dialects.experimental import fir, hlfir
-from dataclasses import dataclass, field
-from typing import Dict, Optional
-from xdsl.ir import SSAValue, BlockArgument
-from xdsl.irdl import Operand
 from xdsl.utils.hints import isa
-from util.visitor import Visitor
-from xdsl.context import Context
-from xdsl.ir import Operation, SSAValue, OpResult, Attribute, Block, Region
-
-from xdsl.pattern_rewriter import (
-    RewritePattern,
-    PatternRewriter,
-    op_type_rewrite_pattern,
-    PatternRewriteWalker,
-    GreedyRewritePatternApplier,
-)
-from xdsl.passes import ModulePass
-from xdsl.dialects import builtin, func, llvm, arith, memref, scf, cf, linalg, omp, math
-from ftn.dialects import ftn_relative_cf
+from xdsl.ir import Operation, SSAValue, Block, BlockArgument
+from xdsl.dialects import arith, math
 
 from ftn.transforms.to_core.misc.fortran_code_description import ProgramState
 from ftn.transforms.to_core.misc.ssa_context import SSAValueCtx
 
 import ftn.transforms.to_core.components.intrinsics as ftn_intrinsics
 import ftn.transforms.to_core.components.maths as ftn_maths
-import ftn.transforms.to_core.components.types as ftn_types
+import ftn.transforms.to_core.components.ftn_types as ftn_types
 import ftn.transforms.to_core.components.load_store as ftn_load_store
 import ftn.transforms.to_core.components.memory as ftn_memory
 import ftn.transforms.to_core.components.functions as ftn_functions
@@ -49,7 +26,9 @@ def translate_expr(program_state: ProgramState, ctx: SSAValueCtx, ssa_value: SSA
         raise Exception(f"Could not translate `{ssa_value.owner}' as an expression")
 
 
-def try_translate_expr(program_state: ProgramState, ctx: SSAValueCtx, op: Operation):
+def try_translate_expr(
+    program_state: ProgramState, ctx: SSAValueCtx, op: Operation | Block
+):
     if isa(op, arith.ConstantOp):
         return ftn_maths.translate_constant(program_state, ctx, op)
     elif (
@@ -97,7 +76,7 @@ def try_translate_expr(program_state: ProgramState, ctx: SSAValueCtx, op: Operat
         # Do loop can be either an expression or statement
         return ftn_ctrl_flow.translate_do_loop(program_state, ctx, op)
     elif isa(op, fir.IterateWhileOp):
-        return translate_iterate_while(program_state, ctx, op)
+        return ftn_ctrl_flow.translate_iterate_while(program_state, ctx, op)
     elif isa(op, hlfir.DeclareOp):
         return ftn_memory.translate_declare(program_state, ctx, op)
     elif isa(op, arith.CmpiOp) or isa(op, arith.CmpfOp):
@@ -140,13 +119,13 @@ def try_translate_expr(program_state: ProgramState, ctx: SSAValueCtx, op: Operat
     elif isa(op, hlfir.CopyInOp):
         return translate_copyin(program_state, ctx, op)
     elif isa(op, fir.AbsentOp):
-        return memory.translate_absent(program_state, ctx, op)
+        return ftn_memory.translate_absent(program_state, ctx, op)
     elif isa(op, hlfir.SumOp):
         return ftn_intrinsics.translate_sum(program_state, ctx, op)
     elif isa(op, hlfir.TransposeOp):
         return ftn_intrinsics.translate_transpose(program_state, ctx, op)
     elif isa(op, hlfir.MatmulOp):
-        return translate_matmul(program_state, ctx, op)
+        return ftn_intrinsics.translate_matmul(program_state, ctx, op)
     # elif isa(op, omp.BoundsOp):
     #    return translate_omp_bounds(program_state, ctx, op)
     # elif isa(op, omp.MapInfoOp):

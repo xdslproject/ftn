@@ -1,30 +1,7 @@
-from abc import ABC
-from enum import Enum
-import itertools
-import copy
-from functools import reduce
-from typing import TypeVar, cast
-from dataclasses import dataclass
 from xdsl.dialects.experimental import fir, hlfir
-from dataclasses import dataclass, field
-from typing import Dict, Optional
-from xdsl.ir import SSAValue, BlockArgument
-from xdsl.irdl import Operand
 from xdsl.utils.hints import isa
-from util.visitor import Visitor
-from xdsl.context import Context
-from xdsl.ir import Operation, SSAValue, OpResult, Attribute, Block, Region
-
-from xdsl.pattern_rewriter import (
-    RewritePattern,
-    PatternRewriter,
-    op_type_rewrite_pattern,
-    PatternRewriteWalker,
-    GreedyRewritePatternApplier,
-)
-from xdsl.passes import ModulePass
-from xdsl.dialects import builtin, func, llvm, arith, memref, scf, cf, linalg, omp, math
-from ftn.dialects import ftn_relative_cf
+from xdsl.ir import Operation
+from xdsl.dialects import func, llvm, arith, cf
 
 from ftn.transforms.to_core.misc.fortran_code_description import ProgramState
 from ftn.transforms.to_core.misc.ssa_context import SSAValueCtx
@@ -108,7 +85,7 @@ def try_translate_stmt(program_state: ProgramState, ctx: SSAValueCtx, op: Operat
     elif isa(op, fir.CallOp):
         return ftn_functions.translate_call(program_state, ctx, op)
     elif isa(op, fir.FreememOp):
-        return translate_freemem(program_state, ctx, op)
+        return ftn_memory.translate_freemem(program_state, ctx, op)
     elif isa(op, fir.IfOp):
         return ftn_ctrl_flow.translate_conditional(program_state, ctx, op)
     elif isa(op, cf.BranchOp):

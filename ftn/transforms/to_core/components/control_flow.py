@@ -1,29 +1,8 @@
-from abc import ABC
 from enum import Enum
-import itertools
-import copy
-from functools import reduce
-from typing import TypeVar, cast
-from dataclasses import dataclass
-from xdsl.dialects.experimental import fir, hlfir
-from dataclasses import dataclass, field
-from typing import Dict, Optional
-from xdsl.ir import SSAValue, BlockArgument
-from xdsl.irdl import Operand
+from xdsl.dialects.experimental import fir
 from xdsl.utils.hints import isa
-from util.visitor import Visitor
-from xdsl.context import Context
-from xdsl.ir import Operation, SSAValue, OpResult, Attribute, Block, Region
-
-from xdsl.pattern_rewriter import (
-    RewritePattern,
-    PatternRewriter,
-    op_type_rewrite_pattern,
-    PatternRewriteWalker,
-    GreedyRewritePatternApplier,
-)
-from xdsl.passes import ModulePass
-from xdsl.dialects import builtin, func, llvm, arith, memref, scf, cf, linalg, omp, math
+from xdsl.ir import Block, Region
+from xdsl.dialects import builtin, func, arith, scf, cf, math
 from ftn.dialects import ftn_relative_cf
 
 from ftn.transforms.to_core.misc.fortran_code_description import ProgramState
@@ -192,14 +171,14 @@ def translate_do_loop(program_state: ProgramState, ctx: SSAValueCtx, op: fir.DoL
             op.regions[0].blocks[0].args[1].type,
         )
         # We are going to wrap this in a conditional, therefore yield the result of the index inversion
-        reduction_ops.append(scf.Yield(reduction_ops[-1]))
+        reduction_ops.append(scf.YieldOp(reduction_ops[-1]))
         # Wrap in a conditional, if so then invert the index, otherwise just send the index through,
         # see above explanation for more details on this step
-        scf_if = scf.If(
+        scf_if = scf.IfOp(
             loop_idx_cmp.results[0],
             [ctx[op.regions[0].blocks[0].args[1]].type],
             reduction_ops,
-            [scf.Yield(ctx[op.regions[0].blocks[0].args[1]])],
+            [scf.YieldOp(ctx[op.regions[0].blocks[0].args[1]])],
         )
         loop_body_ops += [loop_one_const, loop_idx_cmp, scf_if]
         del ctx[op.regions[0].blocks[0].args[1]]
@@ -210,11 +189,11 @@ def translate_do_loop(program_state: ProgramState, ctx: SSAValueCtx, op: fir.DoL
         # for the scf loop. This is driven by the conditional on the step
         outer_const = create_index_constant(1)
         outer_idx_cmp = arith.CmpiOp(ctx[op.step], outer_const, 2)
-        nscf_if = scf.If(
+        nscf_if = scf.IfOp(
             outer_idx_cmp.results[0],
             [upper_bound.type, lower_bound.type],
-            [scf.Yield(upper_bound, lower_bound)],
-            [scf.Yield(lower_bound, upper_bound)],
+            [scf.YieldOp(upper_bound, lower_bound)],
+            [scf.YieldOp(lower_bound, upper_bound)],
         )
         lower_bound = nscf_if.results[0]
         upper_bound = nscf_if.results[1]
@@ -312,16 +291,16 @@ def translate_iterate_while(
 
     # Build the index check, the one to use depends on whether the step is positive or not
     true_cmp_op = arith.CmpiOp(before_block.args[0], ctx[op.upperBound], 5)
-    true_cmp_block = [true_cmp_op, scf.Yield(true_cmp_op)]
+    true_cmp_block = [true_cmp_op, scf.YieldOp(true_cmp_op)]
     false_cmp_op = arith.CmpiOp(before_block.args[0], ctx[op.upperBound], 3)
-    false_cmp_block = [false_cmp_op, scf.Yield(false_cmp_op)]
+    false_cmp_block = [false_cmp_op, scf.YieldOp(false_cmp_op)]
     index_comparison = scf.IfOp(
         step_op_lt_zero, builtin.i1, true_cmp_block, false_cmp_block
     )
 
     # True if both are true, false otherwise (either the counter or bool can quit out of loop)
     or_comparison = arith.AndIOp(index_comparison, before_block.args[1])
-    condition_op = scf.Condition(or_comparison, *before_block.args)
+    condition_op = scf.ConditionOp(or_comparison, *before_block.args)
 
     before_block.add_ops([index_comparison, or_comparison, condition_op])
 
@@ -339,18 +318,18 @@ def translate_iterate_while(
 
     # Now we grab out the loop update to return, the true or false flag, and the initarg
     yield_op = loop_body_ops[-1]
-    assert isa(yield_op, scf.Yield)
+    assert isa(yield_op, scf.YieldOp)
     ssa_args = [update_loop_idx.results[0], yield_op.arguments[0], after_block.args[2]]
 
     # Rebuilt yield with these new SSAs
-    new_yieldop = scf.Yield(*ssa_args)
+    new_yieldop = scf.YieldOp(*ssa_args)
     del loop_body_ops[-1]
     # Add new yield and the update loop counter to the block
     after_block.add_ops(loop_body_ops + [update_loop_idx, new_yieldop])
 
     while_return_types = [builtin.IndexType(), builtin.i1, ctx[op.initArgs]]
 
-    scf_while_loop = scf.While(
+    scf_while_loop = scf.WhileOp(
         [ctx[op.lowerBound], ctx[op.iterateIn], ctx[op.initArgs]],
         arg_types,
         [before_block],

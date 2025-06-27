@@ -1,21 +1,8 @@
-from xdsl.ir import SSAValue, BlockArgument
 from xdsl.irdl import Operand
 from xdsl.utils.hints import isa
-from util.visitor import Visitor
-from xdsl.context import Context
 from xdsl.dialects.experimental import fir, hlfir
-from xdsl.ir import Operation, SSAValue, OpResult, Attribute, Block, Region
-
-from xdsl.pattern_rewriter import (
-    RewritePattern,
-    PatternRewriter,
-    op_type_rewrite_pattern,
-    PatternRewriteWalker,
-    GreedyRewritePatternApplier,
-)
-from xdsl.passes import ModulePass
-from xdsl.dialects import builtin, func, llvm, arith, memref, scf, cf, linalg, omp, math
-from ftn.dialects import ftn_relative_cf
+from xdsl.ir import Block, Region
+from xdsl.dialects import builtin, func, llvm, arith, memref
 
 from ftn.transforms.to_core.misc.fortran_code_description import (
     ProgramState,
@@ -27,7 +14,7 @@ from ftn.transforms.to_core.misc.ssa_context import SSAValueCtx
 from ftn.transforms.to_core.utils import clean_func_name
 
 import ftn.transforms.to_core.components.intrinsics as ftn_intrinsics
-import ftn.transforms.to_core.components.types as ftn_types
+import ftn.transforms.to_core.components.ftn_types as ftn_types
 import ftn.transforms.to_core.expressions as expressions
 import ftn.transforms.to_core.statements as statements
 
@@ -67,12 +54,12 @@ def translate_function(program_state: ProgramState, ctx: SSAValueCtx, fn: func.F
             else:
                 converted_type = ftn_types.convert_fir_type_to_standard(fir_type)
                 if (
-                    isa(converted_type, memref.MemRefType)
+                    isa(converted_type, builtin.MemRefType)
                     and program_state.function_definitions[fn_identifier]
                     .args[idx]
                     .is_allocatable
                 ):
-                    converted_type = memref.MemRefType(converted_type, shape=[])
+                    converted_type = builtin.MemRefType(converted_type, shape=[])
 
                 fn_in_arg_types.append(converted_type)
 
@@ -167,7 +154,7 @@ def handle_call_argument(
             if (
                 arg_defn.is_scalar
                 and arg_defn.intent == ArgIntent.IN
-                and isa(ctx[arg].type, memref.MemRefType)
+                and isa(ctx[arg].type, builtin.MemRefType)
             ):
                 # The function will accept a constant, but we are currently passing a memref
                 # therefore need to load the value and pass this
@@ -182,8 +169,8 @@ def handle_call_argument(
             elif (
                 not arg_defn.is_scalar
                 and not arg_defn.is_allocatable
-                and isa(ctx[arg].type, memref.MemRefType)
-                and isa(ctx[arg].type.element_type, memref.MemRefType)
+                and isa(ctx[arg].type, builtin.MemRefType)
+                and isa(ctx[arg].type.element_type, builtin.MemRefType)
             ):
                 load_op = memref.LoadOp.get(ctx[arg], [])
                 del ctx[arg]
@@ -193,7 +180,7 @@ def handle_call_argument(
             # This is a hack, Flang currently generates incorrect typing for passing memory to the program initialisation
             # routine. As func.call verifies this we can not get away with it, so must extract the llvm pointer
             # from the memref and pass this directly
-            assert isa(ctx[arg].type, memref.MemRefType)
+            assert isa(ctx[arg].type, builtin.MemRefType)
             extract_ptr_as_idx_op = memref.ExtractAlignedPointerAsIndexOp.get(ctx[arg])
             i64_idx_op = arith.IndexCastOp(
                 extract_ptr_as_idx_op.results[0], builtin.i64

@@ -213,7 +213,7 @@ def translate_global(program_state, global_ctx, global_op: fir.GlobalOp):
         )
         return rebuilt_global
     elif (
-        isa(global_op.type, fir.IntegerType)
+        isa(global_op.type, builtin.IntegerType)
         or isa(global_op.type, builtin.AnyFloat)
         or isa(global_op.type, fir.SequenceType)
     ):
@@ -229,6 +229,8 @@ def translate_global(program_state, global_ctx, global_op: fir.GlobalOp):
             )
             return_op = llvm.ReturnOp.build(operands=[global_contained_op.results[0]])
 
+            # We should not reach this, as now GlobalOp can not handle a body
+            assert False
             return llvm.GlobalOp(
                 global_contained_op.results[0].type,
                 global_op.sym_name,
@@ -246,7 +248,7 @@ class RewriteRelativeBranch(RewritePattern):
 
     @op_type_rewrite_pattern
     def match_and_rewrite(
-        self, op: ftn_relative_cf.Branch, rewriter: PatternRewriter, /
+        self, op: ftn_relative_cf.BranchOp, rewriter: PatternRewriter, /
     ):
         containing_fn_name = op.function_name.data
         assert containing_fn_name in self.functions.keys()
@@ -254,7 +256,7 @@ class RewriteRelativeBranch(RewritePattern):
             len(self.functions[containing_fn_name].regions[0].blocks)
             > op.successor.value.data
         )
-        cf_branch_op = cf.Branch(
+        cf_branch_op = cf.BranchOp(
             self.functions[containing_fn_name]
             .regions[0]
             .blocks[op.successor.value.data],
@@ -269,7 +271,7 @@ class RewriteRelativeConditionalBranch(RewritePattern):
 
     @op_type_rewrite_pattern
     def match_and_rewrite(
-        self, op: ftn_relative_cf.ConditionalBranch, rewriter: PatternRewriter, /
+        self, op: ftn_relative_cf.ConditionalBranchOp, rewriter: PatternRewriter, /
     ):
         containing_fn_name = op.function_name.data
         assert containing_fn_name in self.functions.keys()
@@ -281,7 +283,7 @@ class RewriteRelativeConditionalBranch(RewritePattern):
             len(self.functions[containing_fn_name].regions[0].blocks)
             > op.else_block.value.data
         )
-        cf_cbranch_op = cf.ConditionalBranch(
+        cf_cbranch_op = cf.ConditionalBranchOp(
             op.cond,
             self.functions[containing_fn_name]
             .regions[0]

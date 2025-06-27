@@ -1,30 +1,10 @@
-from abc import ABC
-from enum import Enum
-import itertools
-import copy
 from functools import reduce
-from typing import TypeVar, cast
-from dataclasses import dataclass
 from xdsl.dialects.experimental import fir, hlfir
-from dataclasses import dataclass, field
-from typing import Dict, Optional
-from xdsl.ir import SSAValue, BlockArgument
+from xdsl.ir import BlockArgument
 from xdsl.irdl import Operand
 from xdsl.utils.hints import isa
-from util.visitor import Visitor
-from xdsl.context import Context
-from xdsl.ir import Operation, SSAValue, OpResult, Attribute, Block, Region
-
-from xdsl.pattern_rewriter import (
-    RewritePattern,
-    PatternRewriter,
-    op_type_rewrite_pattern,
-    PatternRewriteWalker,
-    GreedyRewritePatternApplier,
-)
-from xdsl.passes import ModulePass
-from xdsl.dialects import builtin, func, llvm, arith, memref, scf, cf, linalg, omp, math
-from ftn.dialects import ftn_relative_cf
+from xdsl.ir import OpResult, Block
+from xdsl.dialects import builtin, llvm, arith, memref
 
 from ftn.transforms.to_core.misc.fortran_code_description import (
     ProgramState,
@@ -39,7 +19,7 @@ from ftn.transforms.to_core.utils import (
     remove_tuple_type_from_memref,
 )
 
-import ftn.transforms.to_core.components.types as ftn_types
+import ftn.transforms.to_core.components.ftn_types as ftn_types
 import ftn.transforms.to_core.expressions as expressions
 
 
@@ -180,9 +160,9 @@ def define_stack_array_var(
         ctx[op.results[1]] = ctx[op.memref]
         return []
     elif isa(op.memref.owner, fir.AddressOfOp):
-        memref_lookup = memref.GetGlobal.get(
+        memref_lookup = memref.GetGlobalOp(
             op.memref.owner.symbol.string_value(),
-            convert_fir_type_to_standard(fir_array_type),
+            ftn_types.convert_fir_type_to_standard(fir_array_type),
         )
         ctx[op.results[0]] = memref_lookup.results[0]
         ctx[op.results[1]] = memref_lookup.results[0]
@@ -194,7 +174,8 @@ def define_stack_array_var(
         dim_sizes_reversed = dim_sizes.copy()
         dim_sizes_reversed.reverse()
         memref_alloca_op = memref.AllocaOp.get(
-            convert_fir_type_to_standard(fir_array_type.type), shape=dim_sizes_reversed
+            ftn_types.convert_fir_type_to_standard(fir_array_type.type),
+            shape=dim_sizes_reversed,
         )
         ctx[op.results[0]] = memref_alloca_op.results[0]
         ctx[op.results[1]] = memref_alloca_op.results[0]
@@ -238,7 +219,7 @@ def translate_declare(
         assert isa(op.results[0].type.type.type.type, fir.SequenceType)
         num_dims = len(op.results[0].type.type.type.type.shape)
         alloc_memref_container = memref.AllocaOp.get(
-            memref.MemRefType(
+            builtin.MemRefType(
                 op.results[0].type.type.type.type.type, shape=num_dims * [-1]
             ),
             shape=[],
@@ -348,7 +329,7 @@ def translate_absent(program_state: ProgramState, ctx: SSAValueCtx, op: fir.Abse
     if ctx.contains(op.results[0]):
         return []
 
-    null_ptr = llvm.ZeroOp(llvm.LLVMPointerType.opaque())
+    null_ptr = llvm.ZeroOp()
     ctx[op.results[0]] = null_ptr.results[0]
     return [null_ptr]
 
@@ -375,7 +356,7 @@ def translate_zerobits(
 
     if program_state.isInGlobal():
         tgt_type = ftn_types.convert_fir_type_to_standard(result_type)
-        if isa(tgt_type, memref.MemRefType):
+        if isa(tgt_type, builtin.MemRefType):
             # If this is a memref type, then use memref.global here, we don't need to update the context
             # as it is used directly as a global region (it isn't embedded in anything)
             assert isa(op.parent.parent.parent, fir.GlobalOp)
@@ -407,8 +388,8 @@ def translate_freemem(program_state: ProgramState, ctx: SSAValueCtx, op: fir.Fre
     memref_ssa = op.heapref.owner.val.owner.memref
 
     ops_list = []
-    assert isa(ctx[memref_ssa].type, memref.MemRefType)
-    if isa(ctx[memref_ssa].type.element_type, memref.MemRefType):
+    assert isa(ctx[memref_ssa].type, builtin.MemRefType)
+    if isa(ctx[memref_ssa].type.element_type, builtin.MemRefType):
         load_op, load_ssa = generate_dereference_memref(ctx[memref_ssa])
         ops_list.append(load_op)
     else:
