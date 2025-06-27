@@ -1,30 +1,7 @@
-from abc import ABC
-from enum import Enum
-import itertools
-import copy
-from functools import reduce
-from typing import TypeVar, cast
-from dataclasses import dataclass
-from xdsl.dialects.experimental import fir, hlfir
-from dataclasses import dataclass, field
+from xdsl.dialects.experimental import fir
 from typing import Dict, Optional
-from xdsl.ir import SSAValue, BlockArgument
-from xdsl.irdl import Operand
 from xdsl.utils.hints import isa
-from util.visitor import Visitor
-from xdsl.context import Context
-from xdsl.ir import Operation, SSAValue, OpResult, Attribute, Block, Region
-
-from xdsl.pattern_rewriter import (
-    RewritePattern,
-    PatternRewriter,
-    op_type_rewrite_pattern,
-    PatternRewriteWalker,
-    GreedyRewritePatternApplier,
-)
-from xdsl.passes import ModulePass
-from xdsl.dialects import builtin, func, llvm, arith, memref, scf, cf, linalg, omp, math
-from ftn.dialects import ftn_relative_cf
+from xdsl.dialects import builtin, llvm, arith, memref
 
 from ftn.transforms.to_core.misc.fortran_code_description import ProgramState
 from ftn.transforms.to_core.misc.ssa_context import SSAValueCtx
@@ -43,10 +20,10 @@ def convert_fir_type_to_standard(fir_type, ref_as_mem_ref=True):
     if isa(fir_type, fir.ReferenceType):
         if ref_as_mem_ref:
             base_t = convert_fir_type_to_standard(fir_type.type, ref_as_mem_ref)
-            if isa(base_t, memref.MemRefType):
+            if isa(base_t, builtin.MemRefType):
                 return base_t
             else:
-                return memref.MemRefType(
+                return builtin.MemRefType(
                     base_t, [], builtin.NoneAttr(), builtin.NoneAttr()
                 )
         else:
@@ -63,7 +40,7 @@ def convert_fir_type_to_standard(fir_type, ref_as_mem_ref=True):
                 dim_sizes.append(-1)
         # Reverse the sizes to go from Fortran to C allocation semantics
         dim_sizes.reverse()
-        return memref.MemRefType(
+        return builtin.MemRefType(
             base_t, dim_sizes, builtin.NoneAttr(), builtin.NoneAttr()
         )
     elif isa(fir_type, fir.LogicalType):
@@ -171,7 +148,7 @@ def translate_convert(program_state: ProgramState, ctx: SSAValueCtx, op: fir.Con
                     shape_size.append(s.value.data)
             # Reverse shape_size to get it from Fortran allocation to C/MLIR allocation
             shape_size.reverse()
-            target_type = memref.MemRefType(
+            target_type = builtin.MemRefType(
                 convert_fir_type_to_standard(out_type.type.type), shape_size
             )
             cast_op = memref.CastOp.get(ctx[op.value], target_type)
