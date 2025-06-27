@@ -23,7 +23,7 @@ from xdsl.traits import IsTerminator
 
 
 @irdl_op_definition
-class Branch(IRDLOperation):
+class BranchOp(IRDLOperation):
     name = "ftn_relative_cf.br"
 
     arguments: VarOperand = var_operand_def(AnyAttr())
@@ -51,7 +51,7 @@ class Branch(IRDLOperation):
 
 
 @irdl_op_definition
-class ConditionalBranch(IRDLOperation):
+class ConditionalBranchOp(IRDLOperation):
     name = "ftn_relative_cf.cond_br"
 
     cond: Operand = operand_def(IntegerType(1))
@@ -97,8 +97,8 @@ class ConditionalBranch(IRDLOperation):
 Ftn_relative_cf = Dialect(
     "ftn_relative_cf",
     [
-        Branch,
-        ConditionalBranch,
+        BranchOp,
+        ConditionalBranchOp,
     ],
     [],
 )
