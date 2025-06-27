@@ -2,6 +2,7 @@ from enum import Enum
 
 ArgIntent = Enum("ArgIntent", ["IN", "OUT", "INOUT", "UNKNOWN"])
 
+
 class ArrayDescription:
     def __init__(self, name, dim_sizes, dim_starts, dim_ends):
         self.name = name

@@ -31,11 +31,13 @@ from ftn.transforms.to_core.misc.ssa_context import SSAValueCtx
 
 import ftn.transforms.to_core.expressions as expressions
 
+
 def convert_fir_type_to_standard_if_needed(fir_type):
     if isa(fir_type, fir.ReferenceType):
         return llvm.LLVMPointerType.opaque()
     else:
         return fir_type
+
 
 def convert_fir_type_to_standard(fir_type, ref_as_mem_ref=True):
     if isa(fir_type, fir.ReferenceType):
@@ -67,12 +69,13 @@ def convert_fir_type_to_standard(fir_type, ref_as_mem_ref=True):
     elif isa(fir_type, fir.LogicalType):
         return builtin.i1
     elif isa(fir_type, builtin.TupleType):
-        new_types=[]
+        new_types = []
         for ty in fir_type.types:
-          new_types.append(convert_fir_type_to_standard(ty, ref_as_mem_ref))
+            new_types.append(convert_fir_type_to_standard(ty, ref_as_mem_ref))
         return builtin.TupleType(new_types)
     else:
         return fir_type
+
 
 def translate_convert(program_state: ProgramState, ctx: SSAValueCtx, op: fir.ConvertOp):
     if ctx.contains(op.results[0]):
@@ -203,6 +206,7 @@ def translate_convert(program_state: ProgramState, ctx: SSAValueCtx, op: fir.Con
     if new_conv is None:
         raise Exception(f"Could not convert between `{in_type}' and `{out_type}`")
     return value_ops + new_conv
+
 
 def translate_string_literal(
     program_state: ProgramState, ctx: SSAValueCtx, op: fir.StringLitOp

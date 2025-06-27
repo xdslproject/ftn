@@ -26,15 +26,26 @@ from xdsl.passes import ModulePass
 from xdsl.dialects import builtin, func, llvm, arith, memref, scf, cf, linalg, omp, math
 from ftn.dialects import ftn_relative_cf
 
-from ftn.transforms.to_core.misc.fortran_code_description import ProgramState, GlobalFIRComponent, FunctionDefinition, ArgumentDefinition, ComponentState, ArrayDescription, ArgIntent
+from ftn.transforms.to_core.misc.fortran_code_description import (
+    ProgramState,
+    GlobalFIRComponent,
+    FunctionDefinition,
+    ArgumentDefinition,
+    ComponentState,
+    ArrayDescription,
+    ArgIntent,
+)
 from ftn.transforms.to_core.misc.ssa_context import SSAValueCtx
 
 from ftn.transforms.to_core.utils import clean_func_name
-from ftn.transforms.to_core.components.intrinsics import FortranIntrinsicsHandleExplicitly
+from ftn.transforms.to_core.components.intrinsics import (
+    FortranIntrinsicsHandleExplicitly,
+)
 import ftn.transforms.to_core.components.functions as ftn_functions
 
 from ftn.transforms.to_core.expressions import translate_expr
 from ftn.transforms.to_core.statements import translate_stmt
+
 
 class GatherFIRGlobals(Visitor):
     def __init__(self, program_state):
@@ -111,35 +122,36 @@ class GatherFunctionInformation(Visitor):
             for block_arg in func_op.body.blocks[0].args:
                 declare_op = self.get_declare_from_arg_uses(block_arg.uses)
                 if declare_op is not None:
-                  arg_type = declare_op.results[0].type
-                  base_type = self.get_base_type(arg_type)
-                  is_scalar = declare_op.shape is None and not isa(
-                      base_type, fir.SequenceType
-                  )
-                  arg_name = declare_op.uniq_name.data
-                  is_allocatable = self.check_if_has_allocatable_attr(declare_op)
-                  # This is a bit strange, in a module we have modulenamePprocname, however
-                  # flang then uses modulenameFprocname for array literal string names
-                  # assert fn_name.replace("P", "F")+"E" in arg_name
-                  # arg_name=arg_name.split(fn_name.replace("P", "F")+"E")[1]
-                  arg_intent = self.map_ftn_attrs_to_intent(declare_op.fortran_attrs)
-                  arg_def = ArgumentDefinition(
-                      arg_name, is_scalar, arg_type, arg_intent, is_allocatable
-                  )
+                    arg_type = declare_op.results[0].type
+                    base_type = self.get_base_type(arg_type)
+                    is_scalar = declare_op.shape is None and not isa(
+                        base_type, fir.SequenceType
+                    )
+                    arg_name = declare_op.uniq_name.data
+                    is_allocatable = self.check_if_has_allocatable_attr(declare_op)
+                    # This is a bit strange, in a module we have modulenamePprocname, however
+                    # flang then uses modulenameFprocname for array literal string names
+                    # assert fn_name.replace("P", "F")+"E" in arg_name
+                    # arg_name=arg_name.split(fn_name.replace("P", "F")+"E")[1]
+                    arg_intent = self.map_ftn_attrs_to_intent(declare_op.fortran_attrs)
+                    arg_def = ArgumentDefinition(
+                        arg_name, is_scalar, arg_type, arg_intent, is_allocatable
+                    )
                 else:
-                  # This is a special case of the main, program entry point, function inserted by Flang
-                  assert fn_name == "main"
-                  arg_type=block_arg.type
-                  base_type=self.get_base_type(arg_type)
-                  is_scalar=True
-                  arg_name=builtin.StringAttr("")
-                  is_allocatable=False
-                  arg_intent=ArgIntent.INOUT
-                  arg_def = ArgumentDefinition(
-                      arg_name, is_scalar, arg_type, arg_intent, is_allocatable
-                  )
+                    # This is a special case of the main, program entry point, function inserted by Flang
+                    assert fn_name == "main"
+                    arg_type = block_arg.type
+                    base_type = self.get_base_type(arg_type)
+                    is_scalar = True
+                    arg_name = builtin.StringAttr("")
+                    is_allocatable = False
+                    arg_intent = ArgIntent.INOUT
+                    arg_def = ArgumentDefinition(
+                        arg_name, is_scalar, arg_type, arg_intent, is_allocatable
+                    )
                 fn_def.add_arg_def(arg_def)
         self.program_state.addFunctionDefinition(fn_name, fn_def)
+
 
 class GatherFunctions(Visitor):
     def __init__(self):
@@ -173,6 +185,7 @@ def translate_program(
             assert False
     body.add_block(block)
     return builtin.ModuleOp(body)
+
 
 def translate_global(program_state, global_ctx, global_op: fir.GlobalOp):
     if global_op.sym_name.data == "_QQEnvironmentDefaults":
@@ -225,6 +238,7 @@ def translate_global(program_state, global_ctx, global_op: fir.GlobalOp):
             )
     else:
         raise Exception(f"Could not translate global region of type `{global_op.type}'")
+
 
 class RewriteRelativeBranch(RewritePattern):
     def __init__(self, functions):
@@ -320,4 +334,3 @@ class RewriteFIRToCore(ModulePass):
             apply_recursively=False,
         )
         walker.rewrite_module(input_module)
-

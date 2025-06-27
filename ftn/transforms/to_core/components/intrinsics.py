@@ -31,6 +31,7 @@ from ftn.transforms.to_core.misc.ssa_context import SSAValueCtx
 
 import ftn.transforms.to_core.expressions as expressions
 
+
 def translate_matmul(program_state: ProgramState, ctx: SSAValueCtx, op: hlfir.MatmulOp):
     if ctx.contains(op.results[0]):
         return []
@@ -180,6 +181,7 @@ def translate_sum(program_state: ProgramState, ctx: SSAValueCtx, op: hlfir.SumOp
         extract_op,
     ]
 
+
 def handle_movealloc_intrinsic_call(
     program_state: ProgramState, ctx: SSAValueCtx, op: fir.CallOp
 ):
@@ -194,6 +196,7 @@ def handle_movealloc_intrinsic_call(
     load_op = memref.LoadOp.get(ctx[src_ssa], [])
     store_op = memref.StoreOp.get(load_op.results[0], ctx[dst_ssa], [])
     return [load_op, store_op]
+
 
 FortranIntrinsicsHandleExplicitly = {
     "_FortranAMoveAlloc": handle_movealloc_intrinsic_call

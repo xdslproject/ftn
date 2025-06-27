@@ -26,13 +26,22 @@ from xdsl.passes import ModulePass
 from xdsl.dialects import builtin, func, llvm, arith, memref, scf, cf, linalg, omp, math
 from ftn.dialects import ftn_relative_cf
 
-from ftn.transforms.to_core.misc.fortran_code_description import ProgramState, ArrayDescription
+from ftn.transforms.to_core.misc.fortran_code_description import (
+    ProgramState,
+    ArrayDescription,
+)
 from ftn.transforms.to_core.misc.ssa_context import SSAValueCtx
 
-from ftn.transforms.to_core.utils import create_index_constant, generate_dereference_memref, check_if_has_type, remove_tuple_type_from_memref
+from ftn.transforms.to_core.utils import (
+    create_index_constant,
+    generate_dereference_memref,
+    check_if_has_type,
+    remove_tuple_type_from_memref,
+)
 
 import ftn.transforms.to_core.components.types as ftn_types
 import ftn.transforms.to_core.expressions as expressions
+
 
 def define_scalar_var(
     program_state: ProgramState, ctx: SSAValueCtx, op: hlfir.DeclareOp
@@ -57,7 +66,9 @@ def define_scalar_var(
             ctx[op.results[1]] = ctx[allocation_op.results[0]]
             return expr_ops
         elif isa(allocation_op, fir.UnboxcharOp):
-            expr_ops = expressions.translate_expr(program_state, ctx, allocation_op.boxchar)
+            expr_ops = expressions.translate_expr(
+                program_state, ctx, allocation_op.boxchar
+            )
             ctx[op.results[0]] = ctx[allocation_op.results[0]]
             ctx[op.results[1]] = ctx[allocation_op.results[0]]
             return expr_ops
@@ -68,11 +79,13 @@ def define_scalar_var(
         ctx[op.results[1]] = ctx[op.memref]
         return []
 
+
 def dims_has_static_size(dims):
     for dim in dims:
         if not isa(dim, int):
             return False
     return True
+
 
 def gather_static_shape_dims_from_shape(shape_op: fir.ShapeOp):
     # fir.Shape is for default, 1 indexed arrays
@@ -87,6 +100,7 @@ def gather_static_shape_dims_from_shape(shape_op: fir.ShapeOp):
             dim_sizes.append(None)
     dim_starts = [1] * len(dim_sizes)
     return dim_sizes, dim_starts, dim_sizes
+
 
 def gather_static_shape_dims_from_shapeshift(shape_op: fir.ShapeShiftOp):
     # fir.ShapeShift is for arrays indexed on a value other than 1
@@ -115,6 +129,7 @@ def gather_static_shape_dims_from_shapeshift(shape_op: fir.ShapeShiftOp):
             dim_ends.append(None)
 
     return dim_sizes, dim_starts, dim_ends
+
 
 def define_stack_array_var(
     program_state: ProgramState,
@@ -270,7 +285,9 @@ def translate_declare(
                 shape_expr_list = []
                 for ds in dim_starts:
                     if not isa(ds, int) and ds is not None:
-                        shape_expr_list += expressions.translate_expr(program_state, ctx, ds)
+                        shape_expr_list += expressions.translate_expr(
+                            program_state, ctx, ds
+                        )
                 ctx[op.results[0]] = ctx[op.memref]
                 ctx[op.results[1]] = ctx[op.memref]
                 array_name = op.uniq_name.data
@@ -310,6 +327,7 @@ def translate_declare(
             )
             return ops_list
 
+
 def translate_reassoc(
     program_state: ProgramState,
     ctx: SSAValueCtx,
@@ -325,6 +343,7 @@ def translate_reassoc(
     ctx[op.results[0]] = ctx[op.var]
     return expr_list
 
+
 def translate_absent(program_state: ProgramState, ctx: SSAValueCtx, op: fir.AbsentOp):
     if ctx.contains(op.results[0]):
         return []
@@ -332,6 +351,7 @@ def translate_absent(program_state: ProgramState, ctx: SSAValueCtx, op: fir.Abse
     null_ptr = llvm.ZeroOp(llvm.LLVMPointerType.opaque())
     ctx[op.results[0]] = null_ptr.results[0]
     return [null_ptr]
+
 
 def translate_zerobits(
     program_state: ProgramState, ctx: SSAValueCtx, op: fir.ZeroBitsOp
@@ -348,9 +368,9 @@ def translate_zerobits(
     else:
         base_type = ftn_types.convert_fir_type_to_standard(result_type)
         if check_if_has_type(builtin.TupleType, base_type):
-          # Flang will generate a fir.ref of tuple for a zero bits fed into the program entry point
-          # this can not be represented in core MLIR dialects, so we strip out the tuple component
-          base_type=remove_tuple_type_from_memref(base_type)
+            # Flang will generate a fir.ref of tuple for a zero bits fed into the program entry point
+            # this can not be represented in core MLIR dialects, so we strip out the tuple component
+            base_type = remove_tuple_type_from_memref(base_type)
         array_sizes = [1]
 
     if program_state.isInGlobal():
@@ -397,6 +417,7 @@ def translate_freemem(program_state: ProgramState, ctx: SSAValueCtx, op: fir.Fre
     ops_list.append(memref.DeallocOp.get(load_ssa))
     return ops_list
 
+
 def translate_address_of(
     program_state: ProgramState, ctx: SSAValueCtx, op: fir.AddressOfOp
 ):
@@ -408,4 +429,3 @@ def translate_address_of(
 
     ctx[op.results[0]] = global_lookup.results[0]
     return [global_lookup]
-

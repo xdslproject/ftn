@@ -36,6 +36,7 @@ import ftn.transforms.to_core.statements as statements
 
 LoopStepDirection = Enum("LoopStepDirection", ["INCREMENT", "DECREMENT", "UNKNOWN"])
 
+
 def get_loop_arg_val_if_known(ssa):
     # Grabs out the value corresponding the to loops input SSA
     # if this can be found statically, otherwise return None
@@ -52,6 +53,7 @@ def get_loop_arg_val_if_known(ssa):
     else:
         return None
 
+
 def determine_loop_step_direction(step_ssa):
     # Determines the loop step direction
     step_val = get_loop_arg_val_if_known(step_ssa)
@@ -62,7 +64,8 @@ def determine_loop_step_direction(step_ssa):
             return LoopStepDirection.DECREMENT
     else:
         return LoopStepDirection.UNKNOWN
-        
+
+
 def handle_conditional_true_or_false_region(
     program_state: ProgramState, ctx: SSAValueCtx, region: Region
 ):
@@ -87,9 +90,9 @@ def handle_conditional_true_or_false_region(
     else:
         new_block.add_op(scf.YieldOp())
 
-    return new_block   
-      
-    
+    return new_block
+
+
 def generate_index_inversion_at_start_of_loop(
     index_ssa, lower_ssa, upper_ssa, target_type
 ):
@@ -101,15 +104,17 @@ def generate_index_inversion_at_start_of_loop(
     if isa(target_type, builtin.IntegerType):
         index_cast = arith.IndexCastOp(invert_idx.results[0], target_type)
         inversion_ops.append(index_cast)
-    return inversion_ops    
-    
+    return inversion_ops
+
+
 def generate_convert_step_to_absolute(step_ssa):
     # Generates the MLIR to convert an index ssa to it's absolute (positive) form
     assert isa(step_ssa.type, builtin.IndexType)
     cast_int = arith.IndexCastOp(step_ssa, builtin.i64)
     step_absolute = math.AbsIOp(cast_int.results[0])
     cast_abs = arith.IndexCastOp(step_absolute.results[0], builtin.IndexType())
-    return [cast_int, step_absolute, cast_abs], cast_abs.results[0]       
+    return [cast_int, step_absolute, cast_abs], cast_abs.results[0]
+
 
 def translate_do_loop(program_state: ProgramState, ctx: SSAValueCtx, op: fir.DoLoopOp):
     if ctx.contains(op.results[1]):
@@ -262,7 +267,8 @@ def translate_return(program_state: ProgramState, ctx: SSAValueCtx, op: func.Ret
         ssa_to_return.append(ctx[arg])
     new_return = func.ReturnOp(*ssa_to_return)
     return args_ops + [new_return]
-    
+
+
 def translate_result(program_state: ProgramState, ctx: SSAValueCtx, op: fir.ResultOp):
     ops_list = []
     ssa_list = []
@@ -271,8 +277,9 @@ def translate_result(program_state: ProgramState, ctx: SSAValueCtx, op: fir.Resu
         ops_list += expr_ops
         ssa_list.append(ctx[operand])
     yield_op = scf.YieldOp(*ssa_list)
-    return ops_list + [yield_op]    
-    
+    return ops_list + [yield_op]
+
+
 def translate_iterate_while(
     program_state: ProgramState, ctx: SSAValueCtx, op: fir.IterateWhileOp
 ):
@@ -364,8 +371,8 @@ def translate_iterate_while(
         + initarg_ops
         + [scf_while_loop]
     )
-        
-    
+
+
 def translate_conditional(program_state: ProgramState, ctx: SSAValueCtx, op: fir.IfOp):
     # Each function automatically deallocates scope local allocatable arrays at the end,
     # check to see if that is the purpose of this conditional. If so then just ignore it
@@ -387,7 +394,8 @@ def translate_conditional(program_state: ProgramState, ctx: SSAValueCtx, op: fir
     scf_if = scf.IfOp(ctx[op.condition], [], [true_block], [false_block])
 
     return conditional_expr_ops + [scf_if]
-    
+
+
 def translate_branch(program_state: ProgramState, ctx: SSAValueCtx, op: cf.BranchOp):
     current_fn_identifier = program_state.getCurrentFnState().fn_identifier
     target_block_index = program_state.function_definitions[
@@ -440,8 +448,8 @@ def translate_conditional_branch(
     ops_list.append(relative_cond_branch)
 
     return ops_list
-    
-    
+
+
 def check_if_condition_is_end_fn_allocatable_automatic_free(
     condition_op: arith.CmpiOp | arith.CmpfOp,
 ):
@@ -451,4 +459,3 @@ def check_if_condition_is_end_fn_allocatable_automatic_free(
                 condition_op.lhs.owner.results[0].type, builtin.IntegerType
             )
     return False
-    

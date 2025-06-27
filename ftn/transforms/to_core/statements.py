@@ -35,6 +35,7 @@ import ftn.transforms.to_core.components.functions as ftn_functions
 import ftn.transforms.to_core.components.control_flow as ftn_ctrl_flow
 import ftn.transforms.to_core.expressions as expressions
 
+
 def translate_stmt(program_state: ProgramState, ctx: SSAValueCtx, op: Operation):
     ops = try_translate_stmt(program_state, ctx, op)
     if ops is not None:

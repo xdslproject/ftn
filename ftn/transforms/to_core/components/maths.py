@@ -30,6 +30,7 @@ from ftn.transforms.to_core.misc.fortran_code_description import ProgramState
 from ftn.transforms.to_core.misc.ssa_context import SSAValueCtx
 import ftn.transforms.to_core.expressions as expressions
 
+
 def translate_select(program_state: ProgramState, ctx: SSAValueCtx, op: arith.SelectOp):
     if ctx.contains(op.results[0]):
         return []
@@ -43,6 +44,7 @@ def translate_select(program_state: ProgramState, ctx: SSAValueCtx, op: arith.Se
     ctx[op.results[0]] = select_op.results[0]
 
     return cond_ops_list + lhs_ops_list + rhs_ops_list + [select_op]
+
 
 def translate_cmp(
     program_state: ProgramState, ctx: SSAValueCtx, op: arith.CmpiOp | arith.CmpfOp
@@ -63,6 +65,7 @@ def translate_cmp(
     ctx[op.results[0]] = comparison_op.results[0]
     return lhs_expr_ops + rhs_expr_ops + [comparison_op]
 
+
 def translate_constant(
     program_state: ProgramState, ctx: SSAValueCtx, op: arith.ConstantOp
 ):
@@ -71,6 +74,7 @@ def translate_constant(
     new_const = arith.ConstantOp(op.value, op.results[0].type)
     ctx[op.results[0]] = new_const.results[0]
     return [new_const]
+
 
 def translate_float_unary_arithmetic(
     program_state: ProgramState, ctx: SSAValueCtx, op: Operation

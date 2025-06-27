@@ -17,12 +17,19 @@ from xdsl.passes import ModulePass
 from xdsl.dialects import builtin, func, llvm, arith, memref, scf, cf, linalg, omp, math
 from ftn.dialects import ftn_relative_cf
 
-from ftn.transforms.to_core.misc.fortran_code_description import ProgramState, ArrayDescription
+from ftn.transforms.to_core.misc.fortran_code_description import (
+    ProgramState,
+    ArrayDescription,
+)
 from ftn.transforms.to_core.misc.ssa_context import SSAValueCtx
 
-from ftn.transforms.to_core.utils import create_index_constant, generate_dereference_memref
+from ftn.transforms.to_core.utils import (
+    create_index_constant,
+    generate_dereference_memref,
+)
 
 import ftn.transforms.to_core.expressions as expressions
+
 
 def remove_array_size_convert(op):
     # This is for array size, they are often converted from
@@ -32,6 +39,7 @@ def remove_array_size_convert(op):
         assert isa(op.value.type, builtin.IntegerType)
         return op.value.owner
     return op
+
 
 def array_access_components(
     program_state: ProgramState, ctx: SSAValueCtx, op: hlfir.DesignateOp
@@ -88,6 +96,7 @@ def array_access_components(
             assert False
     return ops_list, indexes_ssa
 
+
 def generate_var_dim_size_load(ctx: SSAValueCtx, op: fir.LoadOp):
     # Generates operations to load the size of a dimension from a variable
     # and ensure that it is typed as an index
@@ -126,6 +135,7 @@ def handle_array_size_lu_bound(
         load_ssa = load_ops[-1].results[0]
 
     return bound_val, load_ssa, load_ops
+
 
 def translate_assign(program_state: ProgramState, ctx: SSAValueCtx, op: hlfir.AssignOp):
     expr_lhs_ops = expressions.translate_expr(program_state, ctx, op.lhs)
@@ -239,6 +249,7 @@ def translate_assign(program_state: ProgramState, ctx: SSAValueCtx, op: hlfir.As
         return expr_lhs_ops + ops_list
     else:
         assert False
+
 
 def translate_store(program_state: ProgramState, ctx: SSAValueCtx, op: fir.StoreOp):
     # This is used for internal program components, such as loop indexes and storing
@@ -403,6 +414,7 @@ def translate_store(program_state: ProgramState, ctx: SSAValueCtx, op: fir.Store
         else:
             assert False
         return expr_ops + [storage_op]
+
 
 def translate_load(program_state: ProgramState, ctx: SSAValueCtx, op: fir.LoadOp):
     if ctx.contains(op.results[0]):

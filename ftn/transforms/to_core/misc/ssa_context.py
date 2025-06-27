@@ -2,6 +2,7 @@ from dataclasses import dataclass, field
 from xdsl.ir import SSAValue
 from typing import Dict, Optional
 
+
 @dataclass
 class SSAValueCtx:
     """

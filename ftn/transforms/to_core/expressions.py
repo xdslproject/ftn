@@ -37,6 +37,7 @@ import ftn.transforms.to_core.components.memory as ftn_memory
 import ftn.transforms.to_core.components.functions as ftn_functions
 import ftn.transforms.to_core.components.control_flow as ftn_ctrl_flow
 
+
 def translate_expr(program_state: ProgramState, ctx: SSAValueCtx, ssa_value: SSAValue):
     if isa(ssa_value, BlockArgument):
         return []
@@ -146,9 +147,9 @@ def try_translate_expr(program_state: ProgramState, ctx: SSAValueCtx, op: Operat
         return ftn_intrinsics.translate_transpose(program_state, ctx, op)
     elif isa(op, hlfir.MatmulOp):
         return translate_matmul(program_state, ctx, op)
-    #elif isa(op, omp.BoundsOp):
+    # elif isa(op, omp.BoundsOp):
     #    return translate_omp_bounds(program_state, ctx, op)
-    #elif isa(op, omp.MapInfoOp):
+    # elif isa(op, omp.MapInfoOp):
     #    return translate_omp_mapinfo(program_state, ctx, op)
     else:
         for math_op in math.Math.operations:
@@ -157,6 +158,7 @@ def try_translate_expr(program_state: ProgramState, ctx: SSAValueCtx, op: Operat
                 return ftn_maths.translate_math_operation(program_state, ctx, op)
         return None
 
+
 def translate_copyin(program_state: ProgramState, ctx: SSAValueCtx, op: hlfir.CopyInOp):
     if ctx.contains(op.results[0]):
         return []
@@ -164,4 +166,3 @@ def translate_copyin(program_state: ProgramState, ctx: SSAValueCtx, op: hlfir.Co
     expr_ops = translate_expr(program_state, ctx, op.var)
     ctx[op.results[0]] = ctx[op.var]
     return expr_ops
-

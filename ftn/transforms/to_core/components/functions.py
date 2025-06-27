@@ -17,7 +17,11 @@ from xdsl.passes import ModulePass
 from xdsl.dialects import builtin, func, llvm, arith, memref, scf, cf, linalg, omp, math
 from ftn.dialects import ftn_relative_cf
 
-from ftn.transforms.to_core.misc.fortran_code_description import ProgramState, ArrayDescription, ArgIntent
+from ftn.transforms.to_core.misc.fortran_code_description import (
+    ProgramState,
+    ArrayDescription,
+    ArgIntent,
+)
 from ftn.transforms.to_core.misc.ssa_context import SSAValueCtx
 
 from ftn.transforms.to_core.utils import clean_func_name
@@ -26,6 +30,7 @@ import ftn.transforms.to_core.components.intrinsics as ftn_intrinsics
 import ftn.transforms.to_core.components.types as ftn_types
 import ftn.transforms.to_core.expressions as expressions
 import ftn.transforms.to_core.statements as statements
+
 
 def translate_function(program_state: ProgramState, ctx: SSAValueCtx, fn: func.FuncOp):
     within_module = fn.sym_name.data.startswith("_QM")
@@ -127,10 +132,10 @@ def handle_call_argument(
     if isa(arg.owner, hlfir.AssociateOp):
         # This is a scalar that we are passing by value
         if arg.owner.uniq_name is not None:
-          assert arg.owner.uniq_name.data == "adapt.valuebyref"
+            assert arg.owner.uniq_name.data == "adapt.valuebyref"
         else:
-          # This might be added as an attribute instead, allow this
-          assert "adapt.valuebyref" in arg.owner.attributes
+            # This might be added as an attribute instead, allow this
+            assert "adapt.valuebyref" in arg.owner.attributes
         arg_defn = program_state.function_definitions[fn_name].args[arg_index]
         # For now we just work with scalars here, could pass arrays by literal too
         assert arg_defn.is_scalar
@@ -185,16 +190,18 @@ def handle_call_argument(
                 ctx[arg] = load_op.results[0]
                 ops_list += [load_op]
         elif fn_name == "_FortranAProgramStart" and arg_index == 3:
-          # This is a hack, Flang currently generates incorrect typing for passing memory to the program initialisation
-          # routine. As func.call verifies this we can not get away with it, so must extract the llvm pointer
-          # from the memref and pass this directly
-          assert isa(ctx[arg].type, memref.MemRefType)
-          extract_ptr_as_idx_op=memref.ExtractAlignedPointerAsIndexOp.get(ctx[arg])
-          i64_idx_op=arith.IndexCastOp(extract_ptr_as_idx_op.results[0], builtin.i64)
-          ptr_op=llvm.IntToPtrOp(i64_idx_op.results[0])
-          ops_list+=[extract_ptr_as_idx_op, i64_idx_op, ptr_op]
-          del ctx[arg]
-          ctx[arg]=ptr_op.results[0]
+            # This is a hack, Flang currently generates incorrect typing for passing memory to the program initialisation
+            # routine. As func.call verifies this we can not get away with it, so must extract the llvm pointer
+            # from the memref and pass this directly
+            assert isa(ctx[arg].type, memref.MemRefType)
+            extract_ptr_as_idx_op = memref.ExtractAlignedPointerAsIndexOp.get(ctx[arg])
+            i64_idx_op = arith.IndexCastOp(
+                extract_ptr_as_idx_op.results[0], builtin.i64
+            )
+            ptr_op = llvm.IntToPtrOp(i64_idx_op.results[0])
+            ops_list += [extract_ptr_as_idx_op, i64_idx_op, ptr_op]
+            del ctx[arg]
+            ctx[arg] = ptr_op.results[0]
         return ops_list, False
 
 
@@ -205,7 +212,9 @@ def translate_call(program_state: ProgramState, ctx: SSAValueCtx, op: fir.CallOp
     fn_name = clean_func_name(op.callee.string_value())
 
     if fn_name in ftn_intrinsics.FortranIntrinsicsHandleExplicitly.keys():
-        return ftn_intrinsics.FortranIntrinsicsHandleExplicitly[fn_name](program_state, ctx, op)
+        return ftn_intrinsics.FortranIntrinsicsHandleExplicitly[fn_name](
+            program_state, ctx, op
+        )
 
     # Create a new context scope, as we might overwrite some SSAs with packing
     call_ctx = SSAValueCtx(ctx)
@@ -230,7 +239,9 @@ def translate_call(program_state: ProgramState, ctx: SSAValueCtx, op: fir.CallOp
     for ret in op.results:
         # Ignore none types, these are just omitted
         if not isa(ret.type, builtin.NoneType):
-            return_types.append(ftn_types.convert_fir_type_to_standard_if_needed(ret.type))
+            return_types.append(
+                ftn_types.convert_fir_type_to_standard_if_needed(ret.type)
+            )
             return_ssas.append(ret)
 
     call_op = func.CallOp(op.callee, arg_ssa, return_types)
