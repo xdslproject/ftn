@@ -204,7 +204,8 @@ def translate_omp_wsloop(
     for single_op in op.body.blocks[0].ops:
         region_body_ops = statements.translate_stmt(program_state, ctx, single_op)
         if len(region_body_ops) > 1:
-            # The loopnest op will pull down the lower, upper and step constants into this region, however they need to sit above simd as otherwise verification will fail
+            # The loopnest op will pull down the lower, upper and step constants into this region,
+            # however they need to sit above simd as otherwise verification will fail
             # therefore extract out all but the last operation (the loop nest)
             top_level_ops = region_body_ops[0:-1]
             region_body_ops = [region_body_ops[-1]]
@@ -445,7 +446,8 @@ def translate_omp_simd(program_state: ProgramState, ctx: SSAValueCtx, op: omp.SI
     for single_op in op.body.blocks[0].ops:
         region_body_ops = statements.translate_stmt(program_state, ctx, single_op)
         if len(region_body_ops) > 1:
-            # The loopnest op will pull down the lower, upper and step constants into this region, however they need to sit above simd as otherwise verification will fail
+            # The loopnest op will pull down the lower, upper and step constants into this region,
+            # however they need to sit above simd as otherwise verification will fail
             # therefore extract out all but the last operation (the loop nest)
             top_level_ops = region_body_ops[0:-1]
             region_body_ops = [region_body_ops[-1]]
