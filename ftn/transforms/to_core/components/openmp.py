@@ -1,4 +1,5 @@
 from xdsl.ir import Block, Region
+from xdsl.utils.hints import isa
 from xdsl.dialects import omp
 
 from ftn.transforms.to_core.misc.fortran_code_description import ProgramState
@@ -163,6 +164,46 @@ def translate_omp_parallel(
     ]
 
 
+def translate_omp_loopnest(
+    program_state: ProgramState, ctx: SSAValueCtx, op: omp.LoopNestOp
+):
+    arg_types = []
+
+    lb_ops = expressions.translate_expr(program_state, ctx, op.lowerBound[0])
+    ub_ops = expressions.translate_expr(program_state, ctx, op.upperBound[0])
+    step_ops = expressions.translate_expr(program_state, ctx, op.step[0])
+
+    arg_types = [
+        lb_ops[-1].results[0].type,
+        ub_ops[-1].results[0].type,
+        step_ops[-1].results[0].type,
+    ]
+
+    new_block = Block(arg_types=arg_types)
+
+    for fir_arg, std_arg in zip(op.body.blocks[0].args, new_block.args):
+        ctx[fir_arg] = std_arg
+
+    region_body_ops = []
+    for single_op in op.body.blocks[0].ops:
+        region_body_ops += statements.translate_stmt(program_state, ctx, single_op)
+
+    new_block.add_ops(region_body_ops)
+
+    new_props = {}
+    for key, value in op.properties.items():
+        if key != "operandSegmentSizes":
+            new_props[key] = value
+
+    loopnest_op = omp.LoopNestOp.build(
+        operands=[lb_ops, ub_ops, step_ops],
+        regions=[Region([new_block])],
+        properties=new_props,
+    )
+
+    return lb_ops + ub_ops + step_ops + [loopnest_op]
+
+
 def translate_omp_team(program_state: ProgramState, ctx: SSAValueCtx, op: omp.TeamsOp):
     arg_ssa = []
     arg_ops = []
@@ -202,20 +243,68 @@ def translate_omp_team(program_state: ProgramState, ctx: SSAValueCtx, op: omp.Te
     return arg_ops + [teams_op]
 
 
-def translate_omp_simdloop(
-    program_state: ProgramState, ctx: SSAValueCtx, op: omp.SIMDOp
-):
+def translate_omp_simd(program_state: ProgramState, ctx: SSAValueCtx, op: omp.SIMDOp):
     arg_types = []
 
-    lb_ops = expressions.translate_expr(program_state, ctx, op.lowerBound[0])
-    ub_ops = expressions.translate_expr(program_state, ctx, op.upperBound[0])
-    step_ops = expressions.translate_expr(program_state, ctx, op.step[0])
+    aligned_vars_ops = []
+    aligned_vars_ssa = []
+    if len(op.aligned_vars) > 0:
+        for operand in op.aligned_var:
+            aligned_vars_ops += expressions.translate_expr(program_state, ctx, operand)
+            aligned_vars_ssa.append(ctx[operand])
+            arg_types.append(ctx[operand].type)
 
-    arg_types = [
-        lb_ops[-1].results[0].type,
-        ub_ops[-1].results[0].type,
-        step_ops[-1].results[0].type,
-    ]
+    if_expr_ops = []
+    if_expr_ssa = []
+    if op.if_expr is not None:
+        if_expr_ops += expressions.translate_expr(program_state, ctx, op.if_expr)
+        if_expr_ssa = ctx[op.if_expr]
+        arg_types.append(ctx[op.if_expr].type)
+
+    linear_vars_ops = []
+    linear_vars_ssa = []
+    if len(op.linear_vars) > 0:
+        for operand in op.linear_vars:
+            linear_vars_ops += expressions.translate_expr(program_state, ctx, operand)
+            linear_vars_ssa.append(ctx[operand])
+            arg_types.append(ctx[operand].type)
+
+    linear_step_vars_ops = []
+    linear_step_vars_ssa = []
+    if len(op.linear_step_vars) > 0:
+        for operand in op.linear_step_vars:
+            linear_step_vars_ops += expressions.translate_expr(
+                program_state, ctx, operand
+            )
+            linear_step_vars_ssa.append(ctx[operand])
+            arg_types.append(ctx[operand].type)
+
+    nontemporal_vars_ops = []
+    nontemporal_vars_ssa = []
+    if op.nontemporal_vars is not None:
+        nontemporal_vars_ops += expressions.translate_expr(
+            program_state, ctx, op.nontemporal_vars
+        )
+        nontemporal_vars_ssa = ctx[op.nontemporal_vars]
+        arg_types.append(ctx[op.nontemporal_vars].type)
+
+    private_vars_ops = []
+    private_vars_ssa = []
+    if op.private_vars is not None:
+        private_vars_ops += expressions.translate_expr(
+            program_state, ctx, op.private_vars
+        )
+        private_vars_ssa = ctx[op.private_vars]
+        arg_types.append(ctx[op.private_vars].type)
+
+    reduction_vars_ops = []
+    reduction_vars_ssa = []
+    if op.reduction_vars is not None:
+        reduction_vars_ops += expressions.translate_expr(
+            program_state, ctx, op.reduction_vars
+        )
+        reduction_varss_ssa = ctx[op.reduction_vars]
+        arg_types.append(ctx[op.reduction_vars].type)
 
     new_block = Block(arg_types=arg_types)
 
@@ -223,8 +312,17 @@ def translate_omp_simdloop(
         ctx[fir_arg] = std_arg
 
     region_body_ops = []
+    top_level_ops = []
     for single_op in op.body.blocks[0].ops:
-        region_body_ops += statements.translate_stmt(program_state, ctx, single_op)
+        region_body_ops = statements.translate_stmt(program_state, ctx, single_op)
+        if len(region_body_ops) > 1:
+            # The loopnest op will pull down the lower, upper and step constants into this region, however they need to sit above simd as otherwise verification will fail
+            # therefore extract out all but the last operation (the loop nest)
+            top_level_ops = region_body_ops[0:-1]
+            region_body_ops = [region_body_ops[-1]]
+
+    assert len(region_body_ops) == 1
+    assert isa(region_body_ops[0], omp.LoopNestOp)
 
     new_block.add_ops(region_body_ops)
 
@@ -234,12 +332,30 @@ def translate_omp_simdloop(
             new_props[key] = value
 
     simd_op = omp.SIMDOp.build(
-        operands=[lb_ops, ub_ops, step_ops, [], [], []],
+        operands=[
+            aligned_vars_ssa,
+            if_expr_ssa,
+            linear_vars_ssa,
+            linear_step_vars_ssa,
+            nontemporal_vars_ssa,
+            private_vars_ssa,
+            reduction_vars_ssa,
+        ],
         regions=[Region([new_block])],
         properties=new_props,
     )
 
-    return lb_ops + ub_ops + step_ops + [simd_op]
+    return (
+        aligned_vars_ops
+        + if_expr_ops
+        + linear_vars_ops
+        + linear_step_vars_ops
+        + nontemporal_vars_ops
+        + private_vars_ops
+        + reduction_vars_ops
+        + top_level_ops
+        + [simd_op]
+    )
 
 
 def translate_omp_target(

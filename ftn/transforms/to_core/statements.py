@@ -95,8 +95,10 @@ def try_translate_stmt(program_state: ProgramState, ctx: SSAValueCtx, op: Operat
         return ftn_openmp.translate_omp_target(program_state, ctx, op)
     elif isa(op, omp.TerminatorOp):
         return [omp.TerminatorOp.create()]
-    # elif isa(op, omp.SIMDLoopOp):
-    #  return translate_omp_simdloop(program_state, ctx, op)
+    elif isa(op, omp.SIMDOp):
+        return ftn_openmp.translate_omp_simd(program_state, ctx, op)
+    elif isa(op, omp.LoopNestOp):
+        return ftn_openmp.translate_omp_loopnest(program_state, ctx, op)
     # elif isa(op, omp.TeamsOp):
     #  return translate_omp_team(program_state, ctx, op)
     # elif isa(op, omp.ParallelOp):
