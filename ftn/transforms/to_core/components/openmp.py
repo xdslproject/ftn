@@ -10,6 +10,47 @@ import ftn.transforms.to_core.expressions as expressions
 import ftn.transforms.to_core.statements as statements
 
 
+def translate_private(program_state: ProgramState, ctx: SSAValueCtx, op: omp.PrivateOp):
+    if len(op.alloc_region.blocks) > 0:
+        alloc_region_ops = []
+        for single_op in op.alloc_region.blocks[0].ops:
+            alloc_region_ops += statements.translate_stmt(program_state, ctx, single_op)
+        alloc_region_blocks = [Block(alloc_region_ops)]
+    else:
+        alloc_region_blocks = []
+
+    if len(op.copy_region.blocks) > 0:
+        copy_region_ops = []
+        for single_op in op.copy_region.blocks[0].ops:
+            copy_region_ops += statements.translate_stmt(program_state, ctx, single_op)
+        copy_region_blocks = [Block(copy_region_ops)]
+    else:
+        copy_region_blocks = []
+
+    if len(op.dealloc_region.blocks) > 0:
+        dealloc_region_ops = []
+        for single_op in op.dealloc_region.blocks[0].ops:
+            dealloc_region_ops += statements.translate_stmt(
+                program_state, ctx, single_op
+            )
+        dealloc_region_blocks = [Block(dealloc_region_ops)]
+    else:
+        dealloc_region_blocks = []
+
+    return omp.PrivateOp.build(
+        regions=[
+            Region(alloc_region_blocks),
+            Region(copy_region_blocks),
+            Region(dealloc_region_blocks),
+        ],
+        properties={
+            "sym_name": op.sym_name,
+            "type": op.var_type,
+            "data_sharing_type": op.data_sharing_type,
+        },
+    )
+
+
 def translate_omp_mapinfo(
     program_state: ProgramState, ctx: SSAValueCtx, op: omp.MapInfoOp
 ):
@@ -239,3 +280,13 @@ def translate_omp_target(
     )
 
     return map_var_ops + [target_op]
+
+
+def translate_omp_yield(program_state: ProgramState, ctx: SSAValueCtx, op: omp.YieldOp):
+    ops_list = []
+    ssa_list = []
+    for operand in op.arguments:
+        expr_ops = expressions.translate_expr(program_state, ctx, operand)
+        ops_list += expr_ops
+        ssa_list.append(ctx[operand])
+    return [omp.YieldOp(*ssa_list)]

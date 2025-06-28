@@ -102,7 +102,7 @@ def try_translate_stmt(program_state: ProgramState, ctx: SSAValueCtx, op: Operat
     # elif isa(op, omp.ParallelOp):
     #  return translate_omp_parallel(program_state, ctx, op)
     elif isa(op, omp.YieldOp):
-        return [omp.YieldOp.create()]
+        return ftn_openmp.translate_omp_yield(program_state, ctx, op)
     elif isa(op, cf.ConditionalBranchOp):
         return ftn_ctrl_flow.translate_conditional_branch(program_state, ctx, op)
     elif isa(op, fir.UnreachableOp):

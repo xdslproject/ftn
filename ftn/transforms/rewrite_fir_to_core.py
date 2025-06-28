@@ -42,6 +42,7 @@ from ftn.transforms.to_core.components.intrinsics import (
     FortranIntrinsicsHandleExplicitly,
 )
 import ftn.transforms.to_core.components.functions as ftn_functions
+import ftn.transforms.to_core.components.openmp as ftn_openmp
 
 from ftn.transforms.to_core.expressions import translate_expr
 from ftn.transforms.to_core.statements import translate_stmt
@@ -181,6 +182,10 @@ def translate_program(
             global_op = translate_global(program_state, global_ctx, fn)
             if global_op is not None:
                 block.add_op(global_op)
+        elif isa(fn, omp.PrivateOp):
+            private_op = ftn_openmp.translate_private(program_state, global_ctx, fn)
+            if private_op is not None:
+                block.add_op(private_op)
         else:
             assert False
     body.add_block(block)
