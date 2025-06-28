@@ -492,14 +492,67 @@ def translate_omp_simd(program_state: ProgramState, ctx: SSAValueCtx, op: omp.SI
 def translate_omp_target(
     program_state: ProgramState, ctx: SSAValueCtx, op: omp.TargetOp
 ):
-    map_var_ops = []
-    map_var_ssa = []
     arg_types = []
-    for arg in op.map_vars:
-        v_ops = expressions.translate_expr(program_state, ctx, arg)
-        map_var_ops += v_ops
-        map_var_ssa.append(map_var_ops[-1].results[0])
-        arg_types.append(map_var_ops[-1].results[0].type)
+
+    allocate_vars_ops, allocate_vars_ssa, allocate_vars_types = (
+        handle_var_operand_field(program_state, ctx, op.allocate_vars)
+    )
+    arg_types += allocate_vars_types
+
+    allocator_vars_ops, allocator_vars_ssa, allocator_vars_types = (
+        handle_var_operand_field(program_state, ctx, op.allocator_vars)
+    )
+    arg_types += allocator_vars_types
+
+    depend_vars_ops, depend_vars_ssa, depend_vars_types = handle_var_operand_field(
+        program_state, ctx, op.depend_vars
+    )
+    arg_types += depend_vars_types
+
+    device_ops, device_ssa, device_types = handle_opt_operand_field(
+        program_state, ctx, op.device
+    )
+    arg_types += device_types
+
+    has_device_addr_vars_ops, has_device_addr_vars_ssa, has_device_addr_vars_types = (
+        handle_var_operand_field(program_state, ctx, op.has_device_addr_vars)
+    )
+    arg_types += has_device_addr_vars_types
+
+    host_eval_vars_ops, host_eval_vars_ssa, host_eval_vars_types = (
+        handle_var_operand_field(program_state, ctx, op.host_eval_vars)
+    )
+    arg_types += host_eval_vars_types
+
+    if_expr_vars_ops, if_expr_vars_ssa, if_expr_vars_types = handle_opt_operand_field(
+        program_state, ctx, op.if_expr
+    )
+    arg_types += if_expr_vars_types
+
+    in_reduction_vars_ops, in_reduction_vars_ssa, in_reduction_vars_types = (
+        handle_var_operand_field(program_state, ctx, op.in_reduction_vars)
+    )
+    arg_types += in_reduction_vars_types
+
+    is_device_ptr_vars_ops, is_device_ptr_vars_ssa, is_device_ptr_vars_types = (
+        handle_var_operand_field(program_state, ctx, op.is_device_ptr_vars)
+    )
+    arg_types += is_device_ptr_vars_types
+
+    map_vars_ops, map_vars_ssa, map_vars_types = handle_var_operand_field(
+        program_state, ctx, op.map_vars
+    )
+    arg_types += map_vars_types
+
+    private_vars_ops, private_vars_ssa, private_vars_types = handle_var_operand_field(
+        program_state, ctx, op.private_vars
+    )
+    arg_types += private_vars_types
+
+    thread_limit_ops, thread_limit_ssa, thread_limit_types = handle_opt_operand_field(
+        program_state, ctx, op.thread_limit
+    )
+    arg_types += thread_limit_types
 
     new_block = Block(arg_types=arg_types)
 
@@ -517,16 +570,39 @@ def translate_omp_target(
         if key != "operandSegmentSizes":
             new_props[key] = value
 
-    # For the moment we ignore a large number of operands passed to the target call
-    # consider handling these in the future
-
     target_op = omp.TargetOp.build(
-        operands=[[], [], [], [], [], [], [], [], [], map_var_ssa, [], []],
+        operands=[
+            allocate_vars_ssa,
+            allocator_vars_ssa,
+            depend_vars_ssa,
+            device_ssa,
+            has_device_addr_vars_ssa,
+            host_eval_vars_ssa,
+            if_expr_vars_ssa,
+            in_reduction_vars_ssa,
+            is_device_ptr_vars_ssa,
+            map_vars_ssa,
+            private_vars_ssa,
+            thread_limit_ssa,
+        ],
         regions=[Region([new_block])],
         properties=new_props,
     )
 
-    return map_var_ops + [target_op]
+    return (
+        allocate_vars_ops
+        + allocator_vars_ops
+        + depend_vars_ops
+        + device_ops
+        + has_device_addr_vars_ops
+        + host_eval_vars_ops
+        + if_expr_vars_ops
+        + in_reduction_vars_ops
+        + is_device_ptr_vars_ops
+        + map_vars_ops
+        + private_vars_ops
+        + [target_op]
+    )
 
 
 def translate_omp_yield(program_state: ProgramState, ctx: SSAValueCtx, op: omp.YieldOp):
