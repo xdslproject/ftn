@@ -1,4 +1,5 @@
 from xdsl.ir import Block, Region
+from xdsl.dialects import omp
 
 from ftn.transforms.to_core.misc.fortran_code_description import ProgramState
 from ftn.transforms.to_core.misc.ssa_context import SSAValueCtx
@@ -12,13 +13,18 @@ import ftn.transforms.to_core.statements as statements
 def translate_omp_mapinfo(
     program_state: ProgramState, ctx: SSAValueCtx, op: omp.MapInfoOp
 ):
-    var_ptr_ops = []
-    var_ptr_ssa = []
-    var_ptr_type = []
-    for arg in op.var_ptr:
-        var_ptr_ops += expressions.translate_expr(program_state, ctx, arg)
-        var_ptr_ssa.append(ctx[arg])
-        var_ptr_type.append(ctx[arg].type)
+    if ctx.contains(op.results[0]):
+        return []
+
+    var_ptr_ops = expressions.translate_expr(program_state, ctx, op.var_ptr)
+    var_ptr_ssa = ctx[op.var_ptr]
+    var_ptr_type = ctx[op.var_ptr].type
+
+    var_ptr_ptr_ops = []
+    var_ptr_ptr_ssa = []
+    if op.var_ptr_ptr is not None:
+        var_ptr_ptr_ops = expressions.translate_expr(program_state, ctx, op.var_ptr_ptr)
+        var_ptr_ptr_ssa = [ctx[op.var_ptr_ptr]]
 
     members_ops = []
     members_ssa = []
@@ -33,56 +39,48 @@ def translate_omp_mapinfo(
         bounds_ssa.append(bounds_ops[-1].results[0])
 
     mapinfo_op = omp.MapInfoOp.build(
-        operands=[var_ptr_ssa, members_ssa, bounds_ssa],
+        operands=[var_ptr_ssa, var_ptr_ptr_ssa, members_ssa, bounds_ssa],
         properties={
             "map_type": op.map_type,
-            "var_name": op.var_name,
-            "var_type": var_ptr_type[0],
+            "name": op.var_name,
+            "var_type": var_ptr_type,
         },
-        result_types=var_ptr_type,
+        result_types=[var_ptr_type],
     )
 
-    return var_ptr_ops + members_ops + bounds_ops + [mapinfo_op]
+    ctx[op.results[0]] = mapinfo_op.results[0]
+
+    return var_ptr_ops + var_ptr_ptr_ops + members_ops + bounds_ops + [mapinfo_op]
 
 
 def translate_omp_bounds(
-    program_state: ProgramState, ctx: SSAValueCtx, op: omp.BoundsOp
+    program_state: ProgramState, ctx: SSAValueCtx, op: omp.MapBoundsOp
 ):
-    lower_ops = []
-    lower_ssa = []
-    for arg in op.lower:
-        lower_ops += expressions.translate_expr(program_state, ctx, arg)
-        lower_ssa.append(ctx[arg])
+    if ctx.contains(op.results[0]):
+        return []
 
-    upper_ops = []
-    upper_ssa = []
-    for arg in op.upper:
-        pass  # upper_ops+=translate_expr(program_state, ctx, arg)
-        # upper_ssa.append(ctx[arg])
+    lower_ops = expressions.translate_expr(program_state, ctx, op.lower_bound)
+    lower_ssa = ctx[op.lower_bound]
 
-    extent_ops = []
-    extent_ssa = []
-    for arg in op.extent:
-        extent_ops += expressions.translate_expr(program_state, ctx, arg)
-        extent_ssa.append(ctx[arg])
+    upper_ops = expressions.translate_expr(program_state, ctx, op.upper_bound)
+    upper_ssa = ctx[op.upper_bound]
 
-    stride_ops = []
-    stride_ssa = []
-    for arg in op.stride:
-        pass  # stride_ops+=translate_expr(program_state, ctx, arg)
-        # stride_ssa.append(ctx[arg])
+    extent_ops = expressions.translate_expr(program_state, ctx, op.extent)
+    extent_ssa = ctx[op.extent]
 
-    start_ops = []
-    start_ssa = []
-    for arg in op.start:
-        pass  # start_ops+=translate_expr(program_state, ctx, arg)
-        # start_ssa.append(ctx[arg])
+    stride_ops = expressions.translate_expr(program_state, ctx, op.stride)
+    stride_ssa = ctx[op.stride]
 
-    bounds_op = omp.BoundsOp.build(
+    start_ops = expressions.translate_expr(program_state, ctx, op.start_idx)
+    start_ssa = ctx[op.start_idx]
+
+    bounds_op = omp.MapBoundsOp.build(
         operands=[lower_ssa, upper_ssa, extent_ssa, stride_ssa, start_ssa],
         properties={"stride_in_bytes": op.stride_in_bytes},
-        result_types=[omp.DataBoundsTy()],
+        result_types=[omp.MapBoundsType()],
     )
+
+    ctx[op.results[0]] = bounds_op.results[0]
 
     return lower_ops + upper_ops + extent_ops + stride_ops + start_ops + [bounds_op]
 
@@ -164,7 +162,7 @@ def translate_omp_team(program_state: ProgramState, ctx: SSAValueCtx, op: omp.Te
 
 
 def translate_omp_simdloop(
-    program_state: ProgramState, ctx: SSAValueCtx, op: omp.SIMDLoopOp
+    program_state: ProgramState, ctx: SSAValueCtx, op: omp.SIMDOp
 ):
     arg_types = []
 
@@ -194,7 +192,7 @@ def translate_omp_simdloop(
         if key != "operandSegmentSizes":
             new_props[key] = value
 
-    simd_op = omp.SIMDLoopOp.build(
+    simd_op = omp.SIMDOp.build(
         operands=[lb_ops, ub_ops, step_ops, [], [], []],
         regions=[Region([new_block])],
         properties=new_props,
@@ -231,8 +229,11 @@ def translate_omp_target(
         if key != "operandSegmentSizes":
             new_props[key] = value
 
+    # For the moment we ignore a large number of operands passed to the target call
+    # consider handling these in the future
+
     target_op = omp.TargetOp.build(
-        operands=[[], [], [], map_var_ssa],
+        operands=[[], [], [], [], [], [], [], [], [], map_var_ssa, [], []],
         regions=[Region([new_block])],
         properties=new_props,
     )

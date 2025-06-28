@@ -1,7 +1,7 @@
 from xdsl.dialects.experimental import fir, hlfir
 from xdsl.utils.hints import isa
 from xdsl.ir import Operation
-from xdsl.dialects import func, llvm, arith, cf
+from xdsl.dialects import func, llvm, arith, cf, omp
 
 from ftn.transforms.to_core.misc.fortran_code_description import ProgramState
 from ftn.transforms.to_core.misc.ssa_context import SSAValueCtx
@@ -10,6 +10,7 @@ import ftn.transforms.to_core.components.memory as ftn_memory
 import ftn.transforms.to_core.components.load_store as ftn_load_store
 import ftn.transforms.to_core.components.functions as ftn_functions
 import ftn.transforms.to_core.components.control_flow as ftn_ctrl_flow
+import ftn.transforms.to_core.components.openmp as ftn_openmp
 import ftn.transforms.to_core.expressions as expressions
 
 
@@ -90,18 +91,18 @@ def try_translate_stmt(program_state: ProgramState, ctx: SSAValueCtx, op: Operat
         return ftn_ctrl_flow.translate_conditional(program_state, ctx, op)
     elif isa(op, cf.BranchOp):
         return ftn_ctrl_flow.translate_branch(program_state, ctx, op)
-    # elif isa(op, omp.TargetOp):
-    #  return translate_omp_target(program_state, ctx, op)
-    # elif isa(op, omp.TerminatorOp):
-    #  return [omp.TerminatorOp.create()]
+    elif isa(op, omp.TargetOp):
+        return ftn_openmp.translate_omp_target(program_state, ctx, op)
+    elif isa(op, omp.TerminatorOp):
+        return [omp.TerminatorOp.create()]
     # elif isa(op, omp.SIMDLoopOp):
     #  return translate_omp_simdloop(program_state, ctx, op)
     # elif isa(op, omp.TeamsOp):
     #  return translate_omp_team(program_state, ctx, op)
     # elif isa(op, omp.ParallelOp):
     #  return translate_omp_parallel(program_state, ctx, op)
-    # elif isa(op, omp.YieldOp):
-    #  return [omp.YieldOp.create()]
+    elif isa(op, omp.YieldOp):
+        return [omp.YieldOp.create()]
     elif isa(op, cf.ConditionalBranchOp):
         return ftn_ctrl_flow.translate_conditional_branch(program_state, ctx, op)
     elif isa(op, fir.UnreachableOp):

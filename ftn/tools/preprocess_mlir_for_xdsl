@@ -8,12 +8,12 @@ assert len(sys.argv) == 3
 with open(sys.argv[1]) as file:
   lines=""
   for line in file:
-    if "omp.map_info" in line:
-      line=line.replace("name =", "var_name =")
-      line=line.replace("map_capture_type = #omp<variable_capture_kind(ByRef)>, ", "")
-      line=line.replace("map_capture_type = #omp<variable_capture_kind(ByCopy)>, ", "")
+    line=line.replace(", omp.declare_target = #omp.declaretarget<device_type = (nohost), capture_clause = (to)>", "")
+    if "omp.map.info" in line:
+      line=line.replace("#omp<variable_capture_kind(ByRef)>", "#omp<variable_capture_kind ByRef>")
+      line=line.replace("#omp<variable_capture_kind(ByCopy)>", "#omp<variable_capture_kind ByCopy>")
     if "#dlti.dl_spec<" in line:
-      line=line.replace(", omp.is_gpu = false, omp.is_target_device = false, omp.requires = #omp<clause_requires none>, omp.version = #omp.version<version = 11>", "")
+      line=line.replace(", omp.is_gpu = false, omp.is_target_device = false, omp.requires = #omp<clause_requires none>, omp.target_triples = [], omp.version = #omp.version<version = 11>", "")
     if "arith.constant" in line and "() -> f64" in line and "value = 0x" in line:
       # This is the hex value that we need to convert
       hex_val=line.split("value =")[1].split(":")[0].strip()

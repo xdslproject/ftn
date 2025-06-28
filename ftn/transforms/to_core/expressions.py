@@ -1,7 +1,7 @@
 from xdsl.dialects.experimental import fir, hlfir
 from xdsl.utils.hints import isa
 from xdsl.ir import Operation, SSAValue, Block, BlockArgument
-from xdsl.dialects import arith, math
+from xdsl.dialects import arith, math, omp
 
 from ftn.transforms.to_core.misc.fortran_code_description import ProgramState
 from ftn.transforms.to_core.misc.ssa_context import SSAValueCtx
@@ -13,6 +13,7 @@ import ftn.transforms.to_core.components.load_store as ftn_load_store
 import ftn.transforms.to_core.components.memory as ftn_memory
 import ftn.transforms.to_core.components.functions as ftn_functions
 import ftn.transforms.to_core.components.control_flow as ftn_ctrl_flow
+import ftn.transforms.to_core.components.openmp as ftn_openmp
 
 
 def translate_expr(program_state: ProgramState, ctx: SSAValueCtx, ssa_value: SSAValue):
@@ -96,6 +97,10 @@ def try_translate_expr(
         expr_list = translate_expr(program_state, ctx, op.val)
         ctx[op.results[0]] = ctx[op.val]
         return expr_list
+    elif isa(op, fir.BoxDimsOp):
+        return ftn_memory.translate_boxdims(program_state, ctx, op)
+    elif isa(op, fir.BoxOffsetOp):
+        return ftn_memory.translate_boxoffset(program_state, ctx, op)
     elif isa(op, arith.SelectOp):
         return ftn_maths.translate_select(program_state, ctx, op)
     elif isa(op, fir.EmboxOp) or isa(op, fir.EmboxcharOp):
@@ -126,10 +131,10 @@ def try_translate_expr(
         return ftn_intrinsics.translate_transpose(program_state, ctx, op)
     elif isa(op, hlfir.MatmulOp):
         return ftn_intrinsics.translate_matmul(program_state, ctx, op)
-    # elif isa(op, omp.BoundsOp):
-    #    return translate_omp_bounds(program_state, ctx, op)
-    # elif isa(op, omp.MapInfoOp):
-    #    return translate_omp_mapinfo(program_state, ctx, op)
+    elif isa(op, omp.MapBoundsOp):
+        return ftn_openmp.translate_omp_bounds(program_state, ctx, op)
+    elif isa(op, omp.MapInfoOp):
+        return ftn_openmp.translate_omp_mapinfo(program_state, ctx, op)
     else:
         for math_op in math.Math.operations:
             # Check to see if this is a math operation
