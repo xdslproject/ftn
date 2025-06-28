@@ -1,6 +1,6 @@
 from xdsl.ir import Block, Region
 from xdsl.utils.hints import isa
-from xdsl.dialects import omp
+from xdsl.dialects import builtin, omp
 
 from ftn.transforms.to_core.misc.fortran_code_description import ProgramState
 from ftn.transforms.to_core.misc.ssa_context import SSAValueCtx
@@ -9,6 +9,33 @@ from ftn.transforms.to_core.utils import create_index_constant
 
 import ftn.transforms.to_core.expressions as expressions
 import ftn.transforms.to_core.statements as statements
+
+
+def handle_var_operand_field(program_state, ctx, var_operands):
+    arg_types = []
+    vars_ops = []
+    vars_ssa = []
+
+    if len(var_operands) > 0:
+        for operand in var_operands:
+            vars_ops += expressions.translate_expr(program_state, ctx, operand)
+            vars_ssa.append(ctx[operand])
+            arg_types.append(ctx[operand].type)
+
+    return vars_ops, vars_ssa, arg_types
+
+
+def handle_opt_operand_field(program_state, ctx, opt_operand):
+    arg_types = []
+    vars_ops = []
+    vars_ssa = []
+
+    if opt_operand is not None:
+        vars_ops += expressions.translate_expr(program_state, ctx, opt_operand)
+        vars_ssa = ctx[opt_operand]
+        arg_types.append(ctx[opt_operand].type)
+
+    return vars_ops, vars_ssa, arg_types
 
 
 def translate_private(program_state: ProgramState, ctx: SSAValueCtx, op: omp.PrivateOp):
@@ -127,29 +154,139 @@ def translate_omp_bounds(
     return lower_ops + upper_ops + extent_ops + stride_ops + start_ops + [bounds_op]
 
 
-def translate_omp_parallel(
-    program_state: ProgramState, ctx: SSAValueCtx, op: omp.TeamsOp
+def translate_omp_wsloop(
+    program_state: ProgramState, ctx: SSAValueCtx, op: omp.WsLoopOp
 ):
-    arg_ssa = []
-    arg_ops = []
+    arg_types = []
 
-    if op.if_expr_var is not None:
-        ops = expressions.translate_expr(program_state, ctx, op.if_expr_var)
-        arg_ops += ops
-        arg_ssa.append([ops[-1].results[0]])
-    else:
-        arg_ssa.append([])
+    allocate_vars_ops, allocate_vars_ssa, allocate_vars_types = (
+        handle_var_operand_field(program_state, ctx, op.allocate_vars)
+    )
+    arg_types += allocate_vars_types
 
-    if op.num_threads_var is not None:
-        ops = expressions.translate_expr(program_state, ctx, op.num_threads_var)
-        arg_ops += ops
-        arg_ssa.append([ops[-1].results[0]])
-    else:
-        arg_ssa.append([])
+    allocator_vars_ops, allocator_vars_ssa, allocator_vars_types = (
+        handle_var_operand_field(program_state, ctx, op.allocator_vars)
+    )
+    arg_types += allocator_vars_types
 
-    arg_ssa += [[], [], []]
+    linear_vars_ops, linear_vars_ssa, linear_vars_types = handle_var_operand_field(
+        program_state, ctx, op.linear_vars
+    )
+    arg_types += linear_vars_types
 
-    new_block = Block()
+    linear_step_vars_ops, linear_step_vars_ssa, linear_step_vars_types = (
+        handle_var_operand_field(program_state, ctx, op.linear_step_vars)
+    )
+    arg_types += linear_step_vars_types
+
+    private_vars_ops, private_vars_ssa, private_vars_types = handle_var_operand_field(
+        program_state, ctx, op.private_vars
+    )
+    arg_types += private_vars_types
+
+    reduction_vars_ops, reduction_vars_ssa, reduction_vars_types = (
+        handle_var_operand_field(program_state, ctx, op.reduction_vars)
+    )
+    arg_types += reduction_vars_types
+
+    schedule_chunk_ops, schedule_chunk_ssa, schedule_chunk_types = (
+        handle_opt_operand_field(program_state, ctx, op.schedule_chunk)
+    )
+    arg_types += schedule_chunk_types
+
+    new_block = Block(arg_types=arg_types)
+
+    for fir_arg, std_arg in zip(op.body.blocks[0].args, new_block.args):
+        ctx[fir_arg] = std_arg
+
+    region_body_ops = []
+    top_level_ops = []
+    for single_op in op.body.blocks[0].ops:
+        region_body_ops = statements.translate_stmt(program_state, ctx, single_op)
+        if len(region_body_ops) > 1:
+            # The loopnest op will pull down the lower, upper and step constants into this region, however they need to sit above simd as otherwise verification will fail
+            # therefore extract out all but the last operation (the loop nest)
+            top_level_ops = region_body_ops[0:-1]
+            region_body_ops = [region_body_ops[-1]]
+
+    assert len(region_body_ops) == 1
+    assert isa(region_body_ops[0], omp.LoopNestOp) or isa(
+        region_body_ops[0], omp.SIMDOp
+    )
+
+    new_block.add_ops(region_body_ops)
+
+    new_props = {}
+    for key, value in op.properties.items():
+        if key != "operandSegmentSizes":
+            new_props[key] = value
+
+    omp_wsloop = omp.WsLoopOp.build(
+        operands=[
+            allocate_vars_ssa,
+            allocator_vars_ssa,
+            linear_vars_ssa,
+            linear_step_vars_ssa,
+            private_vars_ssa,
+            reduction_vars_ssa,
+            schedule_chunk_ssa,
+        ],
+        regions=[Region([new_block])],
+        properties=new_props,
+    )
+
+    return (
+        allocate_vars_ops
+        + allocator_vars_ops
+        + linear_vars_ops
+        + linear_step_vars_ops
+        + private_vars_ops
+        + reduction_vars_ops
+        + schedule_chunk_ops
+        + top_level_ops
+        + [omp_wsloop]
+    )
+
+
+def translate_omp_parallel(
+    program_state: ProgramState, ctx: SSAValueCtx, op: omp.ParallelOp
+):
+    arg_types = []
+
+    allocate_vars_ops, allocate_vars_ssa, allocate_vars_types = (
+        handle_var_operand_field(program_state, ctx, op.allocate_vars)
+    )
+    arg_types += allocate_vars_types
+
+    allocators_vars_ops, allocators_vars_ssa, allocators_vars_types = (
+        handle_var_operand_field(program_state, ctx, op.allocators_vars)
+    )
+    arg_types += allocators_vars_types
+
+    if_expr_ops, if_expr_ssa, if_expr_types = handle_opt_operand_field(
+        program_state, ctx, op.if_expr
+    )
+    arg_types += if_expr_types
+
+    num_threads_ops, num_threads_ssa, num_threads_types = handle_opt_operand_field(
+        program_state, ctx, op.num_threads
+    )
+    arg_types += num_threads_types
+
+    private_vars_ops, private_vars_ssa, private_vars_types = handle_var_operand_field(
+        program_state, ctx, op.private_vars
+    )
+    arg_types += private_vars_types
+
+    reduction_vars_ops, reduction_vars_ssa, reduction_vars_types = (
+        handle_var_operand_field(program_state, ctx, op.reduction_vars)
+    )
+    arg_types += reduction_vars_types
+
+    new_block = Block(arg_types=arg_types)
+
+    for fir_arg, std_arg in zip(op.region.blocks[0].args, new_block.args):
+        ctx[fir_arg] = std_arg
 
     region_body_ops = []
     for single_op in op.region.blocks[0].ops:
@@ -157,11 +294,33 @@ def translate_omp_parallel(
 
     new_block.add_ops(region_body_ops)
 
-    return arg_ops + [
-        omp.ParallelOp.build(
-            operands=arg_ssa, regions=[Region([new_block])], properties={}
-        )
-    ]
+    new_props = {}
+    for key, value in op.properties.items():
+        if key != "operandSegmentSizes":
+            new_props[key] = value
+
+    omp_parallel = omp.ParallelOp.build(
+        operands=[
+            allocate_vars_ssa,
+            allocators_vars_ssa,
+            if_expr_ssa,
+            num_threads_ssa,
+            private_vars_ssa,
+            reduction_vars_ssa,
+        ],
+        regions=[Region([new_block])],
+        properties=new_props,
+    )
+
+    return (
+        allocate_vars_ops
+        + allocators_vars_ops
+        + if_expr_ops
+        + num_threads_ops
+        + private_vars_ops
+        + reduction_vars_ops
+        + [omp_parallel]
+    )
 
 
 def translate_omp_loopnest(
@@ -173,13 +332,8 @@ def translate_omp_loopnest(
     ub_ops = expressions.translate_expr(program_state, ctx, op.upperBound[0])
     step_ops = expressions.translate_expr(program_state, ctx, op.step[0])
 
-    arg_types = [
-        lb_ops[-1].results[0].type,
-        ub_ops[-1].results[0].type,
-        step_ops[-1].results[0].type,
-    ]
-
-    new_block = Block(arg_types=arg_types)
+    # A loopnest has a single argument type of i32, which is the loop iteration counter
+    new_block = Block(arg_types=[builtin.i32])
 
     for fir_arg, std_arg in zip(op.body.blocks[0].args, new_block.args):
         ctx[fir_arg] = std_arg
@@ -246,65 +400,40 @@ def translate_omp_team(program_state: ProgramState, ctx: SSAValueCtx, op: omp.Te
 def translate_omp_simd(program_state: ProgramState, ctx: SSAValueCtx, op: omp.SIMDOp):
     arg_types = []
 
-    aligned_vars_ops = []
-    aligned_vars_ssa = []
-    if len(op.aligned_vars) > 0:
-        for operand in op.aligned_var:
-            aligned_vars_ops += expressions.translate_expr(program_state, ctx, operand)
-            aligned_vars_ssa.append(ctx[operand])
-            arg_types.append(ctx[operand].type)
+    aligned_vars_ops, aligned_vars_ssa, aligned_var_types = handle_var_operand_field(
+        program_state, ctx, op.aligned_vars
+    )
+    arg_types += aligned_var_types
 
-    if_expr_ops = []
-    if_expr_ssa = []
-    if op.if_expr is not None:
-        if_expr_ops += expressions.translate_expr(program_state, ctx, op.if_expr)
-        if_expr_ssa = ctx[op.if_expr]
-        arg_types.append(ctx[op.if_expr].type)
+    if_expr_ops, if_expr_ssa, if_expr_types = handle_opt_operand_field(
+        program_state, ctx, op.if_expr
+    )
+    arg_types += if_expr_types
 
-    linear_vars_ops = []
-    linear_vars_ssa = []
-    if len(op.linear_vars) > 0:
-        for operand in op.linear_vars:
-            linear_vars_ops += expressions.translate_expr(program_state, ctx, operand)
-            linear_vars_ssa.append(ctx[operand])
-            arg_types.append(ctx[operand].type)
+    linear_vars_ops, linear_vars_ssa, linear_vars_types = handle_var_operand_field(
+        program_state, ctx, op.linear_vars
+    )
+    arg_types += linear_vars_types
 
-    linear_step_vars_ops = []
-    linear_step_vars_ssa = []
-    if len(op.linear_step_vars) > 0:
-        for operand in op.linear_step_vars:
-            linear_step_vars_ops += expressions.translate_expr(
-                program_state, ctx, operand
-            )
-            linear_step_vars_ssa.append(ctx[operand])
-            arg_types.append(ctx[operand].type)
+    linear_step_vars_ops, linear_step_vars_ssa, linear_step_vars_types = (
+        handle_var_operand_field(program_state, ctx, op.linear_step_vars)
+    )
+    arg_types += linear_step_vars_types
 
-    nontemporal_vars_ops = []
-    nontemporal_vars_ssa = []
-    if op.nontemporal_vars is not None:
-        nontemporal_vars_ops += expressions.translate_expr(
-            program_state, ctx, op.nontemporal_vars
-        )
-        nontemporal_vars_ssa = ctx[op.nontemporal_vars]
-        arg_types.append(ctx[op.nontemporal_vars].type)
+    nontemporal_vars_ops, nontemporal_vars_ssa, nontemporal_vars_types = (
+        handle_opt_operand_field(program_state, ctx, op.nontemporal_vars)
+    )
+    arg_types += nontemporal_vars_types
 
-    private_vars_ops = []
-    private_vars_ssa = []
-    if op.private_vars is not None:
-        private_vars_ops += expressions.translate_expr(
-            program_state, ctx, op.private_vars
-        )
-        private_vars_ssa = ctx[op.private_vars]
-        arg_types.append(ctx[op.private_vars].type)
+    private_vars_ops, private_vars_ssa, private_vars_types = handle_opt_operand_field(
+        program_state, ctx, op.private_vars
+    )
+    arg_types += private_vars_types
 
-    reduction_vars_ops = []
-    reduction_vars_ssa = []
-    if op.reduction_vars is not None:
-        reduction_vars_ops += expressions.translate_expr(
-            program_state, ctx, op.reduction_vars
-        )
-        reduction_varss_ssa = ctx[op.reduction_vars]
-        arg_types.append(ctx[op.reduction_vars].type)
+    reduction_vars_ops, reduction_vars_ssa, reduction_vars_types = (
+        handle_opt_operand_field(program_state, ctx, op.reduction_vars)
+    )
+    arg_types += reduction_vars_types
 
     new_block = Block(arg_types=arg_types)
 
@@ -322,7 +451,9 @@ def translate_omp_simd(program_state: ProgramState, ctx: SSAValueCtx, op: omp.SI
             region_body_ops = [region_body_ops[-1]]
 
     assert len(region_body_ops) == 1
-    assert isa(region_body_ops[0], omp.LoopNestOp)
+    assert isa(region_body_ops[0], omp.LoopNestOp) or isa(
+        region_body_ops[0], omp.WsLoopOp
+    )
 
     new_block.add_ops(region_body_ops)
 
