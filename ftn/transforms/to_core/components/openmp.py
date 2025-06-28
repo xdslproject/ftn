@@ -359,27 +359,53 @@ def translate_omp_loopnest(
     return lb_ops + ub_ops + step_ops + [loopnest_op]
 
 
-def translate_omp_team(program_state: ProgramState, ctx: SSAValueCtx, op: omp.TeamsOp):
-    arg_ssa = []
-    arg_ops = []
+def translate_omp_teams(program_state: ProgramState, ctx: SSAValueCtx, op: omp.TeamsOp):
+    arg_types = []
 
-    if op.num_teams_lower is not None:
-        ops = expressions.translate_expr(program_state, ctx, op.num_teams_lower)
-        arg_ops += ops
-        arg_ssa.append([ops[-1].results[0]])
-    else:
-        arg_ssa.append([])
+    allocate_vars_ops, allocate_vars_ssa, allocate_vars_types = (
+        handle_var_operand_field(program_state, ctx, op.allocate_vars)
+    )
+    arg_types += allocate_vars_types
 
-    if op.num_teams_upper is not None:
-        ops = expressions.translate_expr(program_state, ctx, op.num_teams_upper)
-        arg_ops += ops
-        arg_ssa.append([ops[-1].results[0]])
-    else:
-        arg_ssa.append([])
+    allocator_vars_ops, allocator_vars_ssa, allocator_vars_types = (
+        handle_var_operand_field(program_state, ctx, op.allocator_vars)
+    )
+    arg_types += allocator_vars_types
 
-    arg_ssa += [[], [], [], [], []]
+    if_expr_ops, if_expr_ssa, if_expr_types = handle_opt_operand_field(
+        program_state, ctx, op.if_expr
+    )
+    arg_types += if_expr_types
 
-    new_block = Block()
+    num_teams_lower_ops, num_teams_lower_ssa, num_teams_lower_types = (
+        handle_opt_operand_field(program_state, ctx, op.num_teams_lower)
+    )
+    arg_types += num_teams_lower_types
+
+    num_teams_upper_ops, num_teams_upper_ssa, num_teams_upper_types = (
+        handle_opt_operand_field(program_state, ctx, op.num_teams_upper)
+    )
+    arg_types += num_teams_upper_types
+
+    private_vars_ops, private_vars_ssa, private_vars_types = handle_var_operand_field(
+        program_state, ctx, op.private_vars
+    )
+    arg_types += private_vars_types
+
+    reduction_vars_ops, reduction_vars_ssa, reduction_vars_types = (
+        handle_var_operand_field(program_state, ctx, op.reduction_vars)
+    )
+    arg_types += reduction_vars_types
+
+    thread_limit_ops, thread_limit_ssa, thread_limit_types = handle_opt_operand_field(
+        program_state, ctx, op.thread_limit
+    )
+    arg_types += thread_limit_types
+
+    new_block = Block(arg_types=arg_types)
+
+    for fir_arg, std_arg in zip(op.body.blocks[0].args, new_block.args):
+        ctx[fir_arg] = std_arg
 
     region_body_ops = []
     for single_op in op.body.blocks[0].ops:
@@ -393,9 +419,30 @@ def translate_omp_team(program_state: ProgramState, ctx: SSAValueCtx, op: omp.Te
             new_props[key] = value
 
     teams_op = omp.TeamsOp.build(
-        operands=arg_ssa, regions=[Region([new_block])], properties=new_props
+        operands=[
+            allocate_vars_ssa,
+            allocator_vars_ssa,
+            if_expr_ssa,
+            num_teams_lower_ssa,
+            num_teams_upper_ssa,
+            private_vars_ssa,
+            reduction_vars_ssa,
+            thread_limit_ssa,
+        ],
+        regions=[Region([new_block])],
+        properties=new_props,
     )
-    return arg_ops + [teams_op]
+    return (
+        allocate_vars_ops
+        + allocator_vars_ops
+        + if_expr_ops
+        + num_teams_lower_ops
+        + num_teams_upper_ops
+        + private_vars_ops
+        + reduction_vars_ops
+        + thread_limit_ops
+        + [teams_op]
+    )
 
 
 def translate_omp_simd(program_state: ProgramState, ctx: SSAValueCtx, op: omp.SIMDOp):

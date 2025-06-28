@@ -101,8 +101,8 @@ def try_translate_stmt(program_state: ProgramState, ctx: SSAValueCtx, op: Operat
         return ftn_openmp.translate_omp_loopnest(program_state, ctx, op)
     elif isa(op, omp.WsLoopOp):
         return ftn_openmp.translate_omp_wsloop(program_state, ctx, op)
-    # elif isa(op, omp.TeamsOp):
-    #  return translate_omp_team(program_state, ctx, op)
+    elif isa(op, omp.TeamsOp):
+        return ftn_openmp.translate_omp_teams(program_state, ctx, op)
     elif isa(op, omp.ParallelOp):
         return ftn_openmp.translate_omp_parallel(program_state, ctx, op)
     elif isa(op, omp.YieldOp):
