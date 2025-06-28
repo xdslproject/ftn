@@ -4,8 +4,8 @@ from xdsl.ir import Operation
 
 
 def camel_to_snake(name):
-    pattern = re.compile(r'(?<!^)(?=[A-Z])')
-    return pattern.sub('_', name).lower()
+    pattern = re.compile(r"(?<!^)(?=[A-Z])")
+    return pattern.sub("_", name).lower()
 
 
 def get_method(instance: object, method: str) -> Optional[Callable]:
@@ -20,19 +20,20 @@ def get_method(instance: object, method: str) -> Optional[Callable]:
 
 
 class Visitor:
-
     def traverse(self, operation: Operation):
         class_name = camel_to_snake(type(operation).__name__)
-        
-        traverse = get_method(self, f"traverse_{class_name}")        
+
+        traverse = get_method(self, f"traverse_{class_name}")
         if traverse:
-            traverse(operation)
+            return [traverse(operation)]
         else:
+            ret_ops = []
             for r in operation.regions:
                 for b in r.blocks:
                     for op in b.ops:
-                        self.traverse(op)
+                        ret_ops.append(self.traverse(op))
+            return ret_ops
 
         visit = get_method(self, f"visit_{class_name}")
         if visit:
-            visit(operation)
+            return [visit(operation)]

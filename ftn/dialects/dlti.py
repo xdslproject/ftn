@@ -105,6 +105,9 @@ class DlEntryAttr(ParametrizedAttribute, DataLayoutEntryInterface):
     key_: ParameterDef[Attribute]
     value_: ParameterDef[Attribute]
 
+    def __init__(self, key, value):
+      return super().__init__([key, value])
+
     @property
     def key(self) -> Attribute | str:
         if isinstance(self.key_, StringAttr):
@@ -127,7 +130,9 @@ class DataLayoutSpec(ParametrizedAttribute, TargetDeviceSpecInterface):
 
     def _verify(self):
         if not all(isinstance(elem, DataLayoutEntryInterface) for elem in self.entries):
-            raise VerifyException("All entries in device spec must implement TargetDeviceSpecInterface")
+            raise VerifyException(
+                "All entries in device spec must implement TargetDeviceSpecInterface"
+            )
         if len(set(elem.key for elem in self.entries)) != len(self.entries):
             raise VerifyException("Duplicate keys in device spec!")
 
@@ -137,7 +142,17 @@ class DataLayoutSpec(ParametrizedAttribute, TargetDeviceSpecInterface):
 
     @classmethod
     def parse_parameters(cls, parser: AttrParser) -> Sequence[Attribute]:
-        return ArrayAttr(parser.parse_comma_separated_list(parser.Delimiter.ANGLE, parser.parse_attribute)),
+        attrs=[]
+        parser.parse_characters("<")
+        end_parse = parser.parse_optional_characters(">")
+        while not end_parse:
+          key=parser.parse_attribute()
+          parser.parse_characters("=")
+          value=parser.parse_attribute()
+          parser.parse_optional_characters(",")
+          end_parse = parser.parse_optional_characters(">")
+          attrs.append(DlEntryAttr(key, value))
+        return ArrayAttr([attrs])
 
 
 @irdl_attr_definition
@@ -151,7 +166,9 @@ class TargetDeviceSpec(ParametrizedAttribute, TargetDeviceSpecInterface):
 
     def _verify(self):
         if not all(isinstance(elem, DataLayoutEntryInterface) for elem in self.entries):
-            raise VerifyException("All entries in device spec must implement TargetDeviceSpecInterface")
+            raise VerifyException(
+                "All entries in device spec must implement TargetDeviceSpecInterface"
+            )
         if len(set(elem.key for elem in self.entries)) != len(self.entries):
             raise VerifyException("Duplicate keys in device spec!")
 
@@ -161,12 +178,17 @@ class TargetDeviceSpec(ParametrizedAttribute, TargetDeviceSpecInterface):
 
     @classmethod
     def parse_parameters(cls, parser: AttrParser) -> Sequence[Attribute]:
-        return ArrayAttr(parser.parse_comma_separated_list(parser.Delimiter.ANGLE, parser.parse_attribute)),
+        return (
+            ArrayAttr(
+                parser.parse_comma_separated_list(
+                    parser.Delimiter.ANGLE, parser.parse_attribute
+                )
+            ),
+        )
 
 
 @irdl_attr_definition
 class TargetSystemSpec(ParametrizedAttribute, TargetSystemSpecInterface):
-
     name = "dlti.target_system_spec"
 
     entries: ParameterDef[DictionaryAttr]
@@ -205,12 +227,16 @@ class TargetSystemSpec(ParametrizedAttribute, TargetSystemSpecInterface):
             return str, val
 
         items = parser.parse_comma_separated_list(parser.Delimiter.ANGLE, parse_kv)
-        return DictionaryAttr(dict(items)),
+        return (DictionaryAttr(dict(items)),)
 
 
-DLTI = Dialect("dlti", [], [
-    DlEntryAttr,
-    DataLayoutSpec,
-    TargetSystemSpec,
-    TargetDeviceSpec,
-])
+DLTI = Dialect(
+    "dlti",
+    [],
+    [
+        DlEntryAttr,
+        DataLayoutSpec,
+        TargetSystemSpec,
+        TargetDeviceSpec,
+    ],
+)
