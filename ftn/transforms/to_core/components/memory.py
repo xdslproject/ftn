@@ -184,6 +184,50 @@ def define_stack_array_var(
         assert False
 
 
+def translate_boxdims(program_state: ProgramState, ctx: SSAValueCtx, op: fir.BoxDimsOp):
+    # Grabs dimensions from a box for a given dimension which is provided. This returns the triplet of lower bound, extent, and stride for 'dim' dimension
+    # we currently hardcode lower bound and stride and in the future should extend to provide these properly
+    if ctx.contains(op.results[0]):
+        return []
+
+    val_load_ops = expressions.translate_expr(program_state, ctx, op.val)
+    var_ssa = ctx[op.val]
+
+    idx_ops = expressions.translate_expr(program_state, ctx, op.dim)
+    idx_ssa = idx_ops[-1].results[0]
+
+    lb_op = create_index_constant(1)
+    ub_op = memref.DimOp.from_source_and_index(var_ssa, idx_ssa)
+    extent_op = create_index_constant(1)
+
+    ctx[op.results[0]] = lb_op.results[0]
+    ctx[op.results[1]] = ub_op.results[0]
+    ctx[op.results[2]] = extent_op.results[0]
+    return val_load_ops + idx_ops + [lb_op, extent_op, ub_op]
+
+
+def translate_boxoffset(
+    program_state: ProgramState, ctx: SSAValueCtx, op: fir.BoxOffsetOp
+):
+    # Grabs the underlying LLVM pointer from the box which is provided. This acts as a way to retrieve a pointer
+    # to the memory whilst still maintaining abstraction around FIR memory. This is needed when interfacing with
+    # external APIs, such as OpenMP and OpenACC
+
+    if ctx.contains(op.results[0]):
+        return []
+
+    val_load_ops = expressions.translate_expr(program_state, ctx, op.val)
+    var_ssa = ctx[op.val]
+
+    assert isa(var_ssa.type, builtin.MemRefType)
+    extract_ptr_as_idx_op = memref.ExtractAlignedPointerAsIndexOp.get(var_ssa)
+    i64_idx_op = arith.IndexCastOp(extract_ptr_as_idx_op.results[0], builtin.i64)
+    ptr_op = llvm.IntToPtrOp(i64_idx_op.results[0])
+    ctx[op.results[0]] = ptr_op.results[0]
+
+    return val_load_ops + [extract_ptr_as_idx_op, i64_idx_op, ptr_op]
+
+
 def translate_alloca(program_state: ProgramState, ctx: SSAValueCtx, op: fir.AllocaOp):
     if ctx.contains(op.results[0]):
         return []
