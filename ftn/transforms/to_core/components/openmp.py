@@ -155,13 +155,14 @@ def translate_omp_mapinfo(
         bounds_ops += expressions.translate_expr(program_state, ctx, arg)
         bounds_ssa.append(bounds_ops[-1].results[0])
 
+    new_props = {}
+    for key, value in op.properties.items():
+        if key != "operandSegmentSizes":
+            new_props[key] = value
+
     mapinfo_op = omp.MapInfoOp.build(
         operands=[var_ptr_ssa, var_ptr_ptr_ssa, members_ssa, bounds_ssa],
-        properties={
-            "map_type": op.map_type,
-            "name": op.var_name,
-            "var_type": var_ptr_type,
-        },
+        properties=new_props,
         result_types=[var_ptr_type],
     )
 
@@ -191,9 +192,14 @@ def translate_omp_bounds(
     start_ops = expressions.translate_expr(program_state, ctx, op.start_idx)
     start_ssa = ctx[op.start_idx]
 
+    new_props = {}
+    for key, value in op.properties.items():
+        if key != "operandSegmentSizes":
+            new_props[key] = value
+
     bounds_op = omp.MapBoundsOp.build(
         operands=[lower_ssa, upper_ssa, extent_ssa, stride_ssa, start_ssa],
-        properties={"stride_in_bytes": op.stride_in_bytes},
+        properties=new_props,
         result_types=[omp.MapBoundsType()],
     )
 
