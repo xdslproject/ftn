@@ -38,6 +38,54 @@ def handle_opt_operand_field(program_state, ctx, opt_operand):
     return vars_ops, vars_ssa, arg_types
 
 
+def create_block_and_properties_for_op(
+    program_state: ProgramState,
+    ctx: SSAValueCtx,
+    op,
+    arg_types,
+    region,
+    hoist_loop_indexes,
+):
+    block = region.blocks[0]
+
+    new_block = Block(arg_types=arg_types)
+
+    for fir_arg, std_arg in zip(block.args, new_block.args):
+        ctx[fir_arg] = std_arg
+
+    region_body_ops = []
+    top_level_ops = []
+    if hoist_loop_indexes:
+        assert len(block.ops) == 1
+        region_body_ops = statements.translate_stmt(program_state, ctx, block.ops.first)
+        if len(region_body_ops) > 1:
+            # The loopnest op will pull down the lower, upper and step constants into this region,
+            # however they need to sit above simd as otherwise verification will fail
+            # therefore extract out all but the last operation (the loop nest)
+            top_level_ops = region_body_ops[0:-1]
+            region_body_ops = [region_body_ops[-1]]
+
+        assert len(region_body_ops) == 1
+        assert (
+            isa(region_body_ops[0], omp.LoopNestOp)
+            or isa(region_body_ops[0], omp.WsLoopOp)
+            or isa(region_body_ops[0], omp.SIMDOp)
+            or isa(region_body_ops[0], omp.DistributeOp)
+        )
+    else:
+        for single_op in block.ops:
+            region_body_ops += statements.translate_stmt(program_state, ctx, single_op)
+
+    new_block.add_ops(region_body_ops)
+
+    new_props = {}
+    for key, value in op.properties.items():
+        if key != "operandSegmentSizes":
+            new_props[key] = value
+
+    return new_block, top_level_ops, new_props
+
+
 def translate_private(program_state: ProgramState, ctx: SSAValueCtx, op: omp.PrivateOp):
     if len(op.alloc_region.blocks) > 0:
         alloc_region_ops = []
@@ -194,33 +242,9 @@ def translate_omp_wsloop(
     )
     arg_types += schedule_chunk_types
 
-    new_block = Block(arg_types=arg_types)
-
-    for fir_arg, std_arg in zip(op.body.blocks[0].args, new_block.args):
-        ctx[fir_arg] = std_arg
-
-    region_body_ops = []
-    top_level_ops = []
-    for single_op in op.body.blocks[0].ops:
-        region_body_ops = statements.translate_stmt(program_state, ctx, single_op)
-        if len(region_body_ops) > 1:
-            # The loopnest op will pull down the lower, upper and step constants into this region,
-            # however they need to sit above simd as otherwise verification will fail
-            # therefore extract out all but the last operation (the loop nest)
-            top_level_ops = region_body_ops[0:-1]
-            region_body_ops = [region_body_ops[-1]]
-
-    assert len(region_body_ops) == 1
-    assert isa(region_body_ops[0], omp.LoopNestOp) or isa(
-        region_body_ops[0], omp.SIMDOp
+    new_block, top_level_ops, new_props = create_block_and_properties_for_op(
+        program_state, ctx, op, arg_types, op.body, True
     )
-
-    new_block.add_ops(region_body_ops)
-
-    new_props = {}
-    for key, value in op.properties.items():
-        if key != "operandSegmentSizes":
-            new_props[key] = value
 
     omp_wsloop = omp.WsLoopOp.build(
         operands=[
@@ -284,21 +308,9 @@ def translate_omp_parallel(
     )
     arg_types += reduction_vars_types
 
-    new_block = Block(arg_types=arg_types)
-
-    for fir_arg, std_arg in zip(op.region.blocks[0].args, new_block.args):
-        ctx[fir_arg] = std_arg
-
-    region_body_ops = []
-    for single_op in op.region.blocks[0].ops:
-        region_body_ops += statements.translate_stmt(program_state, ctx, single_op)
-
-    new_block.add_ops(region_body_ops)
-
-    new_props = {}
-    for key, value in op.properties.items():
-        if key != "operandSegmentSizes":
-            new_props[key] = value
+    new_block, __, new_props = create_block_and_properties_for_op(
+        program_state, ctx, op, arg_types, op.region, False
+    )
 
     omp_parallel = omp.ParallelOp.build(
         operands=[
@@ -333,22 +345,9 @@ def translate_omp_loopnest(
     ub_ops = expressions.translate_expr(program_state, ctx, op.upperBound[0])
     step_ops = expressions.translate_expr(program_state, ctx, op.step[0])
 
-    # A loopnest has a single argument type of i32, which is the loop iteration counter
-    new_block = Block(arg_types=[builtin.i32])
-
-    for fir_arg, std_arg in zip(op.body.blocks[0].args, new_block.args):
-        ctx[fir_arg] = std_arg
-
-    region_body_ops = []
-    for single_op in op.body.blocks[0].ops:
-        region_body_ops += statements.translate_stmt(program_state, ctx, single_op)
-
-    new_block.add_ops(region_body_ops)
-
-    new_props = {}
-    for key, value in op.properties.items():
-        if key != "operandSegmentSizes":
-            new_props[key] = value
+    new_block, __, new_props = create_block_and_properties_for_op(
+        program_state, ctx, op, [builtin.i32], op.body, False
+    )
 
     loopnest_op = omp.LoopNestOp.build(
         operands=[lb_ops, ub_ops, step_ops],
@@ -402,21 +401,9 @@ def translate_omp_teams(program_state: ProgramState, ctx: SSAValueCtx, op: omp.T
     )
     arg_types += thread_limit_types
 
-    new_block = Block(arg_types=arg_types)
-
-    for fir_arg, std_arg in zip(op.body.blocks[0].args, new_block.args):
-        ctx[fir_arg] = std_arg
-
-    region_body_ops = []
-    for single_op in op.body.blocks[0].ops:
-        region_body_ops += statements.translate_stmt(program_state, ctx, single_op)
-
-    new_block.add_ops(region_body_ops)
-
-    new_props = {}
-    for key, value in op.properties.items():
-        if key != "operandSegmentSizes":
-            new_props[key] = value
+    new_block, __, new_props = create_block_and_properties_for_op(
+        program_state, ctx, op, arg_types, op.body, False
+    )
 
     teams_op = omp.TeamsOp.build(
         operands=[
@@ -442,6 +429,58 @@ def translate_omp_teams(program_state: ProgramState, ctx: SSAValueCtx, op: omp.T
         + reduction_vars_ops
         + thread_limit_ops
         + [teams_op]
+    )
+
+
+def translate_omp_distribute(
+    program_state: ProgramState, ctx: SSAValueCtx, op: omp.DistributeOp
+):
+    arg_types = []
+
+    allocate_vars_ops, allocate_vars_ssa, allocate_vars_types = (
+        handle_var_operand_field(program_state, ctx, op.allocate_vars)
+    )
+    arg_types += allocate_vars_types
+
+    allocator_vars_ops, allocator_vars_ssa, allocator_vars_types = (
+        handle_var_operand_field(program_state, ctx, op.allocator_vars)
+    )
+    arg_types += allocator_vars_types
+
+    (
+        dist_schedule_chunk_size_ops,
+        dist_schedule_chunk_size_ssa,
+        dist_schedule_chunk_size_types,
+    ) = handle_opt_operand_field(program_state, ctx, op.dist_schedule_chunk_size)
+    arg_types += dist_schedule_chunk_size_types
+
+    private_vars_ops, private_vars_ssa, private_vars_types = handle_var_operand_field(
+        program_state, ctx, op.private_vars
+    )
+    arg_types += private_vars_types
+
+    new_block, top_level_ops, new_props = create_block_and_properties_for_op(
+        program_state, ctx, op, arg_types, op.body, True
+    )
+
+    distribute_op = omp.DistributeOp.build(
+        operands=[
+            allocate_vars_ssa,
+            allocator_vars_ssa,
+            dist_schedule_chunk_size_ssa,
+            private_vars_types,
+        ],
+        regions=[Region([new_block])],
+        properties=new_props,
+    )
+
+    return (
+        allocate_vars_ops
+        + allocator_vars_ops
+        + dist_schedule_chunk_size_ops
+        + private_vars_ops
+        + top_level_ops
+        + [distribute_op]
     )
 
 
@@ -483,33 +522,9 @@ def translate_omp_simd(program_state: ProgramState, ctx: SSAValueCtx, op: omp.SI
     )
     arg_types += reduction_vars_types
 
-    new_block = Block(arg_types=arg_types)
-
-    for fir_arg, std_arg in zip(op.body.blocks[0].args, new_block.args):
-        ctx[fir_arg] = std_arg
-
-    region_body_ops = []
-    top_level_ops = []
-    for single_op in op.body.blocks[0].ops:
-        region_body_ops = statements.translate_stmt(program_state, ctx, single_op)
-        if len(region_body_ops) > 1:
-            # The loopnest op will pull down the lower, upper and step constants into this region,
-            # however they need to sit above simd as otherwise verification will fail
-            # therefore extract out all but the last operation (the loop nest)
-            top_level_ops = region_body_ops[0:-1]
-            region_body_ops = [region_body_ops[-1]]
-
-    assert len(region_body_ops) == 1
-    assert isa(region_body_ops[0], omp.LoopNestOp) or isa(
-        region_body_ops[0], omp.WsLoopOp
+    new_block, top_level_ops, new_props = create_block_and_properties_for_op(
+        program_state, ctx, op, arg_types, op.body, True
     )
-
-    new_block.add_ops(region_body_ops)
-
-    new_props = {}
-    for key, value in op.properties.items():
-        if key != "operandSegmentSizes":
-            new_props[key] = value
 
     simd_op = omp.SIMDOp.build(
         operands=[
@@ -603,21 +618,9 @@ def translate_omp_target(
     )
     arg_types += thread_limit_types
 
-    new_block = Block(arg_types=arg_types)
-
-    for fir_arg, std_arg in zip(op.region.blocks[0].args, new_block.args):
-        ctx[fir_arg] = std_arg
-
-    region_body_ops = []
-    for single_op in op.region.blocks[0].ops:
-        region_body_ops += statements.translate_stmt(program_state, ctx, single_op)
-
-    new_block.add_ops(region_body_ops)
-
-    new_props = {}
-    for key, value in op.properties.items():
-        if key != "operandSegmentSizes":
-            new_props[key] = value
+    new_block, __, new_props = create_block_and_properties_for_op(
+        program_state, ctx, op, arg_types, op.region, False
+    )
 
     target_op = omp.TargetOp.build(
         operands=[

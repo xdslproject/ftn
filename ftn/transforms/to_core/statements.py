@@ -105,6 +105,8 @@ def try_translate_stmt(program_state: ProgramState, ctx: SSAValueCtx, op: Operat
         return ftn_openmp.translate_omp_teams(program_state, ctx, op)
     elif isa(op, omp.ParallelOp):
         return ftn_openmp.translate_omp_parallel(program_state, ctx, op)
+    elif isa(op, omp.DistributeOp):
+        return ftn_openmp.translate_omp_distribute(program_state, ctx, op)
     elif isa(op, omp.YieldOp):
         return ftn_openmp.translate_omp_yield(program_state, ctx, op)
     elif isa(op, cf.ConditionalBranchOp):
