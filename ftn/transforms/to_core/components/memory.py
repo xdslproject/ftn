@@ -416,7 +416,7 @@ def translate_zerobits(
             llvm_array_type = llvm.LLVMArrayType.from_size_and_type(
                 total_size, base_type
             )
-            zero_op = llvm.ZeroOp(llvm_array_type)
+            zero_op = llvm.ZeroOp.build(result_types=[llvm_array_type])
 
             ctx[op.results[0]] = zero_op.results[0]
             return [zero_op]
