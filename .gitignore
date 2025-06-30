@@ -7,6 +7,8 @@ ftn/tools/test/
 ftn/tools/tt_eg/
 ftn/tools/generated/
 
+tmp/
+
 # C extensions
 *.so
 
