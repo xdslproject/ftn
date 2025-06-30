@@ -234,8 +234,6 @@ def translate_global(program_state, global_ctx, global_op: fir.GlobalOp):
             )
             return_op = llvm.ReturnOp.build(operands=[global_contained_op.results[0]])
 
-            # We should not reach this, as now GlobalOp can not handle a body
-            assert False
             return llvm.GlobalOp(
                 global_contained_op.results[0].type,
                 global_op.sym_name,
