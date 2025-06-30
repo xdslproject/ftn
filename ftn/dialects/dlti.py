@@ -7,8 +7,8 @@ https://raw.githubusercontent.com/xdslproject/xdsl/anton/dlti-dialect/xdsl/diale
 
 from abc import ABC, abstractmethod
 from collections.abc import Iterable
-from functools import cache
-from typing import Annotated, cast, Sequence
+from typing import cast, Sequence
+from xdsl.utils.hints import isa
 
 from xdsl.dialects.builtin import ArrayAttr, DictionaryAttr, StringAttr
 from xdsl.ir import Attribute, Dialect
@@ -106,7 +106,7 @@ class DlEntryAttr(ParametrizedAttribute, DataLayoutEntryInterface):
     value_: ParameterDef[Attribute]
 
     def __init__(self, key, value):
-      return super().__init__([key, value])
+        return super().__init__([key, value])
 
     @property
     def key(self) -> Attribute | str:
@@ -117,6 +117,16 @@ class DlEntryAttr(ParametrizedAttribute, DataLayoutEntryInterface):
     @property
     def value(self) -> Attribute:
         return self.value_
+
+    def print_parameter(self, printer: Printer) -> None:
+        needs_quotes = isa(self.key, str) and "." in self.key
+        if needs_quotes:
+            printer.print('"')
+        printer.print(self.key)
+        if needs_quotes:
+            printer.print('"')
+        printer.print(" = ")
+        printer.print(self.value)
 
 
 @irdl_attr_definition
@@ -138,20 +148,23 @@ class DataLayoutSpec(ParametrizedAttribute, TargetDeviceSpecInterface):
 
     def print_parameters(self, printer: Printer) -> None:
         with printer.in_angle_brackets():
-            printer.print_list(self.entries, printer.print_attribute)
+            for idx, entry in enumerate(self.entries):
+                if idx > 0:
+                    printer.print(", ")
+                entry.print_parameter(printer)
 
     @classmethod
     def parse_parameters(cls, parser: AttrParser) -> Sequence[Attribute]:
-        attrs=[]
+        attrs = []
         parser.parse_characters("<")
         end_parse = parser.parse_optional_characters(">")
         while not end_parse:
-          key=parser.parse_attribute()
-          parser.parse_characters("=")
-          value=parser.parse_attribute()
-          parser.parse_optional_characters(",")
-          end_parse = parser.parse_optional_characters(">")
-          attrs.append(DlEntryAttr(key, value))
+            key = parser.parse_attribute()
+            parser.parse_characters("=")
+            value = parser.parse_attribute()
+            parser.parse_optional_characters(",")
+            end_parse = parser.parse_optional_characters(">")
+            attrs.append(DlEntryAttr(key, value))
         return ArrayAttr([attrs])
 
 
