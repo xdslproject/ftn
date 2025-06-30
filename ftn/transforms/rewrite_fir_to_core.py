@@ -243,6 +243,15 @@ def translate_global(program_state, global_ctx, global_op: fir.GlobalOp):
                 constant=global_op.constant,
                 body=Region([Block([global_contained_op, return_op])]),
             )
+    elif (
+        isa(global_op.type, fir.BoxType)
+        and isa(global_op.type.type, fir.HeapType)
+        and isa(global_op.type.type.type, fir.SequenceType)
+    ):
+        # This represents a container of an allocatable array, Flang will generate these when we have
+        # an allocatable passed between procedures. However we handle this differently by a memref of a memref
+        # which is scoped, and hence ignore this here to avoid a global
+        pass
     else:
         raise Exception(f"Could not translate global region of type `{global_op.type}'")
 
