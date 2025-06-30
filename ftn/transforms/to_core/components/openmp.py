@@ -38,6 +38,14 @@ def handle_opt_operand_field(program_state, ctx, opt_operand):
     return vars_ops, vars_ssa, arg_types
 
 
+def duplicate_op_properties(op):
+    new_props = {}
+    for key, value in op.properties.items():
+        if key != "operandSegmentSizes":
+            new_props[key] = value
+    return new_props
+
+
 def create_block_and_properties_for_op(
     program_state: ProgramState,
     ctx: SSAValueCtx,
@@ -78,10 +86,7 @@ def create_block_and_properties_for_op(
 
     new_block.add_ops(region_body_ops)
 
-    new_props = {}
-    for key, value in op.properties.items():
-        if key != "operandSegmentSizes":
-            new_props[key] = value
+    new_props = duplicate_op_properties(op)
 
     return new_block, top_level_ops, new_props
 
@@ -155,10 +160,7 @@ def translate_omp_mapinfo(
         bounds_ops += expressions.translate_expr(program_state, ctx, arg)
         bounds_ssa.append(bounds_ops[-1].results[0])
 
-    new_props = {}
-    for key, value in op.properties.items():
-        if key != "operandSegmentSizes":
-            new_props[key] = value
+    new_props = duplicate_op_properties(op)
 
     mapinfo_op = omp.MapInfoOp.build(
         operands=[var_ptr_ssa, var_ptr_ptr_ssa, members_ssa, bounds_ssa],
@@ -192,10 +194,7 @@ def translate_omp_bounds(
     start_ops = expressions.translate_expr(program_state, ctx, op.start_idx)
     start_ssa = ctx[op.start_idx]
 
-    new_props = {}
-    for key, value in op.properties.items():
-        if key != "operandSegmentSizes":
-            new_props[key] = value
+    new_props = duplicate_op_properties(op)
 
     bounds_op = omp.MapBoundsOp.build(
         operands=[lower_ssa, upper_ssa, extent_ssa, stride_ssa, start_ssa],
@@ -716,6 +715,48 @@ def translate_omp_target_data(
         + use_device_addr_vars_ops
         + use_device_ptr_vars_ops
         + [target_data_op]
+    )
+
+
+def translate_omp_target_update(
+    program_state: ProgramState, ctx: SSAValueCtx, op: omp.TargetUpdateOp
+):
+    arg_types = []
+
+    depend_vars_ops, depend_vars_ssa, depend_vars_types = handle_var_operand_field(
+        program_state, ctx, op.depend_vars
+    )
+    arg_types += depend_vars_types
+
+    device_ops, device_ssa, device_types = handle_opt_operand_field(
+        program_state, ctx, op.device
+    )
+    arg_types += device_types
+
+    if_expr_ops, if_expr_ssa, if_expr_types = handle_opt_operand_field(
+        program_state, ctx, op.if_expr
+    )
+    arg_types += if_expr_types
+
+    map_vars_ops, map_vars_ssa, map_vars_types = handle_var_operand_field(
+        program_state, ctx, op.map_vars
+    )
+    arg_types += map_vars_types
+
+    new_props = duplicate_op_properties(op)
+
+    target_update_op = omp.TargetUpdateOp.build(
+        operands=[
+            depend_vars_ssa,
+            device_ssa,
+            if_expr_ssa,
+            map_vars_ssa,
+        ],
+        properties=new_props,
+    )
+
+    return (
+        depend_vars_ops + device_ops + if_expr_ops + map_vars_ops + [target_update_op]
     )
 
 
