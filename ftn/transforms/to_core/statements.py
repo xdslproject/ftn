@@ -93,6 +93,8 @@ def try_translate_stmt(program_state: ProgramState, ctx: SSAValueCtx, op: Operat
         return ftn_ctrl_flow.translate_branch(program_state, ctx, op)
     elif isa(op, omp.TargetOp):
         return ftn_openmp.translate_omp_target(program_state, ctx, op)
+    elif isa(op, omp.TargetDataOp):
+        return ftn_openmp.translate_omp_target_data(program_state, ctx, op)
     elif isa(op, omp.TerminatorOp):
         return [omp.TerminatorOp.create()]
     elif isa(op, omp.SIMDOp):

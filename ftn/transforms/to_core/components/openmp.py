@@ -663,6 +663,62 @@ def translate_omp_target(
     )
 
 
+def translate_omp_target_data(
+    program_state: ProgramState, ctx: SSAValueCtx, op: omp.TargetDataOp
+):
+    arg_types = []
+
+    device_ops, device_ssa, device_types = handle_opt_operand_field(
+        program_state, ctx, op.device
+    )
+    arg_types += device_types
+
+    if_expr_ops, if_expr_ssa, if_expr_types = handle_opt_operand_field(
+        program_state, ctx, op.if_expr
+    )
+    arg_types += if_expr_types
+
+    map_vars_ops, map_vars_ssa, map_vars_types = handle_var_operand_field(
+        program_state, ctx, op.map_vars
+    )
+    arg_types += map_vars_types
+
+    use_device_addr_vars_ops, use_device_addr_vars_ssa, use_device_addr_vars_types = (
+        handle_var_operand_field(program_state, ctx, op.use_device_addr_vars)
+    )
+    arg_types += use_device_addr_vars_types
+
+    use_device_ptr_vars_ops, use_device_ptr_vars_ssa, use_device_ptr_vars_types = (
+        handle_var_operand_field(program_state, ctx, op.use_device_ptr_vars)
+    )
+    arg_types += use_device_ptr_vars_types
+
+    new_block, __, new_props = create_block_and_properties_for_op(
+        program_state, ctx, op, arg_types, op.region, False
+    )
+
+    target_data_op = omp.TargetDataOp.build(
+        operands=[
+            device_ssa,
+            if_expr_ssa,
+            map_vars_ssa,
+            use_device_addr_vars_ssa,
+            use_device_ptr_vars_ssa,
+        ],
+        regions=[Region([new_block])],
+        properties=new_props,
+    )
+
+    return (
+        device_ops
+        + if_expr_ops
+        + map_vars_ops
+        + use_device_addr_vars_ops
+        + use_device_ptr_vars_ops
+        + [target_data_op]
+    )
+
+
 def translate_omp_yield(program_state: ProgramState, ctx: SSAValueCtx, op: omp.YieldOp):
     ops_list = []
     ssa_list = []
