@@ -718,8 +718,10 @@ def translate_omp_target_data(
     )
 
 
-def translate_omp_target_update(
-    program_state: ProgramState, ctx: SSAValueCtx, op: omp.TargetUpdateOp
+def translate_omp_target_task_based_data_movement(
+    program_state: ProgramState,
+    ctx: SSAValueCtx,
+    op: omp.TargetEnterDataOp | omp.TargetExitDataOp | omp.TargetUpdateOp,
 ):
     arg_types = []
 
@@ -745,7 +747,7 @@ def translate_omp_target_update(
 
     new_props = duplicate_op_properties(op)
 
-    target_update_op = omp.TargetUpdateOp.build(
+    target_update_op = type(op).build(
         operands=[
             depend_vars_ssa,
             device_ssa,
@@ -758,6 +760,24 @@ def translate_omp_target_update(
     return (
         depend_vars_ops + device_ops + if_expr_ops + map_vars_ops + [target_update_op]
     )
+
+
+def translate_omp_target_enter_data(
+    program_state: ProgramState, ctx: SSAValueCtx, op: omp.TargetEnterDataOp
+):
+    return translate_omp_target_task_based_data_movement(program_state, ctx, op)
+
+
+def translate_omp_target_exit_data(
+    program_state: ProgramState, ctx: SSAValueCtx, op: omp.TargetExitDataOp
+):
+    return translate_omp_target_task_based_data_movement(program_state, ctx, op)
+
+
+def translate_omp_target_update(
+    program_state: ProgramState, ctx: SSAValueCtx, op: omp.TargetUpdateOp
+):
+    return translate_omp_target_task_based_data_movement(program_state, ctx, op)
 
 
 def translate_omp_yield(program_state: ProgramState, ctx: SSAValueCtx, op: omp.YieldOp):

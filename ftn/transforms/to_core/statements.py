@@ -95,6 +95,10 @@ def try_translate_stmt(program_state: ProgramState, ctx: SSAValueCtx, op: Operat
         return ftn_openmp.translate_omp_target(program_state, ctx, op)
     elif isa(op, omp.TargetDataOp):
         return ftn_openmp.translate_omp_target_data(program_state, ctx, op)
+    elif isa(op, omp.TargetEnterDataOp):
+        return ftn_openmp.translate_omp_target_enter_data(program_state, ctx, op)
+    elif isa(op, omp.TargetExitDataOp):
+        return ftn_openmp.translate_omp_target_exit_data(program_state, ctx, op)
     elif isa(op, omp.TargetUpdateOp):
         return ftn_openmp.translate_omp_target_update(program_state, ctx, op)
     elif isa(op, omp.TerminatorOp):
