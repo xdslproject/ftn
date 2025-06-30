@@ -407,7 +407,7 @@ def translate_zerobits(
             global_memref = memref.GlobalOp.get(
                 op.parent.parent.parent.sym_name,
                 ftn_types.convert_fir_type_to_standard(result_type),
-                None,
+                builtin.UnitAttr(),
             )
             return [global_memref]
         else:
