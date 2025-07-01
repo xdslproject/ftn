@@ -106,7 +106,7 @@ class DlEntryAttr(ParametrizedAttribute, DataLayoutEntryInterface):
     value_: ParameterDef[Attribute]
 
     def __init__(self, key, value):
-        return super().__init__([key, value])
+        return super().__init__(key, value)
 
     @property
     def key(self) -> Attribute | str:
@@ -133,7 +133,7 @@ class DlEntryAttr(ParametrizedAttribute, DataLayoutEntryInterface):
 class DataLayoutSpec(ParametrizedAttribute, TargetDeviceSpecInterface):
     name = "dlti.dl_spec"
 
-    entries: ParameterDef[ArrayAttr[Attribute]]
+    entries: ParameterDef[ArrayAttr[DlEntryAttr]]
 
     def get_entries(self) -> Iterable[DataLayoutEntryInterface]:
         return tuple(self.entries)  # pyright: ignore[reportGeneralTypeIssues]
@@ -165,7 +165,7 @@ class DataLayoutSpec(ParametrizedAttribute, TargetDeviceSpecInterface):
             parser.parse_optional_characters(",")
             end_parse = parser.parse_optional_characters(">")
             attrs.append(DlEntryAttr(key, value))
-        return ArrayAttr([attrs])
+        return [ArrayAttr(attrs)]
 
 
 @irdl_attr_definition
