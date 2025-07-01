@@ -404,7 +404,11 @@ def handle_pointer_assignment(
         source_op.owner, hlfir.DeclareOp
     )
     assert fir.FortranVariableFlags.POINTER in target_op.owner.fortran_attrs.flags
-    assert fir.FortranVariableFlags.TARGET in source_op.owner.fortran_attrs.flags
+    # The source can be either a target or a pointer
+    assert (
+        fir.FortranVariableFlags.TARGET in source_op.owner.fortran_attrs.flags
+        or fir.FortranVariableFlags.POINTER in source_op.owner.fortran_attrs.flags
+    )
 
     expr_ops = expressions.translate_expr(program_state, ctx, source_op)
     assert isa(ctx[source_op].type, builtin.MemRefType)
@@ -412,8 +416,7 @@ def handle_pointer_assignment(
     if isa(ctx[source_op].type.element_type, builtin.MemRefType):
         # This memref itself is pointing to memory (an allocatable or pointer)
         # therefore we need to dereference this
-        load_op = memref.LoadOp.get(ctx[source_op], [])
-        source_ssa = load_op.results[0]
+        load_op, source_ssa = generate_dereference_memref(ctx[source_op])
         ops = [load_op]
     else:
         source_ssa = ctx[source_op]
@@ -474,7 +477,17 @@ def translate_store(program_state: ProgramState, ctx: SSAValueCtx, op: fir.Store
                 )
             else:
                 assert False
-
+    elif isa(op.value.owner, fir.ReboxOp):
+        if isa(op.memref.owner, hlfir.DeclareOp):
+            if isa(op.value.owner.box.owner, fir.LoadOp) and isa(
+                op.value.owner.box.owner.memref.owner, hlfir.DeclareOp
+            ):
+                return handle_pointer_assignment(
+                    program_state,
+                    ctx,
+                    op.value.owner.box.owner.memref,
+                    op.memref,
+                )
     else:
         expr_ops = expressions.translate_expr(program_state, ctx, op.value)
 
