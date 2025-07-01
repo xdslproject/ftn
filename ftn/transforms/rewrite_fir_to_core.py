@@ -220,6 +220,7 @@ def translate_global(program_state, global_ctx, global_op: fir.GlobalOp):
         isa(global_op.type, builtin.IntegerType)
         or isa(global_op.type, builtin.AnyFloat)
         or isa(global_op.type, fir.SequenceType)
+        or isa(global_op.type, fir.LogicalType)
     ):
         assert len(ops_list) == 1
         global_contained_op = ops_list[0]
