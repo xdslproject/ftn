@@ -139,8 +139,7 @@ class GatherFunctionInformation(Visitor):
                         arg_name, is_scalar, arg_type, arg_intent, is_allocatable
                     )
                 else:
-                    # This is a special case of the main, program entry point, function inserted by Flang
-                    assert fn_name == "main"
+                    # This is an internal variable passed by Flang, for now we assume is a scalar
                     arg_type = block_arg.type
                     base_type = self.get_base_type(arg_type)
                     is_scalar = True
