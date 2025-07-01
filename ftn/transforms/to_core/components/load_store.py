@@ -234,6 +234,22 @@ def translate_assign(program_state: ProgramState, ctx: SSAValueCtx, op: hlfir.As
         storage_op = memref.StoreOp.get(ctx[op.lhs], load_ssa, indexes_ssa_reversed)
         ops_list.append(storage_op)
         return expr_lhs_ops + ops_list
+    elif isa(op.lhs.owner, fir.LoadOp) and isa(op.rhs.owner, fir.LoadOp):
+        # Pointer assigned to a pointer
+        assert isa(op.lhs.owner.memref.owner, hlfir.DeclareOp) and isa(
+            op.rhs.owner.memref.owner, hlfir.DeclareOp
+        )
+        assert (
+            fir.FortranVariableFlags.POINTER
+            in op.lhs.owner.memref.owner.fortran_attrs.flags
+        )
+        assert (
+            fir.FortranVariableFlags.POINTER
+            in op.rhs.owner.memref.owner.fortran_attrs.flags
+        )
+        load_op, load_ssa = generate_dereference_memref(ctx[op.rhs.owner.memref])
+        storage_op = memref.StoreOp.get(load_ssa, ctx[op.lhs.owner.memref], [])
+        return [load_op, storage_op]
     else:
         assert False
 
