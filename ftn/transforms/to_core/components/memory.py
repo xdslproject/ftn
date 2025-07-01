@@ -267,6 +267,7 @@ def translate_declare(
         elif isa(op.results[0].type.type.type, fir.PointerType):
             # This is a pointer
             assert fir.FortranVariableFlags.POINTER in op.fortran_attrs.flags
+            program_state.getCurrentFnState().pointers.append(op.uniq_name.data)
 
         assert isa(op.results[0].type.type.type.type, fir.SequenceType)
         num_dims = len(op.results[0].type.type.type.type.shape)

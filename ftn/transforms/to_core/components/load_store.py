@@ -42,6 +42,8 @@ def array_access_components(
     else:
         assert False
 
+    is_pointer = array_name in program_state.getCurrentFnState().pointers
+
     ops_list = []
     indexes_ssa = []
     for idx, index in enumerate(op.indices):
@@ -54,33 +56,46 @@ def array_access_components(
             index_ssa = convert_op.results[0]
         else:
             index_ssa = ctx[index]
-        dim_start = (
-            program_state.getCurrentFnState().array_info[array_name].dim_starts[idx]
-        )
-        if isa(dim_start, int):
-            assert dim_start >= 0
-            if dim_start > 0:
-                # If zero start then we are good, otherwise need to zero index this
-                offset_const = arith.ConstantOp.create(
-                    properties={
-                        "value": builtin.IntegerAttr.from_index_int_value(dim_start)
-                    },
-                    result_types=[builtin.IndexType()],
-                )
-                subtract_op = arith.SubiOp(index_ssa, offset_const)
-                ops_list += [offset_const, subtract_op]
-                indexes_ssa.append(subtract_op.results[0])
-            else:
-                indexes_ssa.append(index_ssa)
-        elif isa(dim_start, OpResult):
-            # This is not a constant literal in the code, therefore use the variable that drives this
-            # which was generated previously, so just link to this
-            assert ctx[dim_start] is not None
-            subtract_op = arith.SubiOp(index_ssa, ctx[dim_start])
-            ops_list.append(subtract_op)
+
+        if is_pointer:
+            # If this is a pointer then we assume starting from one as is the default in Fortran
+            # this should be extended in the future, would need to use dynamic sizing variables
+            # to keep track of this
+            offset_const = arith.ConstantOp.create(
+                properties={"value": builtin.IntegerAttr.from_index_int_value(1)},
+                result_types=[builtin.IndexType()],
+            )
+            subtract_op = arith.SubiOp(index_ssa, offset_const)
+            ops_list += [offset_const, subtract_op]
             indexes_ssa.append(subtract_op.results[0])
         else:
-            assert False
+            dim_start = (
+                program_state.getCurrentFnState().array_info[array_name].dim_starts[idx]
+            )
+            if isa(dim_start, int):
+                assert dim_start >= 0
+                if dim_start > 0:
+                    # If zero start then we are good, otherwise need to zero index this
+                    offset_const = arith.ConstantOp.create(
+                        properties={
+                            "value": builtin.IntegerAttr.from_index_int_value(dim_start)
+                        },
+                        result_types=[builtin.IndexType()],
+                    )
+                    subtract_op = arith.SubiOp(index_ssa, offset_const)
+                    ops_list += [offset_const, subtract_op]
+                    indexes_ssa.append(subtract_op.results[0])
+                else:
+                    indexes_ssa.append(index_ssa)
+            elif isa(dim_start, OpResult):
+                # This is not a constant literal in the code, therefore use the variable that drives this
+                # which was generated previously, so just link to this
+                assert ctx[dim_start] is not None
+                subtract_op = arith.SubiOp(index_ssa, ctx[dim_start])
+                ops_list.append(subtract_op)
+                indexes_ssa.append(subtract_op.results[0])
+            else:
+                assert False
     return ops_list, indexes_ssa
 
 

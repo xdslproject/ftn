@@ -17,6 +17,7 @@ class ComponentState:
         self.module_name = module_name
         self.fn_identifier = fn_identifier
         self.array_info = {}
+        self.pointers = []
 
 
 class ArgumentDefinition:
