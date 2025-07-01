@@ -257,9 +257,17 @@ def translate_declare(
         and isa(op.results[0].type.type, fir.BoxType)
         and not isa(op.memref, BlockArgument)
     ):
-        # This is an allocatable array, we will handle this on the allocation, last part ensures
+        # This is allocating either an allocatable array, or a pointer but
+        # how we do these is the same in the resulting IR. The last part ensures
         # is not a block argument (which would already be allocated and passed into a block e.g. a function)
-        assert isa(op.results[0].type.type.type, fir.HeapType)
+
+        if isa(op.results[0].type.type.type, fir.HeapType):
+            # This is an allocatable array
+            assert fir.FortranVariableFlags.ALLOCATABLE in op.fortran_attrs.flags
+        elif isa(op.results[0].type.type.type, fir.PointerType):
+            # This is a pointer
+            assert fir.FortranVariableFlags.POINTER in op.fortran_attrs.flags
+
         assert isa(op.results[0].type.type.type.type, fir.SequenceType)
         num_dims = len(op.results[0].type.type.type.type.shape)
         alloc_memref_container = memref.AllocaOp.get(
@@ -268,6 +276,7 @@ def translate_declare(
             ),
             shape=[],
         )
+
         ctx[op.results[0]] = alloc_memref_container.results[0]
         ctx[op.results[1]] = alloc_memref_container.results[0]
         return [alloc_memref_container]

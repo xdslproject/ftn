@@ -238,157 +238,226 @@ def translate_assign(program_state: ProgramState, ctx: SSAValueCtx, op: hlfir.As
         assert False
 
 
+def generate_allocatable_array_allocate(
+    program_state: ProgramState, ctx: SSAValueCtx, op: fir.StoreOp
+):
+    # Allocates memory to an allocatable array
+    assert isa(op.value.owner.memref.owner.results[0].type, fir.HeapType)
+    assert isa(op.value.owner.memref.owner.results[0].type.type, fir.SequenceType)
+    base_type = op.value.owner.memref.owner.results[0].type.type.type
+    for dim_shape in op.value.owner.memref.owner.results[0].type.type.shape.data:
+        assert isa(dim_shape, fir.DeferredAttr)
+
+    assert len(op.value.owner.shape) == 1
+    default_start_idx_mode = isa(op.value.owner.shape[0].owner, fir.ShapeOp)
+
+    dim_sizes = []
+    dim_starts = []
+    dim_ends = []
+    dim_ssas = []
+    ops_list = []
+    for shape in op.value.owner.memref.owner.shape:
+        assert isa(shape.owner, arith.SelectOp)
+        # Flang adds a guard to ensure that non-negative size is used, hence select
+        # the actual provided size is the lhs
+        size_op = remove_array_size_convert(shape.owner.lhs.owner)
+        if isa(size_op, arith.ConstantOp):
+            # Default sized
+            dim_sizes.append(size_op.value.value.data)
+            const_op = create_index_constant(size_op.value.value.data)
+            ops_list.append(const_op)
+            dim_ssas.append(const_op.results[0])
+        elif isa(size_op, arith.AddiOp):
+            # Start dim is offset, this does the substract, then add one
+            # so we need to work back to calculate
+            assert isa(size_op.rhs.owner, arith.ConstantOp)
+            assert size_op.rhs.owner.value.value.data == 1
+            assert isa(size_op.lhs.owner, arith.SubiOp)
+
+            upper_bound_val, upper_load_ssa, upper_load_ops = (
+                handle_array_size_lu_bound(
+                    program_state,
+                    ctx,
+                    size_op.lhs.owner.lhs.owner,
+                    size_op.lhs.owner.lhs,
+                )
+            )
+            if upper_bound_val is not None:
+                assert upper_load_ssa is None
+                assert upper_load_ops is None
+                dim_ends.append(upper_bound_val)
+            else:
+                assert upper_load_ssa is not None
+                assert upper_load_ops is not None
+                ops_list += upper_load_ops
+                dim_ends.append(upper_load_ssa)
+                ctx[upper_load_ssa] = upper_load_ssa
+
+            lower_bound_val, lower_load_ssa, lower_load_ops = (
+                handle_array_size_lu_bound(
+                    program_state,
+                    ctx,
+                    size_op.lhs.owner.rhs.owner,
+                    size_op.lhs.owner.rhs,
+                )
+            )
+            if lower_bound_val is not None:
+                assert lower_load_ssa is None
+                assert lower_load_ops is None
+                dim_starts.append(lower_bound_val)
+            else:
+                assert lower_load_ssa is not None
+                assert lower_load_ops is not None
+                ops_list += lower_load_ops
+                dim_starts.append(lower_load_ssa)
+                ctx[lower_load_ssa] = lower_load_ssa
+
+            if lower_bound_val is not None and upper_bound_val is not None:
+                # Constant based on literal dimension size, we know the value so put in directly
+                dim_sizes.append((upper_bound_val - lower_bound_val) + 1)
+                const_op = create_index_constant(
+                    (upper_bound_val - lower_bound_val) + 1
+                )
+                ops_list.append(const_op)
+                dim_ssas.append(const_op.results[0])
+            else:
+                if upper_load_ssa is None:
+                    upper_const_op = create_index_constant(upper_bound_val)
+                    ops_list.append(upper_const_op)
+                    upper_load_ssa = upper_const_op.results[0]
+                if lower_load_ssa is None:
+                    lower_const_op = create_index_constant(lower_bound_val)
+                    ops_list.append(lower_const_op)
+                    lower_load_ssa = lower_const_op.results[0]
+
+                one_const_op = create_index_constant(1)
+                sub_op = arith.SubiOp(upper_load_ssa, lower_load_ssa)
+                add_op = arith.AddiOp(sub_op, one_const_op)
+                ops_list += [one_const_op, sub_op, add_op]
+                dim_ssas.append(add_op.results[0])
+                dim_sizes.append(add_op.results[0])
+
+        elif isa(size_op, fir.LoadOp):
+            # Sized based off a variable rather than constant, therefore need
+            # to load this and convert to an index if it is an integer
+            load_ssa, load_ops = generate_var_dim_size_load(ctx, size_op)
+            ops_list += load_ops
+            dim_ssas.append(load_ssa)
+            dim_sizes.append(load_ssa)
+        else:
+            assert False
+
+    if default_start_idx_mode:
+        assert len(dim_starts) == 0
+        dim_starts = [1] * len(dim_sizes)
+        dim_ends = dim_sizes
+
+    assert len(dim_sizes) == len(dim_starts) == len(dim_ends)
+
+    # Now create memref, passing -1 as shape will make this deferred size
+    # Reverse the indicies as Fortran and C/MLIR are opposite in terms of
+    # the order of the contiguous dimension (F is least, whereas C/MLIR is highest)
+    dim_ssa_reversed = dim_ssas.copy()
+    dim_ssa_reversed.reverse()
+    memref_allocation_op = memref_alloca_op = memref.AllocOp.get(
+        base_type, shape=[-1] * len(dim_ssas), dynamic_sizes=dim_ssa_reversed
+    )
+    ops_list.append(memref_allocation_op)
+
+    store_op = memref.StoreOp.get(
+        memref_allocation_op.results[0], ctx[op.memref.owner.results[0]], []
+    )
+    ops_list.append(store_op)
+    # ctx[op.memref.owner.results[0]]=memref_allocation_op.results[0]
+    # ctx[op.memref.owner.results[1]]=memref_allocation_op.results[0]
+
+    fn_name = program_state.getCurrentFnState().fn_name
+    array_name = op.memref.owner.uniq_name.data
+
+    # Store information about the array - the size, and lower and upper bounds as we need this when accessing elements
+    program_state.getCurrentFnState().array_info[array_name] = ArrayDescription(
+        array_name, dim_sizes, dim_starts, dim_ends
+    )
+    return ops_list
+
+
+def handle_pointer_assignment(
+    program_state: ProgramState, ctx: SSAValueCtx, source_op, target_op
+):
+    assert isa(target_op.owner, hlfir.DeclareOp) and isa(
+        source_op.owner, hlfir.DeclareOp
+    )
+    assert fir.FortranVariableFlags.POINTER in target_op.owner.fortran_attrs.flags
+    assert fir.FortranVariableFlags.TARGET in source_op.owner.fortran_attrs.flags
+
+    expr_ops = expressions.translate_expr(program_state, ctx, source_op)
+    assert isa(ctx[source_op].type, builtin.MemRefType)
+
+    if isa(ctx[source_op].type.element_type, builtin.MemRefType):
+        # This memref itself is pointing to memory (an allocatable or pointer)
+        # therefore we need to dereference this
+        load_op = memref.LoadOp.get(ctx[source_op], [])
+        source_ssa = load_op.results[0]
+        ops = [load_op]
+    else:
+        source_ssa = ctx[source_op]
+        ops = []
+
+    if any(i.data != -1 for i in ctx[source_op].type.shape.data):
+        # The source type has explicit dimension sizes, by definition a pointer must be unknown
+        # dimension sizes so we need to convert
+        num_dims = len(ctx[source_op].type.shape.data)
+        cast_op = memref.CastOp.get(
+            source_ssa,
+            builtin.MemRefType(source_ssa.type.element_type, shape=num_dims * [-1]),
+        )
+        source_ssa = cast_op.results[0]
+        ops.append(cast_op)
+
+    store_op = memref.StoreOp.get(source_ssa, ctx[target_op], [])
+    return ops + [store_op]
+
+
 def translate_store(program_state: ProgramState, ctx: SSAValueCtx, op: fir.StoreOp):
     # This is used for internal program components, such as loop indexes and storing
     # allocated memory to an allocatable
     if isa(op.value.owner, fir.EmboxOp):
-        # This is a allocating memory for an allocatable array
-        if isa(op.value.owner.memref.owner, fir.AllocmemOp):
-            assert isa(op.value.owner.memref.owner.results[0].type, fir.HeapType)
-            assert isa(
-                op.value.owner.memref.owner.results[0].type.type, fir.SequenceType
-            )
-            base_type = op.value.owner.memref.owner.results[0].type.type.type
-            for dim_shape in op.value.owner.memref.owner.results[
-                0
-            ].type.type.shape.data:
-                assert isa(dim_shape, fir.DeferredAttr)
-
-            assert len(op.value.owner.shape) == 1
-            default_start_idx_mode = isa(op.value.owner.shape[0].owner, fir.ShapeOp)
-
-            dim_sizes = []
-            dim_starts = []
-            dim_ends = []
-            dim_ssas = []
-            ops_list = []
-            for shape in op.value.owner.memref.owner.shape:
-                assert isa(shape.owner, arith.SelectOp)
-                # Flang adds a guard to ensure that non-negative size is used, hence select
-                # the actual provided size is the lhs
-                size_op = remove_array_size_convert(shape.owner.lhs.owner)
-                if isa(size_op, arith.ConstantOp):
-                    # Default sized
-                    dim_sizes.append(size_op.value.value.data)
-                    const_op = create_index_constant(size_op.value.value.data)
-                    ops_list.append(const_op)
-                    dim_ssas.append(const_op.results[0])
-                elif isa(size_op, arith.AddiOp):
-                    # Start dim is offset, this does the substract, then add one
-                    # so we need to work back to calculate
-                    assert isa(size_op.rhs.owner, arith.ConstantOp)
-                    assert size_op.rhs.owner.value.value.data == 1
-                    assert isa(size_op.lhs.owner, arith.SubiOp)
-
-                    upper_bound_val, upper_load_ssa, upper_load_ops = (
-                        handle_array_size_lu_bound(
-                            program_state,
-                            ctx,
-                            size_op.lhs.owner.lhs.owner,
-                            size_op.lhs.owner.lhs,
-                        )
-                    )
-                    if upper_bound_val is not None:
-                        assert upper_load_ssa is None
-                        assert upper_load_ops is None
-                        dim_ends.append(upper_bound_val)
-                    else:
-                        assert upper_load_ssa is not None
-                        assert upper_load_ops is not None
-                        ops_list += upper_load_ops
-                        dim_ends.append(upper_load_ssa)
-                        ctx[upper_load_ssa] = upper_load_ssa
-
-                    lower_bound_val, lower_load_ssa, lower_load_ops = (
-                        handle_array_size_lu_bound(
-                            program_state,
-                            ctx,
-                            size_op.lhs.owner.rhs.owner,
-                            size_op.lhs.owner.rhs,
-                        )
-                    )
-                    if lower_bound_val is not None:
-                        assert lower_load_ssa is None
-                        assert lower_load_ops is None
-                        dim_starts.append(lower_bound_val)
-                    else:
-                        assert lower_load_ssa is not None
-                        assert lower_load_ops is not None
-                        ops_list += lower_load_ops
-                        dim_starts.append(lower_load_ssa)
-                        ctx[lower_load_ssa] = lower_load_ssa
-
-                    if lower_bound_val is not None and upper_bound_val is not None:
-                        # Constant based on literal dimension size, we know the value so put in directly
-                        dim_sizes.append((upper_bound_val - lower_bound_val) + 1)
-                        const_op = create_index_constant(
-                            (upper_bound_val - lower_bound_val) + 1
-                        )
-                        ops_list.append(const_op)
-                        dim_ssas.append(const_op.results[0])
-                    else:
-                        if upper_load_ssa is None:
-                            upper_const_op = create_index_constant(upper_bound_val)
-                            ops_list.append(upper_const_op)
-                            upper_load_ssa = upper_const_op.results[0]
-                        if lower_load_ssa is None:
-                            lower_const_op = create_index_constant(lower_bound_val)
-                            ops_list.append(lower_const_op)
-                            lower_load_ssa = lower_const_op.results[0]
-
-                        one_const_op = create_index_constant(1)
-                        sub_op = arith.SubiOp(upper_load_ssa, lower_load_ssa)
-                        add_op = arith.AddiOp(sub_op, one_const_op)
-                        ops_list += [one_const_op, sub_op, add_op]
-                        dim_ssas.append(add_op.results[0])
-                        dim_sizes.append(add_op.results[0])
-
-                elif isa(size_op, fir.LoadOp):
-                    # Sized based off a variable rather than constant, therefore need
-                    # to load this and convert to an index if it is an integer
-                    load_ssa, load_ops = generate_var_dim_size_load(ctx, size_op)
-                    ops_list += load_ops
-                    dim_ssas.append(load_ssa)
-                    dim_sizes.append(load_ssa)
-                else:
-                    assert False
-
-            if default_start_idx_mode:
-                assert len(dim_starts) == 0
-                dim_starts = [1] * len(dim_sizes)
-                dim_ends = dim_sizes
-
-            assert len(dim_sizes) == len(dim_starts) == len(dim_ends)
-
-            # Now create memref, passing -1 as shape will make this deferred size
-            # Reverse the indicies as Fortran and C/MLIR are opposite in terms of
-            # the order of the contiguous dimension (F is least, whereas C/MLIR is highest)
-            dim_ssa_reversed = dim_ssas.copy()
-            dim_ssa_reversed.reverse()
-            memref_allocation_op = memref_alloca_op = memref.AllocOp.get(
-                base_type, shape=[-1] * len(dim_ssas), dynamic_sizes=dim_ssa_reversed
-            )
-            ops_list.append(memref_allocation_op)
-
-            store_op = memref.StoreOp.get(
-                memref_allocation_op.results[0], ctx[op.memref.owner.results[0]], []
-            )
-            ops_list.append(store_op)
-            # ctx[op.memref.owner.results[0]]=memref_allocation_op.results[0]
-            # ctx[op.memref.owner.results[1]]=memref_allocation_op.results[0]
-
-            fn_name = program_state.getCurrentFnState().fn_name
-            array_name = op.memref.owner.uniq_name.data
-            # Store information about the array - the size, and lower and upper bounds as we need this when accessing elements
-            program_state.getCurrentFnState().array_info[array_name] = ArrayDescription(
-                array_name, dim_sizes, dim_starts, dim_ends
-            )
-
-            return ops_list
-        elif isa(op.value.owner.memref.owner, fir.ZeroBitsOp):
-            pass
-        else:
-            assert False
+        if isa(op.memref.owner, hlfir.DeclareOp):
+            # We know the target (memref) is a declaration, so it's just now to understand
+            # what the LHS (source) is to determine the action to undertake
+            if isa(op.value.owner.memref.owner, fir.AllocmemOp):
+                # The source is a chunk of memory, this is therefore allocating
+                # into an allocatable array
+                assert (
+                    fir.FortranVariableFlags.ALLOCATABLE
+                    in op.memref.owner.fortran_attrs.flags
+                )
+                return generate_allocatable_array_allocate(program_state, ctx, op)
+            elif isa(op.value.owner.memref.owner, fir.ZeroBitsOp):
+                pass
+            elif isa(op.value.owner.memref.owner, hlfir.DeclareOp):
+                # The source is a declaration too, this is assigning one declaration to
+                # another, which is a variable to a pointer
+                return handle_pointer_assignment(
+                    program_state, ctx, op.value.owner.memref, op.memref
+                )
+            elif (
+                isa(op.value.owner.memref.owner, fir.BoxAddrOp)
+                and isa(op.value.owner.memref.owner.val.owner, fir.LoadOp)
+                and isa(
+                    op.value.owner.memref.owner.val.owner.memref.owner, hlfir.DeclareOp
+                )
+            ):
+                # This is dereferencing a box and then loading the declaration, typically done when
+                # we are assigning an allocatable to a pointer
+                return handle_pointer_assignment(
+                    program_state,
+                    ctx,
+                    op.value.owner.memref.owner.val.owner.memref,
+                    op.memref,
+                )
+            else:
+                assert False
 
     else:
         expr_ops = expressions.translate_expr(program_state, ctx, op.value)
