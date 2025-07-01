@@ -249,6 +249,13 @@ def translate_global(program_state, global_ctx, global_op: fir.GlobalOp):
         # an allocatable passed between procedures. However we handle this differently by a memref of a memref
         # which is scoped, and hence ignore this here to avoid a global
         pass
+    elif (
+        isa(global_op.type, fir.BoxType)
+        and isa(global_op.type.type, fir.PointerType)
+        and isa(global_op.type.type.type, fir.SequenceType)
+    ):
+        # This represents an initial value for a pointer, such as NULL(), for now we ignore these
+        pass
     else:
         raise Exception(f"Could not translate global region of type `{global_op.type}'")
 
