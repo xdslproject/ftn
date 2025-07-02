@@ -69,6 +69,10 @@ def try_translate_expr(
         return ftn_maths.translate_float_binary_arithmetic(program_state, ctx, op)
     elif isa(op, arith.NegfOp):
         return ftn_maths.translate_float_unary_arithmetic(program_state, ctx, op)
+    elif isa(op, fir.AllocaOp):
+        # Will only process this if it is an internal flag,
+        # otherwise pick up as part of the declareop
+        return ftn_memory.translate_alloca(program_state, ctx, op)
     elif isa(op, fir.LoadOp):
         return ftn_load_store.translate_load(program_state, ctx, op)
     elif isa(op, fir.ConvertOp):
