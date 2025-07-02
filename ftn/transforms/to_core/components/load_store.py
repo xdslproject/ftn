@@ -503,6 +503,16 @@ def translate_store(program_state: ProgramState, ctx: SSAValueCtx, op: fir.Store
                     op.value.owner.box.owner.memref,
                     op.memref,
                 )
+    elif isa(op.value.owner, hlfir.DeclareOp):
+        # Flang generates i and j loop iterations in a strange way, we handle them here
+        assert isa(op.memref.owner, fir.CoordinateOfOp)
+        assert isa(op.memref.owner.ref.owner, fir.AllocaOp)
+        assert isa(op.memref.owner.ref.owner.in_type, builtin.TupleType)
+        assert len(op.memref.owner.ref.owner.in_type.types.data) > 0
+        assert isa(op.memref.owner.ref.owner.in_type.types.data[0], fir.ReferenceType)
+        base_type = op.memref.owner.ref.owner.in_type.types.data[0].type
+        memref_allocation_op = memref_alloca_op = memref.AllocaOp.get(base_type)
+        return [memref_allocation_op]
     else:
         expr_ops = expressions.translate_expr(program_state, ctx, op.value)
 
@@ -512,7 +522,9 @@ def translate_store(program_state: ProgramState, ctx: SSAValueCtx, op: fir.Store
             assert ctx[op.memref] is not None
             storage_op = memref.StoreOp.get(ctx[op.value], ctx[op.memref], [])
         else:
-            assert False
+            raise Exception(
+                f"Could not translate store acting on lhs operand `{op.value.owner}'"
+            )
         return expr_ops + [storage_op]
 
 
