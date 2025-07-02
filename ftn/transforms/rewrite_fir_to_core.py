@@ -141,7 +141,6 @@ class GatherFunctionInformation(Visitor):
                 else:
                     # This is an internal variable passed by Flang, for now we assume is a scalar
                     arg_type = block_arg.type
-                    base_type = self.get_base_type(arg_type)
                     is_scalar = True
                     arg_name = builtin.StringAttr("")
                     is_allocatable = False
@@ -149,6 +148,19 @@ class GatherFunctionInformation(Visitor):
                     arg_def = ArgumentDefinition(
                         arg_name, is_scalar, arg_type, arg_intent, is_allocatable
                     )
+                fn_def.add_arg_def(arg_def)
+        else:
+            # This is a definition, we will grab the argument types from the operation instead of the block
+            # can have less information than a declared function (with a body) as it's simply calling
+            # into a block box
+            for input_arg in func_op.function_type.inputs.data:
+                is_scalar = True
+                arg_name = builtin.StringAttr("")
+                is_allocatable = False
+                arg_intent = ArgIntent.INOUT
+                arg_def = ArgumentDefinition(
+                    arg_name, is_scalar, input_arg, arg_intent, is_allocatable
+                )
                 fn_def.add_arg_def(arg_def)
         self.program_state.addFunctionDefinition(fn_name, fn_def)
 
