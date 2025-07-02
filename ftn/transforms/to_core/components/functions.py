@@ -11,10 +11,11 @@ from ftn.transforms.to_core.misc.fortran_code_description import (
 )
 from ftn.transforms.to_core.misc.ssa_context import SSAValueCtx
 
-from ftn.transforms.to_core.utils import clean_func_name
+from ftn.transforms.to_core.utils import clean_func_name, create_index_constant
 
 import ftn.transforms.to_core.components.intrinsics as ftn_intrinsics
 import ftn.transforms.to_core.components.ftn_types as ftn_types
+import ftn.transforms.to_core.components.memory as ftn_memory
 import ftn.transforms.to_core.expressions as expressions
 import ftn.transforms.to_core.statements as statements
 
@@ -34,6 +35,7 @@ def translate_function(program_state: ProgramState, ctx: SSAValueCtx, fn: func.F
         return None
 
     body = Region()
+    ptr_unpack_args = []
     if len(fn.body.blocks) > 0:
         # This is a function with a body, the input types come from the block as
         # we will manipulate these to pass constants if possible
@@ -52,14 +54,20 @@ def translate_function(program_state: ProgramState, ctx: SSAValueCtx, fn: func.F
                 else:
                     fn_in_arg_types.append(arg.type)
             else:
-                converted_type = ftn_types.convert_fir_type_to_standard(fir_type)
-                if (
-                    isa(converted_type, builtin.MemRefType)
-                    and program_state.function_definitions[fn_identifier]
-                    .args[idx]
-                    .is_allocatable
-                ):
-                    converted_type = builtin.MemRefType(converted_type, shape=[])
+                if ftn_types.does_type_represent_ftn_pointer(fir_type):
+                    # If we are passing a Fortran pointer then we need to handle this differently, actually pass
+                    # the LLVM pointer of this and reconstruct, to access the same underlying memref
+                    converted_type = llvm.LLVMPointerType.opaque()
+                    ptr_unpack_args.append((idx, fir_type))
+                else:
+                    converted_type = ftn_types.convert_fir_type_to_standard(fir_type)
+                    if (
+                        isa(converted_type, builtin.MemRefType)
+                        and program_state.function_definitions[fn_identifier]
+                        .args[idx]
+                        .is_allocatable
+                    ):
+                        converted_type = builtin.MemRefType(converted_type, shape=[])
 
                 fn_in_arg_types.append(converted_type)
 
@@ -75,6 +83,20 @@ def translate_function(program_state: ProgramState, ctx: SSAValueCtx, fn: func.F
                 ctx[fir_arg] = std_arg
 
             ops_list = []
+            for ptr_idx, fir_type in ptr_unpack_args:
+                # This has been passed as a pointer, therefore pack into a memref
+                seq_type = ftn_types.get_type_from_chain(fir_type, fir.SequenceType)
+                base_type = ftn_types.convert_fir_type_to_standard(seq_type)
+
+                build_ops, build_ssa = ftn_memory.generate_memref_from_llvm_ptr(
+                    new_block.args[ptr_idx], [], base_type
+                )
+
+                del ctx[block.args[ptr_idx]]
+                ctx[block.args[ptr_idx]] = build_ssa
+
+                ops_list += build_ops
+
             for op in block.ops:
                 ops_list += statements.translate_stmt(program_state, ctx, op)
 
@@ -149,34 +171,71 @@ def handle_call_argument(
         # allow the translate_expr to handle it, but if the function accepts an integer due to
         # scalar and intent(in), then we need to load the memref.
         ops_list = expressions.translate_expr(program_state, ctx, arg)
+
         if not program_state.function_definitions[fn_name].is_definition_only:
             arg_defn = program_state.function_definitions[fn_name].args[arg_index]
+            if ftn_types.does_type_represent_ftn_pointer(arg_defn.arg_type):
+                # If we are passing a pointer then grab the underlying LLVM pointer from the memref
+                assert isa(ctx[arg].type, builtin.MemRefType)
+                extract_ptr_as_idx_op = memref.ExtractAlignedPointerAsIndexOp.get(
+                    ctx[arg]
+                )
+                i64_idx_op = arith.IndexCastOp(
+                    extract_ptr_as_idx_op.results[0], builtin.i64
+                )
+                ptr_op = llvm.IntToPtrOp(i64_idx_op.results[0])
+                ops_list += [extract_ptr_as_idx_op, i64_idx_op, ptr_op]
+                del ctx[arg]
+                ctx[arg] = ptr_op.results[0]
+            else:
+                if (
+                    arg_defn.is_scalar
+                    and arg_defn.intent == ArgIntent.IN
+                    and isa(ctx[arg].type, builtin.MemRefType)
+                ):
+                    # The function will accept a constant, but we are currently passing a memref
+                    # therefore need to load the value and pass this
+
+                    load_op = memref.LoadOp.get(ctx[arg], [])
+
+                    # arg is already in our ctx from above, so remove it and add in the load as
+                    # we want to reference that instead
+                    del ctx[arg]
+                    ctx[arg] = load_op.results[0]
+                    ops_list += [load_op]
+                elif (
+                    not arg_defn.is_scalar
+                    and not arg_defn.is_allocatable
+                    and isa(ctx[arg].type, builtin.MemRefType)
+                    and isa(ctx[arg].type.element_type, builtin.MemRefType)
+                ):
+                    load_op = memref.LoadOp.get(ctx[arg], [])
+                    del ctx[arg]
+                    ctx[arg] = load_op.results[0]
+                    ops_list += [load_op]
+        else:
+            # We have partial argument information, assumes all scalar and intent inout
+            arg_defn = program_state.function_definitions[fn_name].args[arg_index]
             if (
-                arg_defn.is_scalar
-                and arg_defn.intent == ArgIntent.IN
-                and isa(ctx[arg].type, builtin.MemRefType)
+                arg_defn.arg_type is not fir.ReferenceType
+                and arg_defn.arg_type is not fir.SequenceType
             ):
-                # The function will accept a constant, but we are currently passing a memref
-                # therefore need to load the value and pass this
+                # The function argument is not a reference or sequence (array) so likely a scalar
+                if isa(ctx[arg].type, builtin.MemRefType):
+                    load_idx_ssa = []
+                    if len(ctx[arg].type.shape) != 0:
+                        assert len(ctx[arg].type.shape) == 1
+                        assert ctx[arg].type.shape.data[0].data == 1
+                        accessor_op = create_index_constant(0)
+                        ops_list.append(accessor_op)
+                        load_idx_ssa.append(accessor_op.results[0])
 
-                load_op = memref.LoadOp.get(ctx[arg], [])
-
-                # arg is already in our ctx from above, so remove it and add in the load as
-                # we want to reference that instead
-                del ctx[arg]
-                ctx[arg] = load_op.results[0]
-                ops_list += [load_op]
-            elif (
-                not arg_defn.is_scalar
-                and not arg_defn.is_allocatable
-                and isa(ctx[arg].type, builtin.MemRefType)
-                and isa(ctx[arg].type.element_type, builtin.MemRefType)
-            ):
-                load_op = memref.LoadOp.get(ctx[arg], [])
-                del ctx[arg]
-                ctx[arg] = load_op.results[0]
-                ops_list += [load_op]
-        elif fn_name == "_FortranAProgramStart" and arg_index == 3:
+                    # The passed argument is a memref, we therefore need to extract this
+                    load_op = memref.LoadOp.get(ctx[arg], load_idx_ssa)
+                    del ctx[arg]
+                    ctx[arg] = load_op.results[0]
+                    ops_list += [load_op]
+        if fn_name == "_FortranAProgramStart" and arg_index == 3:
             # This is a hack, Flang currently generates incorrect typing for passing memory to the program initialisation
             # routine. As func.call verifies this we can not get away with it, so must extract the llvm pointer
             # from the memref and pass this directly
