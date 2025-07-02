@@ -9,11 +9,37 @@ from ftn.transforms.to_core.misc.ssa_context import SSAValueCtx
 import ftn.transforms.to_core.expressions as expressions
 
 
+def contains_type(type_chain, type_to_match):
+    return get_type_from_chain(type_chain, type_to_match) != None
+
+
+def get_type_from_chain(type_chain, type_to_match):
+    if isa(type_chain, type_to_match):
+        return type_chain
+    if (
+        isa(type_chain, fir.ReferenceType)
+        or isa(type_chain, fir.BoxType)
+        or isa(type_chain, fir.SequenceType)
+        or isa(type_chain, fir.HeapType)
+        or isa(type_chain, fir.PointerType)
+        or isa(type_chain, fir.LLVMPointerType)
+    ):
+        return get_type_from_chain(type_chain.type, type_to_match)
+    else:
+        return None
+
+
+def does_type_represent_ftn_pointer(type_chain):
+    return contains_type(type_chain, fir.ReferenceType) and contains_type(
+        type_chain, fir.PointerType
+    )
+
+
 def convert_fir_type_to_standard_if_needed(fir_type):
     if isa(fir_type, fir.ReferenceType):
         return llvm.LLVMPointerType.opaque()
     else:
-        return fir_type
+        return convert_fir_type_to_standard(fir_type)
 
 
 def convert_fir_type_to_standard(fir_type, ref_as_mem_ref=True):
@@ -50,6 +76,8 @@ def convert_fir_type_to_standard(fir_type, ref_as_mem_ref=True):
         for ty in fir_type.types:
             new_types.append(convert_fir_type_to_standard(ty, ref_as_mem_ref))
         return builtin.TupleType(new_types)
+    elif isa(fir_type, builtin.NoneType):
+        return builtin.i32
     else:
         return fir_type
 
@@ -58,6 +86,8 @@ def translate_convert(program_state: ProgramState, ctx: SSAValueCtx, op: fir.Con
     if ctx.contains(op.results[0]):
         return []
     value_ops = expressions.translate_expr(program_state, ctx, op.value)
+    if ctx[op.value] is None:
+        return []
     in_type = op.value.type
     out_type = op.results[0].type
     new_conv = None
@@ -167,6 +197,12 @@ def translate_convert(program_state: ProgramState, ctx: SSAValueCtx, op: fir.Con
         assert isa(out_type.type, fir.SequenceType)
         # Assert that what we will forward to is in-fact a memref type
         assert isa(ctx[op.value].type, builtin.MemRefType)
+        ctx[op.results[0]] = ctx[op.value]
+        new_conv = []
+
+    if isa(in_type, fir.PointerType) and isa(out_type, fir.ReferenceType):
+        assert isa(in_type.type, fir.SequenceType)
+        assert isa(out_type.type, fir.SequenceType)
         ctx[op.results[0]] = ctx[op.value]
         new_conv = []
 
