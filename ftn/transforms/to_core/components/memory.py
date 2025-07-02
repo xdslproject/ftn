@@ -23,6 +23,100 @@ import ftn.transforms.to_core.components.ftn_types as ftn_types
 import ftn.transforms.to_core.expressions as expressions
 
 
+def generate_memref_from_llvm_ptr(llvm_ptr_in_ssa, dim_sizes, target_type):
+    # Builds a memref from an LLVM pointer. This is required if we are working with
+    # global arrays, as they are llvm.array, and the pointer is grabbed from that and
+    # then the memref constructed
+    ptr_type = llvm.LLVMPointerType.opaque()
+
+    offsets = [1]
+    if len(dim_sizes) > 1:
+        for d in dim_sizes[:-1]:
+            offsets.append(d * offsets[-1])
+
+    offsets.reverse()
+
+    # Reverse the indicies as Fortran and C/MLIR are opposite in terms of
+    # the order of the contiguous dimension (F is least, whereas C/MLIR is highest)
+    dim_sizes = dim_sizes.copy()
+    dim_sizes.reverse()
+
+    array_type = llvm.LLVMArrayType.from_size_and_type(
+        builtin.IntAttr(len(dim_sizes)), builtin.i64
+    )
+    if len(dim_sizes) > 0:
+        struct_type = llvm.LLVMStructType.from_type_list(
+            [ptr_type, ptr_type, builtin.i64, array_type, array_type]
+        )
+    else:
+        struct_type = llvm.LLVMStructType.from_type_list(
+            [ptr_type, ptr_type, builtin.i64]
+        )
+
+    undef_memref_struct_op = llvm.UndefOp.create(result_types=[struct_type])
+    insert_alloc_ptr_op = llvm.InsertValueOp.create(
+        properties={"position": builtin.DenseArrayBase.from_list(builtin.i64, [0])},
+        operands=[undef_memref_struct_op.results[0], llvm_ptr_in_ssa],
+        result_types=[struct_type],
+    )
+    insert_aligned_ptr_op = llvm.InsertValueOp.create(
+        properties={"position": builtin.DenseArrayBase.from_list(builtin.i64, [1])},
+        operands=[insert_alloc_ptr_op.results[0], llvm_ptr_in_ssa],
+        result_types=[struct_type],
+    )
+
+    offset_op = arith.ConstantOp.from_int_and_width(0, 64)
+    insert_offset_op = llvm.InsertValueOp.create(
+        properties={"position": builtin.DenseArrayBase.from_list(builtin.i64, [2])},
+        operands=[insert_aligned_ptr_op.results[0], offset_op.results[0]],
+        result_types=[struct_type],
+    )
+
+    ops_to_add = [
+        undef_memref_struct_op,
+        insert_alloc_ptr_op,
+        insert_aligned_ptr_op,
+        offset_op,
+        insert_offset_op,
+    ]
+
+    memref_create_ssa = ops_to_add[-1].results[0]
+
+    if len(dim_sizes) > 0:
+        for idx, dim in enumerate(dim_sizes):
+            size_op = arith.ConstantOp.from_int_and_width(dim, 64)
+            insert_size_op = llvm.InsertValueOp.create(
+                properties={
+                    "position": builtin.DenseArrayBase.from_list(builtin.i64, [3, idx])
+                },
+                operands=[ops_to_add[-1].results[0], size_op.results[0]],
+                result_types=[struct_type],
+            )
+
+            # One for dimension stride
+            stride_op = arith.ConstantOp.from_int_and_width(offsets[idx], 64)
+            insert_stride_op = llvm.InsertValueOp.create(
+                properties={
+                    "position": builtin.DenseArrayBase.from_list(builtin.i64, [4, idx])
+                },
+                operands=[insert_size_op.results[0], stride_op.results[0]],
+                result_types=[struct_type],
+            )
+            memref_create_ssa = insert_stride_op.results[0]
+
+            ops_to_add += [size_op, insert_size_op, stride_op, insert_stride_op]
+
+    target_memref_type = memref.MemRefType(
+        ftn_types.convert_fir_type_to_standard(target_type), dim_sizes
+    )
+
+    unrealised_conv_cast_op = builtin.UnrealizedConversionCastOp.create(
+        operands=[memref_create_ssa], result_types=[target_memref_type]
+    )
+    ops_to_add.append(unrealised_conv_cast_op)
+    return ops_to_add, unrealised_conv_cast_op.results[0]
+
+
 def define_scalar_var(
     program_state: ProgramState, ctx: SSAValueCtx, op: hlfir.DeclareOp
 ):
@@ -53,7 +147,9 @@ def define_scalar_var(
             ctx[op.results[1]] = ctx[allocation_op.results[0]]
             return expr_ops
         else:
-            assert False
+            raise Exception(
+                f"Could not define scalar from allocation operation `{allocation_op.name}'"
+            )
     elif isa(op.memref, BlockArgument):
         ctx[op.results[0]] = ctx[op.memref]
         ctx[op.results[1]] = ctx[op.memref]
@@ -250,6 +346,13 @@ def translate_declare(
 ):
     # If already seen then simply ignore
     if ctx.contains(op.results[0]):
+        return []
+
+    if (
+        op.fortran_attrs is not None
+        and len(op.fortran_attrs.data) == 1
+        and op.fortran_attrs.data[0] == fir.FortranVariableFlags.HOSTASSOC
+    ):
         return []
 
     if (
