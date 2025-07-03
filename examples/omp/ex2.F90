@@ -1,4 +1,4 @@
-! Tests OpenMP target directive with distribute and teams
+! Tests OpenMP parallel do and reduction clause
 
 module ftn_example
 	implicit none
@@ -6,17 +6,25 @@ module ftn_example
 contains
 
 	subroutine calc()			
-		real, dimension(:), allocatable :: a, b, c						
+		real, dimension(:), allocatable :: a
 		
 		integer :: i
 		
-		allocate(a(100), b(100), c(100))
-	
-		!$omp target teams distribute num_teams(3)  
+		real :: result
+
+		allocate(a(100))
+
+		!$omp parallel do
 		do i=1, 100
-			c(i)=a(i)+b(i)			
+			a(i)=i
 		end do
-		!$omp end target teams distribute
+		!$omp end parallel do
+	
+		!$omp parallel do reduction(+:result)
+		do i=1, 100
+			result=result+a(i)
+		end do
+		!$omp end parallel do
 	end subroutine calc
 	
 end module ftn_example
