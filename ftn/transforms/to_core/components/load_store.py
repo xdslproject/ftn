@@ -610,3 +610,18 @@ def translate_load(program_state: ProgramState, ctx: SSAValueCtx, op: fir.LoadOp
         return [load_op]
     else:
         assert False
+
+
+def translate_designate_op(program_state, ctx, op: hlfir.DesignateOp):
+    """
+    We ignore this for now, it tends to be used to extract part of an array or a reference to a value,
+    with the array and indicies provided as arguments. Could implement by extracting value and then
+    wrapping in memref and grabbing LLVM pointer from that, or alternatively get LLVM pointer of
+    original memref and do pointer arithmetic on it (second option is better!)
+    """
+    if ctx.contains(op.results[0]):
+        return []
+
+    raise Exception(
+        "Designate Op is not supported at the moment, need to complete this in the load store"
+    )

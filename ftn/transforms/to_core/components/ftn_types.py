@@ -208,6 +208,10 @@ def translate_convert(program_state: ProgramState, ctx: SSAValueCtx, op: fir.Con
         ctx[op.results[0]] = ctx[op.value]
         new_conv = []
 
+    if isa(out_type, fir.BoxType) and isa(in_type, fir.BoxType):
+        new_conv = []
+        ctx[op.results[0]] = ctx[op.value]
+
     if isa(in_type, fir.PointerType) and isa(out_type, fir.ReferenceType):
         assert isa(in_type.type, fir.SequenceType)
         assert isa(out_type.type, fir.SequenceType)

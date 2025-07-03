@@ -17,6 +17,7 @@ from ftn.transforms.to_core.utils import (
     generate_dereference_memref,
     check_if_has_type,
     remove_tuple_type_from_memref,
+    generate_extract_ptr_from_memref,
 )
 
 import ftn.transforms.to_core.components.ftn_types as ftn_types
@@ -322,13 +323,10 @@ def translate_boxoffset(
     val_load_ops = expressions.translate_expr(program_state, ctx, op.val)
     var_ssa = ctx[op.val]
 
-    assert isa(var_ssa.type, builtin.MemRefType)
-    extract_ptr_as_idx_op = memref.ExtractAlignedPointerAsIndexOp.get(var_ssa)
-    i64_idx_op = arith.IndexCastOp(extract_ptr_as_idx_op.results[0], builtin.i64)
-    ptr_op = llvm.IntToPtrOp(i64_idx_op.results[0])
-    ctx[op.results[0]] = ptr_op.results[0]
+    extract_ops, extract_ssa = generate_extract_ptr_from_memref(var_ssa)
+    ctx[op.results[0]] = extract_ssa
 
-    return val_load_ops + [extract_ptr_as_idx_op, i64_idx_op, ptr_op]
+    return val_load_ops + extract_ops
 
 
 def translate_alloca(program_state: ProgramState, ctx: SSAValueCtx, op: fir.AllocaOp):

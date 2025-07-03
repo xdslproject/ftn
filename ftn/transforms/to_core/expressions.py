@@ -119,6 +119,9 @@ def try_translate_expr(
         ctx[op.results[0]] = ctx[op.source.owner.results[0]]
         ctx[op.results[1]] = ctx[op.source.owner.results[0]]
         return expr_ops
+    elif isa(op, hlfir.DesignateOp):
+        expr_ops = ftn_load_store.translate_designate_op(program_state, ctx, op)
+        return expr_ops
     elif isa(op, hlfir.AsExprOp):
         expr_ops = translate_expr(program_state, ctx, op.var)
         ctx[op.results[0]] = ctx[op.var]

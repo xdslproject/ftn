@@ -11,7 +11,11 @@ from ftn.transforms.to_core.misc.fortran_code_description import (
 )
 from ftn.transforms.to_core.misc.ssa_context import SSAValueCtx
 
-from ftn.transforms.to_core.utils import clean_func_name, create_index_constant
+from ftn.transforms.to_core.utils import (
+    clean_func_name,
+    create_index_constant,
+    generate_extract_ptr_from_memref,
+)
 
 import ftn.transforms.to_core.components.intrinsics as ftn_intrinsics
 import ftn.transforms.to_core.components.ftn_types as ftn_types
@@ -180,17 +184,10 @@ def handle_call_argument(
             arg_defn = program_state.function_definitions[fn_name].args[arg_index]
             if ftn_types.does_type_represent_ftn_pointer(arg_defn.arg_type):
                 # If we are passing a pointer then grab the underlying LLVM pointer from the memref
-                assert isa(ctx[arg].type, builtin.MemRefType)
-                extract_ptr_as_idx_op = memref.ExtractAlignedPointerAsIndexOp.get(
-                    ctx[arg]
-                )
-                i64_idx_op = arith.IndexCastOp(
-                    extract_ptr_as_idx_op.results[0], builtin.i64
-                )
-                ptr_op = llvm.IntToPtrOp(i64_idx_op.results[0])
-                ops_list += [extract_ptr_as_idx_op, i64_idx_op, ptr_op]
+                extract_ops, extract_ssa = generate_extract_ptr_from_memref(ctx[arg])
+                ops_list += extract_ops
                 del ctx[arg]
-                ctx[arg] = ptr_op.results[0]
+                ctx[arg] = extract_ssa
             else:
                 if (
                     arg_defn.is_scalar
@@ -226,32 +223,37 @@ def handle_call_argument(
             ):
                 # The function argument is not a reference or sequence (array) so likely a scalar
                 if isa(ctx[arg].type, builtin.MemRefType):
-                    load_idx_ssa = []
-                    if len(ctx[arg].type.shape) != 0:
-                        assert len(ctx[arg].type.shape) == 1
-                        assert ctx[arg].type.shape.data[0].data == 1
-                        accessor_op = create_index_constant(0)
-                        ops_list.append(accessor_op)
-                        load_idx_ssa.append(accessor_op.results[0])
+                    if isa(arg_defn.arg_type, fir.ReferenceType):
+                        # It is expecting an LLVM pointer
+                        extract_ops, extract_ssa = generate_extract_ptr_from_memref(
+                            ctx[arg]
+                        )
+                        del ctx[arg]
+                        ctx[arg] = extract_ssa
+                        ops_list += extract_ops
+                    else:
+                        # We will extract the memref
+                        load_idx_ssa = []
+                        if len(ctx[arg].type.shape) != 0:
+                            assert len(ctx[arg].type.shape) == 1
+                            assert ctx[arg].type.shape.data[0].data == 1
+                            accessor_op = create_index_constant(0)
+                            ops_list.append(accessor_op)
+                            load_idx_ssa.append(accessor_op.results[0])
 
-                    # The passed argument is a memref, we therefore need to extract this
-                    load_op = memref.LoadOp.get(ctx[arg], load_idx_ssa)
-                    del ctx[arg]
-                    ctx[arg] = load_op.results[0]
-                    ops_list += [load_op]
+                        # The passed argument is a memref, we therefore need to extract this
+                        load_op = memref.LoadOp.get(ctx[arg], load_idx_ssa)
+                        del ctx[arg]
+                        ctx[arg] = load_op.results[0]
+                        ops_list += [load_op]
         if fn_name == "_FortranAProgramStart" and arg_index == 3:
             # This is a hack, Flang currently generates incorrect typing for passing memory to the program initialisation
             # routine. As func.call verifies this we can not get away with it, so must extract the llvm pointer
             # from the memref and pass this directly
-            assert isa(ctx[arg].type, builtin.MemRefType)
-            extract_ptr_as_idx_op = memref.ExtractAlignedPointerAsIndexOp.get(ctx[arg])
-            i64_idx_op = arith.IndexCastOp(
-                extract_ptr_as_idx_op.results[0], builtin.i64
-            )
-            ptr_op = llvm.IntToPtrOp(i64_idx_op.results[0])
-            ops_list += [extract_ptr_as_idx_op, i64_idx_op, ptr_op]
+            extract_ops, extract_ssa = generate_extract_ptr_from_memref(ctx[arg])
+            ops_list += extract_ops
             del ctx[arg]
-            ctx[arg] = ptr_op.results[0]
+            ctx[arg] = extract_ssa
         return ops_list, False
 
 

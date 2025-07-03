@@ -33,6 +33,14 @@ def create_index_constant(val: int):
     )
 
 
+def generate_extract_ptr_from_memref(memref_ssa):
+    assert isa(memref_ssa.type, builtin.MemRefType)
+    extract_ptr_as_idx_op = memref.ExtractAlignedPointerAsIndexOp.get(memref_ssa)
+    i64_idx_op = arith.IndexCastOp(extract_ptr_as_idx_op.results[0], builtin.i64)
+    ptr_op = llvm.IntToPtrOp(i64_idx_op.results[0])
+    return [extract_ptr_as_idx_op, i64_idx_op, ptr_op], ptr_op.results[0]
+
+
 def generate_dereference_memref(memref_ssa):
     load_op = memref.LoadOp.get(memref_ssa, [])
     return load_op, load_op.results[0]
