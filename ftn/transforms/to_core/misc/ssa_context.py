@@ -32,6 +32,8 @@ class SSAValueCtx:
 
     def __setitem__(self, identifier: str, ssa_value: SSAValue):
         """Relate the given identifier and SSA value in the current scope"""
+        if ssa_value is None:
+            raise Exception()
         if identifier in self.dictionary:
             raise Exception()
         else:
