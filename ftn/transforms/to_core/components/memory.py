@@ -140,12 +140,19 @@ def define_scalar_var(
             ctx[op.results[1]] = ctx[allocation_op.results[0]]
             return expr_ops
         elif isa(allocation_op, fir.UnboxcharOp):
-            expr_ops = expressions.translate_expr(
-                program_state, ctx, allocation_op.boxchar
-            )
-            ctx[op.results[0]] = ctx[allocation_op.results[0]]
-            ctx[op.results[1]] = ctx[allocation_op.results[0]]
-            return expr_ops
+            if isa(allocation_op.boxchar, BlockArgument):
+                # If it is a block argument then set to be that
+                ctx[op.results[0]] = ctx[allocation_op.boxchar]
+                ctx[op.results[1]] = ctx[allocation_op.boxchar]
+                return []
+            else:
+                # Otherwise process the argument and set to be the result
+                expr_ops = expressions.translate_expr(
+                    program_state, ctx, allocation_op.boxchar
+                )
+                ctx[op.results[0]] = ctx[allocation_op.results[0]]
+                ctx[op.results[1]] = ctx[allocation_op.results[0]]
+                return expr_ops
         else:
             raise Exception(
                 f"Could not define scalar from allocation operation `{allocation_op.name}'"
@@ -346,6 +353,8 @@ def translate_declare(
 ):
     # If already seen then simply ignore
     if ctx.contains(op.results[0]):
+        for res in op.results:
+            assert ctx.contains(res)
         return []
 
     if (
@@ -354,6 +363,20 @@ def translate_declare(
         and op.fortran_attrs.data[0] == fir.FortranVariableFlags.HOSTASSOC
     ):
         return []
+
+    if (
+        isa(op.memref.owner, fir.UnboxcharOp)
+        and isa(op.results[0].type, fir.BoxCharType)
+        and isa(op.results[1].type, fir.ReferenceType)
+    ):
+        assert len(op.typeparams) == 1
+        assert isa(op.typeparams[0].owner, fir.UnboxcharOp)
+
+        memref_handle_ops = expressions.translate_expr(program_state, ctx, op.memref)
+
+        ctx[op.results[0]] = ctx[op.memref.owner.boxchar]
+        ctx[op.results[1]] = ctx[op.memref]
+        return memref_handle_ops
 
     if (
         isa(op.results[0].type, fir.ReferenceType)
@@ -464,6 +487,7 @@ def translate_declare(
                 array_name, size_ssas, [1] * len(size_ssas), end_ssas
             )
             return ops_list
+    assert False
 
 
 def translate_reassoc(
@@ -567,3 +591,65 @@ def translate_address_of(
 
     ctx[op.results[0]] = global_lookup.results[0]
     return [global_lookup]
+
+
+def translate_emboxchar(program_state, ctx, op: fir.EmboxcharOp):
+    if ctx.contains(op.results[0]):
+        return []
+
+    struct_type = llvm.LLVMStructType.from_type_list(
+        [llvm.LLVMPointerType.opaque(), builtin.i64]
+    )
+
+    char_ptr_ops_list = expressions.translate_expr(program_state, ctx, op.memref)
+
+    undef_memref_struct_op = llvm.UndefOp.create(result_types=[struct_type])
+
+    insert_char_ptr_op = llvm.InsertValueOp.create(
+        properties={"position": builtin.DenseArrayBase.from_list(builtin.i64, [0])},
+        operands=[undef_memref_struct_op.results[0], ctx[op.memref]],
+        result_types=[struct_type],
+    )
+
+    size_ops_list = expressions.translate_expr(program_state, ctx, op.len)
+    if isa(ctx[op.len].type, builtin.IndexType):
+        conv_i64 = arith.IndexCastOp(ctx[op.len], builtin.i64)
+        size_ops_list += [conv_i64]
+        del ctx[op.len]
+        ctx[op.len] = conv_i64.results[0]
+
+    insert_len_op = llvm.InsertValueOp.create(
+        properties={"position": builtin.DenseArrayBase.from_list(builtin.i64, [1])},
+        operands=[insert_char_ptr_op.results[0], ctx[op.len]],
+        result_types=[struct_type],
+    )
+
+    ctx[op.results[0]] = insert_len_op.results[0]
+
+    return (
+        char_ptr_ops_list
+        + size_ops_list
+        + [undef_memref_struct_op, insert_char_ptr_op, insert_len_op]
+    )
+
+
+def translate_unboxchar(program_state, ctx, op: fir.UnboxcharOp):
+    if ctx.contains(op.results[0]):
+        assert ctx.contains(op.results[1])
+        return []
+
+    boxchar_ops_list = expressions.translate_expr(program_state, ctx, op.boxchar)
+
+    extract_char_ptr = llvm.ExtractValueOp(
+        builtin.DenseArrayBase.from_list(builtin.i64, [0]),
+        ctx[op.boxchar],
+        llvm.LLVMPointerType.opaque(),
+    )
+    extract_char_len = llvm.ExtractValueOp(
+        builtin.DenseArrayBase.from_list(builtin.i64, [1]), ctx[op.boxchar], builtin.i64
+    )
+
+    ctx[op.results[0]] = extract_char_ptr.results[0]
+    ctx[op.results[1]] = extract_char_len.results[0]
+
+    return boxchar_ops_list + [extract_char_ptr, extract_char_len]

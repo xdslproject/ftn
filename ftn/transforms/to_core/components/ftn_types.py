@@ -71,6 +71,10 @@ def convert_fir_type_to_standard(fir_type, ref_as_mem_ref=True):
         )
     elif isa(fir_type, fir.LogicalType):
         return builtin.i1
+    elif isa(fir_type, fir.BoxCharType):
+        return llvm.LLVMStructType.from_type_list(
+            [llvm.LLVMPointerType.opaque(), builtin.i64]
+        )
     elif isa(fir_type, builtin.TupleType):
         new_types = []
         for ty in fir_type.types:
@@ -86,8 +90,6 @@ def translate_convert(program_state: ProgramState, ctx: SSAValueCtx, op: fir.Con
     if ctx.contains(op.results[0]):
         return []
     value_ops = expressions.translate_expr(program_state, ctx, op.value)
-    if ctx[op.value] is None:
-        return []
     in_type = op.value.type
     out_type = op.results[0].type
     new_conv = None
@@ -116,8 +118,14 @@ def translate_convert(program_state: ProgramState, ctx: SSAValueCtx, op: fir.Con
     if (isa(in_type, builtin.IndexType) and isa(out_type, builtin.IntegerType)) or (
         isa(in_type, builtin.IntegerType) and isa(out_type, builtin.IndexType)
     ):
-        new_conv = arith.IndexCastOp(ctx[op.value], out_type)
-        ctx[op.results[0]] = new_conv.results[0]
+        if isa(ctx[op.value].type, builtin.IndexType) or isa(
+            out_type, builtin.IndexType
+        ):
+            new_conv = arith.IndexCastOp(ctx[op.value], out_type)
+            ctx[op.results[0]] = new_conv.results[0]
+        else:
+            ctx[op.results[0]] = ctx[op.value]
+            return []
 
     if isa(in_type, builtin.IntegerType) and isa(out_type, builtin.AnyFloat):
         new_conv = arith.SIToFPOp(ctx[op.value], out_type)

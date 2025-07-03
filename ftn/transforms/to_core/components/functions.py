@@ -50,9 +50,13 @@ def translate_function(program_state: ProgramState, ctx: SSAValueCtx, fn: func.F
             ):
                 # This is a scalar in, therefore it's just the constant type (don't encode as a memref)
                 if isa(fir_type, fir.ReferenceType):
-                    fn_in_arg_types.append(fir_type.type)
+                    fn_in_arg_types.append(
+                        ftn_types.convert_fir_type_to_standard(fir_type.type)
+                    )
                 else:
-                    fn_in_arg_types.append(arg.type)
+                    fn_in_arg_types.append(
+                        ftn_types.convert_fir_type_to_standard(arg.type)
+                    )
             else:
                 if ftn_types.does_type_represent_ftn_pointer(fir_type):
                     # If we are passing a Fortran pointer then we need to handle this differently, actually pass

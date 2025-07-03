@@ -107,13 +107,17 @@ def try_translate_expr(
         return ftn_memory.translate_boxoffset(program_state, ctx, op)
     elif isa(op, arith.SelectOp):
         return ftn_maths.translate_select(program_state, ctx, op)
-    elif isa(op, fir.EmboxOp) or isa(op, fir.EmboxcharOp):
+    elif isa(op, fir.EmboxOp):
         expr_ops = translate_expr(program_state, ctx, op.memref)
         ctx[op.results[0]] = ctx[op.memref.owner.results[0]]
+        return expr_ops
+    elif isa(op, fir.EmboxcharOp):
+        expr_ops = ftn_memory.translate_emboxchar(program_state, ctx, op)
         return expr_ops
     elif isa(op, hlfir.AssociateOp):
         expr_ops = translate_expr(program_state, ctx, op.source)
         ctx[op.results[0]] = ctx[op.source.owner.results[0]]
+        ctx[op.results[1]] = ctx[op.source.owner.results[0]]
         return expr_ops
     elif isa(op, hlfir.AsExprOp):
         expr_ops = translate_expr(program_state, ctx, op.var)
@@ -122,6 +126,9 @@ def try_translate_expr(
     elif isa(op, fir.ReboxOp):
         expr_ops = translate_expr(program_state, ctx, op.box)
         ctx[op.results[0]] = ctx[op.box]
+        return expr_ops
+    elif isa(op, fir.UnboxcharOp):
+        expr_ops = ftn_memory.translate_unboxchar(program_state, ctx, op)
         return expr_ops
     elif isa(op, hlfir.DotProductOp):
         return ftn_intrinsics.translate_dotproduct(program_state, ctx, op)
