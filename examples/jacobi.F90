@@ -30,11 +30,13 @@ contains
     call initialise_values(u_k, u_kp1, nx, ny)
 
     ! Calculate the initial residual
+    !$omp parallel do reduction(+:bnorm)
     do i=1, nx
       do j=1, ny
         bnorm=bnorm+((u_k(j,i)*4-u_k(j-1,i)-u_k(j+1,i)-u_k(j,i-1)-u_k(j,i+1)) ** 2)
       end do
     end do
+    !$omp end parallel do
     ! In the parallel version you will be operating on only part of the domain in each process, so you will need to do some
     ! form of reduction to determine the global bnorm before square rooting it
     bnorm=sqrt(bnorm)
@@ -43,11 +45,13 @@ contains
       ! The halo swapping will likely need to go in here
       rnorm=0.0
       ! Calculates the current residual norm
+      !$omp parallel do reduction(+:rnorm)
       do i=1, nx
         do j=1, ny
           rnorm=rnorm+((u_k(j,i)*4-u_k(j-1,i)-u_k(j+1,i)-u_k(j,i-1)-u_k(j,i+1)) ** 2)
         end do
       end do
+      !$omp end parallel do
       ! In the parallel version you will be operating on only part of the domain in each process, so you will need to do some
       !  form of reduction to determine the global rnorm before square rooting it
       norm=sqrt(rnorm)/bnorm
@@ -55,11 +59,13 @@ contains
       if (norm .lt. convergence_accuracy) exit
 
       ! Do the Jacobi iteration
+      !$omp parallel do
       do i=1, nx
         do j=1, ny
           u_kp1(j,i)=0.25 * (u_k(j-1,i) + u_k(j+1,i) + u_k(j,i-1) + u_k(j,i+1))
         end do
       end do
+      !$omp end parallel do
 
       ! Swap data structures round for the next iteration
       call move_alloc(u_kp1, temp)
