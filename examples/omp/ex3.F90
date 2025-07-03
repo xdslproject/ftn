@@ -1,31 +1,33 @@
-! Tests OpenMP target directive with distribute, teams and parallel do
+! Tests OpenMP parallel do with collapse clause
 
 module ftn_example
-	implicit none
-	
+  implicit none
+
 contains
 
-	subroutine calc()			
-		real, dimension(:), allocatable :: a, b, c						
-		
-		integer :: i
-		
-		allocate(a(100), b(100), c(100))
-	
-		!$omp target teams distribute parallel do num_teams(3)  
-		do i=1, 100
-			c(i)=a(i)+b(i)			
-		end do
-		!$omp end target teams distribute parallel do
-	end subroutine calc
-	
+  subroutine calc()
+    real, dimension(:,:), allocatable :: a
+
+    integer :: i, j
+
+    allocate(a(100,100))
+
+    !$omp parallel do collapse(2)
+    do i=1, 100
+      do j=1, 100
+        a(j,i)=i*j
+      end do
+    end do
+    !$omp end parallel do
+  end subroutine calc
+
 end module ftn_example
 
 program main
-	use ftn_example
-	
+  use ftn_example
+
 implicit none
-	
-	call calc()	
+
+  call calc()
 end program main
 
