@@ -137,7 +137,7 @@ contains
     do ncycle=1,ITMAX
 
       call cpu_time(c1)
-      !$omp target parallel do
+      !$omp target parallel do collapse(2)
       do j=1,N
         do i=1,M
           cu(i+1,j) = 0.5 * (p(i+1,j) + p(i,j)) * u(i+1,j)
@@ -185,7 +185,7 @@ contains
       tdtsdy = tdt / dy
 
       call cpu_time(c1)
-      !$omp target parallel do
+      !$omp target parallel do collapse(2)
       do j=1,N
         do i=1,M
           unew(i+1,j) = uold(i+1,j) + &
@@ -227,7 +227,7 @@ contains
       time = time + dt
       if (ncycle > 1) then
         call cpu_time(c1)
-        !$omp target parallel do
+        !$omp target parallel do collapse(2)
         do j=1,N_LEN
           do i=1,M_LEN
             uold(i,j) = u(i,j) + alpha*(unew(i,j) - 2. * u(i,j) + uold(i,j))
