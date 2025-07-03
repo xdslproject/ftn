@@ -355,7 +355,7 @@ def translate_omp_loopnest(
     )
 
     loopnest_op = omp.LoopNestOp.build(
-        operands=[lb_ops, ub_ops, step_ops],
+        operands=[ctx[op.lowerBound[0]], ctx[op.upperBound[0]], ctx[op.step[0]]],
         regions=[Region([new_block])],
         properties=new_props,
     )
