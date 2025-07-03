@@ -410,21 +410,31 @@ def translate_omp_loopnest(
 ):
     arg_types = []
 
-    lb_ops = expressions.translate_expr(program_state, ctx, op.lowerBound[0])
-    ub_ops = expressions.translate_expr(program_state, ctx, op.upperBound[0])
-    step_ops = expressions.translate_expr(program_state, ctx, op.step[0])
+    assert len(op.lowerBound) == len(op.upperBound) == len(op.step)
+
+    operands_ssa = [[], [], []]
+    ops_list = []
+    for lower, upper, step in zip(op.lowerBound, op.upperBound, op.step):
+        lb_ops = expressions.translate_expr(program_state, ctx, lower)
+        ub_ops = expressions.translate_expr(program_state, ctx, upper)
+        step_ops = expressions.translate_expr(program_state, ctx, step)
+        operands_ssa[0].append(ctx[lower])
+        operands_ssa[1].append(ctx[upper])
+        operands_ssa[2].append(ctx[step])
+
+        ops_list += lb_ops + ub_ops + step_ops
 
     new_block, __, new_props = create_block_and_properties_for_op(
-        program_state, ctx, op, [builtin.i32], op.body, False
+        program_state, ctx, op, [builtin.i32] * len(op.lowerBound), op.body, False
     )
 
     loopnest_op = omp.LoopNestOp.build(
-        operands=[ctx[op.lowerBound[0]], ctx[op.upperBound[0]], ctx[op.step[0]]],
+        operands=operands_ssa,
         regions=[Region([new_block])],
         properties=new_props,
     )
 
-    return lb_ops + ub_ops + step_ops + [loopnest_op]
+    return ops_list + [loopnest_op]
 
 
 def translate_omp_teams(program_state: ProgramState, ctx: SSAValueCtx, op: omp.TeamsOp):
