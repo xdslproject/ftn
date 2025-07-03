@@ -538,8 +538,14 @@ def translate_load(program_state: ProgramState, ctx: SSAValueCtx, op: fir.LoadOp
     if isa(ctx[op.memref], BlockArgument) and not isa(
         ctx[op.memref].type, builtin.MemRefType
     ):
-        ctx[op.results[0]] = ctx[op.memref]
-        return []
+        if isa(ctx[op.memref].type, llvm.LLVMPointerType):
+            # If this is an LLVM pointer then load it
+            load_op = llvm.LoadOp(ctx[op.memref], op.results[0].type)
+            ctx[op.results[0]] = load_op.results[0]
+            return [load_op]
+        else:
+            ctx[op.results[0]] = ctx[op.memref]
+            return []
     elif isa(op.memref.owner, hlfir.DeclareOp):
         # Scalar value
         if isa(ctx[op.memref].type, builtin.MemRefType):

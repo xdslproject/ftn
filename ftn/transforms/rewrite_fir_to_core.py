@@ -197,6 +197,10 @@ def translate_program(
             private_op = ftn_openmp.translate_private(program_state, global_ctx, fn)
             if private_op is not None:
                 block.add_op(private_op)
+        elif isa(fn, omp.DeclareReductionOp):
+            declare_reduction_op = ftn_openmp.translate_declarereduction(program_state, global_ctx, fn)
+            if declare_reduction_op is not None:
+                block.add_op(declare_reduction_op)
         else:
             assert False
     body.add_block(block)

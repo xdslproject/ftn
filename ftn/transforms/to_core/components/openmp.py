@@ -5,7 +5,10 @@ from xdsl.dialects import builtin, omp
 from ftn.transforms.to_core.misc.fortran_code_description import ProgramState
 from ftn.transforms.to_core.misc.ssa_context import SSAValueCtx
 
-from ftn.transforms.to_core.utils import create_index_constant
+from ftn.transforms.to_core.utils import (
+    create_index_constant,
+    generate_extract_ptr_from_memref,
+)
 
 import ftn.transforms.to_core.expressions as expressions
 import ftn.transforms.to_core.statements as statements
@@ -89,6 +92,52 @@ def create_block_and_properties_for_op(
     new_props = duplicate_op_properties(op)
 
     return new_block, top_level_ops, new_props
+
+
+def generate_op_region(program_state: ProgramState, ctx: SSAValueCtx, region: Region):
+    if len(region.blocks) > 0:
+        arg_types = []
+        for arg in region.blocks[0].args:
+            arg_types.append(arg.type)
+
+        new_block = Block(arg_types=arg_types)
+
+        for fir_arg, std_arg in zip(region.blocks[0].args, new_block.args):
+            ctx[fir_arg] = std_arg
+
+        region_ops = []
+        for single_op in region.blocks[0].ops:
+            region_ops += statements.translate_stmt(program_state, ctx, single_op)
+
+        new_block.add_ops(region_ops)
+        region_blocks = [new_block]
+    else:
+        region_blocks = []
+    return region_blocks
+
+
+def translate_declarereduction(
+    program_state: ProgramState, ctx: SSAValueCtx, op: omp.DeclareReductionOp
+):
+    alloc_region_blocks = generate_op_region(program_state, ctx, op.alloc_region)
+    init_region_blocks = generate_op_region(program_state, ctx, op.init_region)
+    combiner_region_blocks = generate_op_region(program_state, ctx, op.combiner_region)
+    atomic_region_blocks = generate_op_region(program_state, ctx, op.atomic_region)
+    cleanup_region_blocks = generate_op_region(program_state, ctx, op.cleanup_region)
+
+    return omp.DeclareReductionOp.build(
+        regions=[
+            Region(alloc_region_blocks),
+            Region(init_region_blocks),
+            Region(combiner_region_blocks),
+            Region(atomic_region_blocks),
+            Region(cleanup_region_blocks),
+        ],
+        properties={
+            "sym_name": op.sym_name,
+            "type": op.var_type,
+        },
+    )
 
 
 def translate_private(program_state: ProgramState, ctx: SSAValueCtx, op: omp.PrivateOp):
@@ -240,6 +289,21 @@ def translate_omp_wsloop(
     reduction_vars_ops, reduction_vars_ssa, reduction_vars_types = (
         handle_var_operand_field(program_state, ctx, op.reduction_vars)
     )
+
+    # OpenMP can not handle memref in wsloop arguments, which are used for reduction
+    # args. Therefore convert these into LLVM pointers which are passed in, these
+    # can then be loaded and worked with similarly to memref
+    new_reduction_ssas = reduction_vars_ssa
+    for idx, reduction_var_ssa in enumerate(reduction_vars_ssa):
+        if isa(reduction_var_ssa.type, builtin.MemRefType):
+            extract_ops, extract_ssa = generate_extract_ptr_from_memref(
+                reduction_var_ssa
+            )
+            reduction_vars_ops += extract_ops
+            new_reduction_ssas[idx] = extract_ssa
+            reduction_vars_types[idx] = extract_ssa.type
+
+    reduction_vars_ssa = new_reduction_ssas
     arg_types += reduction_vars_types
 
     schedule_chunk_ops, schedule_chunk_ssa, schedule_chunk_types = (
@@ -787,4 +851,4 @@ def translate_omp_yield(program_state: ProgramState, ctx: SSAValueCtx, op: omp.Y
         expr_ops = expressions.translate_expr(program_state, ctx, operand)
         ops_list += expr_ops
         ssa_list.append(ctx[operand])
-    return [omp.YieldOp(*ssa_list)]
+    return ops_list + [omp.YieldOp(*ssa_list)]
