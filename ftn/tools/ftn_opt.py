@@ -1,8 +1,5 @@
-#!/usr/bin/env python3.10
-
 import argparse
-import ast, os, glob
-from io import IOBase
+import os, glob
 
 from xdsl.dialects.builtin import ModuleOp
 
@@ -106,7 +103,7 @@ def _empty_generate_dir():
   for f in files:
     os.remove(f)
 
-def __main__():
+def main():
     ftn_main = FtnOptMain()
 
     try:
@@ -127,4 +124,4 @@ def __main__():
         exit(0)
 
 if __name__ == "__main__":
-    __main__()
+    main()
