@@ -140,7 +140,7 @@ def translate_declarereduction(
     )
 
 
-def translate_private(program_state: ProgramState, ctx: SSAValueCtx, op: omp.PrivateOp):
+def translate_private(program_state: ProgramState, ctx: SSAValueCtx, op: omp.PrivateClauseOp):
     if len(op.alloc_region.blocks) > 0:
         alloc_region_ops = []
         for single_op in op.alloc_region.blocks[0].ops:
@@ -563,7 +563,7 @@ def translate_omp_distribute(
     )
 
 
-def translate_omp_simd(program_state: ProgramState, ctx: SSAValueCtx, op: omp.SIMDOp):
+def translate_omp_simd(program_state: ProgramState, ctx: SSAValueCtx, op: omp.SimdOp):
     arg_types = []
 
     aligned_vars_ops, aligned_vars_ssa, aligned_var_types = handle_var_operand_field(
