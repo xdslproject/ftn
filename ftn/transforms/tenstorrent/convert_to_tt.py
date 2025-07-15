@@ -17,7 +17,7 @@ from xdsl.pattern_rewriter import (RewritePattern, PatternRewriter,
                                    GreedyRewritePatternApplier)
 from xdsl.passes import ModulePass
 from xdsl.dialects import builtin, func, llvm, arith
-from util.visitor import Visitor
+from ftn.util.visitor import Visitor
 
 uint32 = builtin.IntegerType(32, signedness=builtin.Signedness.UNSIGNED)
 uint64 = builtin.IntegerType(64, signedness=builtin.Signedness.UNSIGNED)

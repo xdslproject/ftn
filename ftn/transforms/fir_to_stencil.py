@@ -15,7 +15,7 @@ from xdsl.passes import ModulePass
 from xdsl.dialects import builtin, func, llvm, arith
 from xdsl.dialects.experimental import fir
 from xdsl.dialects import stencil
-from util.visitor import Visitor
+from ftn.util.visitor import Visitor
 
 class GetArrayAccessValue(Visitor):
   # Walks the index expression of an array (i.e. (a-1-1) and builds up expression
