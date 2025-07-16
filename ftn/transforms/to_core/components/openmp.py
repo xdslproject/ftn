@@ -80,7 +80,7 @@ def create_block_and_properties_for_op(
         assert (
             isa(region_body_ops[0], omp.LoopNestOp)
             or isa(region_body_ops[0], omp.WsLoopOp)
-            or isa(region_body_ops[0], omp.SIMDOp)
+            or isa(region_body_ops[0], omp.SimdOp)
             or isa(region_body_ops[0], omp.DistributeOp)
         )
     else:
@@ -605,7 +605,7 @@ def translate_omp_simd(program_state: ProgramState, ctx: SSAValueCtx, op: omp.Si
         program_state, ctx, op, arg_types, op.body, True
     )
 
-    simd_op = omp.SIMDOp.build(
+    simd_op = omp.SimdOp.build(
         operands=[
             aligned_vars_ssa,
             if_expr_ssa,
@@ -752,7 +752,7 @@ def translate_omp_target_data(
     arg_types += if_expr_types
 
     map_vars_ops, map_vars_ssa, map_vars_types = handle_var_operand_field(
-        program_state, ctx, op.map_vars
+        program_state, ctx, op.mapped_vars
     )
     arg_types += map_vars_types
 
@@ -815,7 +815,7 @@ def translate_omp_target_task_based_data_movement(
     arg_types += if_expr_types
 
     map_vars_ops, map_vars_ssa, map_vars_types = handle_var_operand_field(
-        program_state, ctx, op.map_vars
+        program_state, ctx, op.mapped_vars
     )
     arg_types += map_vars_types
 
