@@ -121,15 +121,15 @@ def translate_declarereduction(
 ):
     alloc_region_blocks = generate_op_region(program_state, ctx, op.alloc_region)
     init_region_blocks = generate_op_region(program_state, ctx, op.init_region)
-    combiner_region_blocks = generate_op_region(program_state, ctx, op.combiner_region)
-    atomic_region_blocks = generate_op_region(program_state, ctx, op.atomic_region)
+    reduction_region_blocks = generate_op_region(program_state, ctx, op.reduction_region)
+    atomic_region_blocks = generate_op_region(program_state, ctx, op.atomic_reduction_region)
     cleanup_region_blocks = generate_op_region(program_state, ctx, op.cleanup_region)
 
     return omp.DeclareReductionOp.build(
         regions=[
             Region(alloc_region_blocks),
             Region(init_region_blocks),
-            Region(combiner_region_blocks),
+            Region(reduction_region_blocks),
             Region(atomic_region_blocks),
             Region(cleanup_region_blocks),
         ],
