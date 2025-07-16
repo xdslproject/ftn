@@ -11,8 +11,6 @@ from ftn.transforms.merge_memref_deref import MergeMemRefDeref
 #from ftn.transforms.tenstorrent.convert_to_tt import ConvertToTT
 #from psy.infer_gpu_data_transfer import InferGPUDataTransfer
 
-# from util.semantic_error import SemanticError
-
 from pathlib import Path
 
 from typing import Callable, Dict, List
@@ -119,9 +117,9 @@ def main():
     except SyntaxError as e:
         print(e.get_message())
         exit(0)
-    # except SemanticError as e:
-    #     print("Semantic error: %s" % str(e))
-    #     exit(0)
+    except Exception as e:
+        print("Error: %s" % str(e))
+        exit(0)
 
 if __name__ == "__main__":
     main()
