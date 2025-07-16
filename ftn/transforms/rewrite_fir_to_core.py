@@ -193,7 +193,7 @@ def translate_program(
             global_op = translate_global(program_state, global_ctx, fn)
             if global_op is not None:
                 block.add_op(global_op)
-        elif isa(fn, omp.PrivateOp):
+        elif isa(fn, omp.PrivateClauseOp):
             private_op = ftn_openmp.translate_private(program_state, global_ctx, fn)
             if private_op is not None:
                 block.add_op(private_op)

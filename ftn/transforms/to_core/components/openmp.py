@@ -167,7 +167,7 @@ def translate_private(program_state: ProgramState, ctx: SSAValueCtx, op: omp.Pri
     else:
         dealloc_region_blocks = []
 
-    return omp.PrivateOp.build(
+    return omp.PrivateClauseOp.build(
         regions=[
             Region(alloc_region_blocks),
             Region(copy_region_blocks),
