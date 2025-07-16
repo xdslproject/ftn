@@ -12,7 +12,7 @@ from xdsl.utils.hints import isa
 
 from xdsl.dialects.builtin import ArrayAttr, DictionaryAttr, StringAttr
 from xdsl.ir import Attribute, Dialect
-from xdsl.irdl import ParameterDef, ParametrizedAttribute, irdl_attr_definition
+from xdsl.irdl import ParametrizedAttribute, irdl_attr_definition
 from xdsl.parser import AttrParser
 from xdsl.printer import Printer
 from xdsl.utils.exceptions import VerifyException
@@ -102,8 +102,8 @@ class TargetSystemSpecInterface(ABC):
 class DlEntryAttr(ParametrizedAttribute, DataLayoutEntryInterface):
     name = "dlti.dl_entry"
 
-    key_: ParameterDef[Attribute]
-    value_: ParameterDef[Attribute]
+    key_: Attribute
+    value_: Attribute
 
     def __init__(self, key, value):
         return super().__init__(key, value)
@@ -133,7 +133,7 @@ class DlEntryAttr(ParametrizedAttribute, DataLayoutEntryInterface):
 class DataLayoutSpec(ParametrizedAttribute, TargetDeviceSpecInterface):
     name = "dlti.dl_spec"
 
-    entries: ParameterDef[ArrayAttr[DlEntryAttr]]
+    entries: ArrayAttr[DlEntryAttr]
 
     def get_entries(self) -> Iterable[DataLayoutEntryInterface]:
         return tuple(self.entries)  # pyright: ignore[reportGeneralTypeIssues]
@@ -172,7 +172,7 @@ class DataLayoutSpec(ParametrizedAttribute, TargetDeviceSpecInterface):
 class TargetDeviceSpec(ParametrizedAttribute, TargetDeviceSpecInterface):
     name = "dlti.target_device_spec"
 
-    entries: ParameterDef[ArrayAttr[Attribute]]
+    entries: ArrayAttr[Attribute]
 
     def get_entries(self) -> Iterable[DataLayoutEntryInterface]:
         return tuple(self.entries)  # pyright: ignore[reportGeneralTypeIssues]
@@ -204,7 +204,7 @@ class TargetDeviceSpec(ParametrizedAttribute, TargetDeviceSpecInterface):
 class TargetSystemSpec(ParametrizedAttribute, TargetSystemSpecInterface):
     name = "dlti.target_system_spec"
 
-    entries: ParameterDef[DictionaryAttr]
+    entries: DictionaryAttr
 
     def _verify(self):
         for val in self.entries.data.values():
