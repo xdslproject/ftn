@@ -17,6 +17,9 @@ dev=[]
 
 [project.scripts]
 ftn-opt = "ftn.tools.ftn_opt:main"
+preprocess_mlir_for_xdsl = "ftn.tools.preprocess_mlir_for_xdsl:main"
+postprocess_xdsl_for_mlir = "ftn.tools.postprocess_xdsl_for_mlir:main"
+
 
 [tool.setuptools]
 platforms = ["Linux", "Mac OS-X", "Unix"]
