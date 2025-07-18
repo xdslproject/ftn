@@ -13,6 +13,7 @@ from ftn.transforms.to_core.utils import (
 
 import ftn.transforms.to_core.expressions as expressions
 import ftn.transforms.to_core.statements as statements
+from ftn.transforms.to_core.components.ftn_types import convert_fir_type_to_standard
 
 
 def handle_var_operand_field(program_state: ProgramState, ctx: SSAValueCtx, var_operands: VarOperand):
@@ -136,7 +137,7 @@ def translate_declarereduction(
         ],
         properties={
             "sym_name": op.sym_name,
-            "type": op.var_type,
+            "type": convert_fir_type_to_standard(op.var_type),
         },
     )
 
@@ -176,7 +177,7 @@ def translate_private(program_state: ProgramState, ctx: SSAValueCtx, op: omp.Pri
         ],
         properties={
             "sym_name": op.sym_name,
-            "type": op.var_type,
+            "type": convert_fir_type_to_standard(op.var_type),
             "data_sharing_type": op.data_sharing_type,
         },
     )
@@ -211,6 +212,8 @@ def translate_omp_mapinfo(
         bounds_ssa.append(bounds_ops[-1].results[0])
 
     new_props = duplicate_op_properties(op)
+    if "var_type" in new_props:
+        new_props["var_type"] = convert_fir_type_to_standard(new_props["var_type"])
 
     mapinfo_op = omp.MapInfoOp.build(
         operands=[var_ptr_ssa, var_ptr_ptr_ssa, members_ssa, bounds_ssa],

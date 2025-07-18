@@ -1,5 +1,6 @@
+from typing import cast
 from xdsl.dialects.experimental import fir
-from typing import Dict, Optional
+from xdsl.ir import Attribute, TypeAttribute
 from xdsl.utils.hints import isa
 from xdsl.dialects import builtin, llvm, arith, memref
 
@@ -42,7 +43,7 @@ def convert_fir_type_to_standard_if_needed(fir_type):
         return convert_fir_type_to_standard(fir_type)
 
 
-def convert_fir_type_to_standard(fir_type, ref_as_mem_ref=True):
+def convert_fir_type_to_standard(fir_type: Attribute, ref_as_mem_ref: bool = True) -> TypeAttribute:
     if isa(fir_type, fir.ReferenceType):
         if ref_as_mem_ref:
             base_t = convert_fir_type_to_standard(fir_type.type, ref_as_mem_ref)
@@ -58,7 +59,7 @@ def convert_fir_type_to_standard(fir_type, ref_as_mem_ref=True):
         return convert_fir_type_to_standard(fir_type.type, ref_as_mem_ref)
     elif isa(fir_type, fir.SequenceType):
         base_t = convert_fir_type_to_standard(fir_type.type)
-        dim_sizes = []
+        dim_sizes: list[int] = []
         for shape_el in fir_type.shape:
             if isa(shape_el, builtin.IntegerAttr):
                 dim_sizes.append(shape_el.value.data)
@@ -76,14 +77,14 @@ def convert_fir_type_to_standard(fir_type, ref_as_mem_ref=True):
             [llvm.LLVMPointerType.opaque(), builtin.i64]
         )
     elif isa(fir_type, builtin.TupleType):
-        new_types = []
+        new_types:list[TypeAttribute] = []
         for ty in fir_type.types:
             new_types.append(convert_fir_type_to_standard(ty, ref_as_mem_ref))
         return builtin.TupleType(new_types)
     elif isa(fir_type, builtin.NoneType):
         return builtin.i32
     else:
-        return fir_type
+        return cast(TypeAttribute, fir_type)
 
 
 def translate_convert(program_state: ProgramState, ctx: SSAValueCtx, op: fir.ConvertOp):
