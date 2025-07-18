@@ -24,6 +24,12 @@ postprocess_xdsl_for_mlir = "ftn.tools.postprocess_xdsl_for_mlir:main"
 [tool.setuptools]
 platforms = ["Linux", "Mac OS-X", "Unix"]
 zip-safe = false
+script-files = [
+    "ftn/tools/fep.sh",
+    "ftn/tools/fep_offload.sh",
+    "ftn/tools/fep_openmp.sh",
+    "ftn/tools/fep_tt.sh",
+]
 
 [build-system]
 requires = ["setuptools>=64", "setuptools-scm>=8"]
