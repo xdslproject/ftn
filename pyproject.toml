@@ -41,6 +41,7 @@ build-backend = "setuptools.build_meta"
 [tool.pyright]
 # We need this for TypeForm, should remove it once that's in
 enableExperimentalFeatures = true
+reportImportCycles = false
 
 exclude = [ "examples" ]
 include = [ "ftn" ]
