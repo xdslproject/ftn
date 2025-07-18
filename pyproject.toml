@@ -31,6 +31,9 @@ script-files = [
     "ftn/tools/fep_tt.sh",
 ]
 
+[tool.setuptools.packages]
+find = {}
+
 [build-system]
 requires = ["setuptools>=64", "setuptools-scm>=8"]
 build-backend = "setuptools.build_meta"
