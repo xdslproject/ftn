@@ -29,7 +29,11 @@ def handle_var_operand_field(program_state, ctx, var_operands):
     return vars_ops, vars_ssa, arg_types
 
 
-def handle_opt_operand_field(program_state, ctx, opt_operand):
+def handle_operand_field(program_state, ctx, operand):
+    return handle_opt_operand_field(program_state, ctx, operand, False)
+
+
+def handle_opt_operand_field(program_state, ctx, opt_operand, optional=True):
     arg_types = []
     vars_ops = []
     vars_ssa = []
@@ -38,6 +42,8 @@ def handle_opt_operand_field(program_state, ctx, opt_operand):
         vars_ops += expressions.translate_expr(program_state, ctx, opt_operand)
         vars_ssa = ctx[opt_operand]
         arg_types.append(ctx[opt_operand].type)
+    elif not optional:
+        raise Exception(f"Mandatory operand missing")
 
     return vars_ops, vars_ssa, arg_types
 
@@ -149,31 +155,9 @@ def translate_declarereduction(
 def translate_private(
     program_state: ProgramState, ctx: SSAValueCtx, op: omp.PrivateClauseOp
 ):
-    if len(op.alloc_region.blocks) > 0:
-        alloc_region_ops = []
-        for single_op in op.alloc_region.blocks[0].ops:
-            alloc_region_ops += statements.translate_stmt(program_state, ctx, single_op)
-        alloc_region_blocks = [Block(alloc_region_ops)]
-    else:
-        alloc_region_blocks = []
-
-    if len(op.copy_region.blocks) > 0:
-        copy_region_ops = []
-        for single_op in op.copy_region.blocks[0].ops:
-            copy_region_ops += statements.translate_stmt(program_state, ctx, single_op)
-        copy_region_blocks = [Block(copy_region_ops)]
-    else:
-        copy_region_blocks = []
-
-    if len(op.dealloc_region.blocks) > 0:
-        dealloc_region_ops = []
-        for single_op in op.dealloc_region.blocks[0].ops:
-            dealloc_region_ops += statements.translate_stmt(
-                program_state, ctx, single_op
-            )
-        dealloc_region_blocks = [Block(dealloc_region_ops)]
-    else:
-        dealloc_region_blocks = []
+    alloc_region_blocks = generate_op_region(program_state, ctx, op.alloc_region)
+    copy_region_blocks = generate_op_region(program_state, ctx, op.copy_region)
+    dealloc_region_blocks = generate_op_region(program_state, ctx, op.dealloc_region)
 
     new_props = duplicate_op_properties(op)
 
@@ -193,34 +177,28 @@ def translate_omp_mapinfo(
     if ctx.contains(op.results[0]):
         return []
 
-    var_ptr_ops = expressions.translate_expr(program_state, ctx, op.var_ptr)
-    var_ptr_ssa = ctx[op.var_ptr]
-    var_ptr_type = ctx[op.var_ptr].type
+    var_ptr_ops, var_ptr_ssa, var_ptr_types = handle_operand_field(
+        program_state, ctx, op.var_ptr
+    )
+    # The type returned here is the return type of the operation
+    assert len(var_ptr_types) == 1
 
-    var_ptr_ptr_ops = []
-    var_ptr_ptr_ssa = []
-    if op.var_ptr_ptr is not None:
-        var_ptr_ptr_ops = expressions.translate_expr(program_state, ctx, op.var_ptr_ptr)
-        var_ptr_ptr_ssa = [ctx[op.var_ptr_ptr]]
+    var_ptr_ptr_ops, var_ptr_ptr_ssa, __ = handle_opt_operand_field(
+        program_state, ctx, op.var_ptr_ptr
+    )
 
-    members_ops = []
-    members_ssa = []
-    for arg in op.members:
-        members_ops += expressions.translate_expr(program_state, ctx, arg)
-        members_ssa.append(ctx[arg])
+    members_ops, members_ssa, __ = handle_var_operand_field(
+        program_state, ctx, op.members
+    )
 
-    bounds_ops = []
-    bounds_ssa = []
-    for arg in op.bounds:
-        bounds_ops += expressions.translate_expr(program_state, ctx, arg)
-        bounds_ssa.append(bounds_ops[-1].results[0])
+    bounds_ops, bounds_ssa, __ = handle_var_operand_field(program_state, ctx, op.bounds)
 
     new_props = duplicate_op_properties(op)
 
     mapinfo_op = omp.MapInfoOp.build(
         operands=[var_ptr_ssa, var_ptr_ptr_ssa, members_ssa, bounds_ssa],
         properties=new_props,
-        result_types=[var_ptr_type],
+        result_types=var_ptr_types,
     )
 
     ctx[op.results[0]] = mapinfo_op.results[0]
@@ -234,20 +212,21 @@ def translate_omp_bounds(
     if ctx.contains(op.results[0]):
         return []
 
-    lower_ops = expressions.translate_expr(program_state, ctx, op.lower_bound)
-    lower_ssa = ctx[op.lower_bound]
+    lower_ops, lower_ssa, __ = handle_opt_operand_field(
+        program_state, ctx, op.lower_bound
+    )
 
-    upper_ops = expressions.translate_expr(program_state, ctx, op.upper_bound)
-    upper_ssa = ctx[op.upper_bound]
+    upper_ops, upper_ssa, __ = handle_opt_operand_field(
+        program_state, ctx, op.upper_bound
+    )
 
-    extent_ops = expressions.translate_expr(program_state, ctx, op.extent)
-    extent_ssa = ctx[op.extent]
+    extent_ops, extent_ssa, __ = handle_opt_operand_field(program_state, ctx, op.extent)
 
-    stride_ops = expressions.translate_expr(program_state, ctx, op.stride)
-    stride_ssa = ctx[op.stride]
+    stride_ops, stride_ssa, __ = handle_opt_operand_field(program_state, ctx, op.stride)
 
-    start_ops = expressions.translate_expr(program_state, ctx, op.start_idx)
-    start_ssa = ctx[op.start_idx]
+    start_ops, start_ssa, __ = handle_opt_operand_field(
+        program_state, ctx, op.start_idx
+    )
 
     new_props = duplicate_op_properties(op)
 
