@@ -29,6 +29,19 @@ def get_type_from_chain(type_chain, type_to_match):
         return None
 
 
+def is_a_fir_type(type):
+    return (
+        isa(type, fir.ReferenceType)
+        or isa(type, fir.BoxType)
+        or isa(type, fir.BoxCharType)
+        or isa(type, fir.SequenceType)
+        or isa(type, fir.HeapType)
+        or isa(type, fir.PointerType)
+        or isa(type, fir.LogicalType)
+        or isa(type, fir.LLVMPointerType)
+    )
+
+
 def does_type_represent_ftn_pointer(type_chain):
     return contains_type(type_chain, fir.ReferenceType) and contains_type(
         type_chain, fir.PointerType
@@ -55,6 +68,8 @@ def convert_fir_type_to_standard(fir_type, ref_as_mem_ref=True):
         else:
             return llvm.LLVMPointerType.opaque()
     elif isa(fir_type, fir.BoxType):
+        return convert_fir_type_to_standard(fir_type.type, ref_as_mem_ref)
+    elif isa(fir_type, fir.HeapType):
         return convert_fir_type_to_standard(fir_type.type, ref_as_mem_ref)
     elif isa(fir_type, fir.SequenceType):
         base_t = convert_fir_type_to_standard(fir_type.type)

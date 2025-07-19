@@ -10,6 +10,7 @@ from ftn.transforms.to_core.utils import (
     generate_extract_ptr_from_memref,
 )
 
+import ftn.transforms.to_core.components.ftn_types as ftn_types
 import ftn.transforms.to_core.expressions as expressions
 import ftn.transforms.to_core.statements as statements
 
@@ -45,6 +46,8 @@ def duplicate_op_properties(op):
     new_props = {}
     for key, value in op.properties.items():
         if key != "operandSegmentSizes":
+            if ftn_types.is_a_fir_type(value):
+                value = ftn_types.convert_fir_type_to_standard_if_needed(value)
             new_props[key] = value
     return new_props
 
