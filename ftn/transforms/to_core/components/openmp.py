@@ -1,6 +1,7 @@
 from xdsl.ir import Block, Region
 from xdsl.utils.hints import isa
 from xdsl.dialects import builtin, omp
+from xdsl.irdl import OptOperand, VarOperand, Operand
 
 from ftn.transforms.to_core.misc.fortran_code_description import ProgramState
 from ftn.transforms.to_core.misc.ssa_context import SSAValueCtx
@@ -15,7 +16,9 @@ import ftn.transforms.to_core.expressions as expressions
 import ftn.transforms.to_core.statements as statements
 
 
-def handle_var_operand_field(program_state, ctx, var_operands):
+def handle_var_operand_field(
+    program_state: ProgramState, ctx: SSAValueCtx, var_operands: VarOperand
+):
     arg_types = []
     vars_ops = []
     vars_ssa = []
@@ -29,19 +32,32 @@ def handle_var_operand_field(program_state, ctx, var_operands):
     return vars_ops, vars_ssa, arg_types
 
 
-def handle_operand_field(program_state, ctx, operand):
-    return handle_opt_operand_field(program_state, ctx, operand, False)
+def handle_operand_field(
+    program_state: ProgramState, ctx: SSAValueCtx, operand: Operand
+):
+    return handle_single_operand_field(program_state, ctx, operand, False)
 
 
-def handle_opt_operand_field(program_state, ctx, opt_operand, optional=True):
+def handle_opt_operand_field(
+    program_state: ProgramState, ctx: SSAValueCtx, operand: VarOperand
+):
+    return handle_single_operand_field(program_state, ctx, operand, True)
+
+
+def handle_single_operand_field(
+    program_state: ProgramState,
+    ctx: SSAValueCtx,
+    operand: Operand | VarOperand,
+    optional: bool,
+):
     arg_types = []
     vars_ops = []
     vars_ssa = []
 
-    if opt_operand is not None:
-        vars_ops += expressions.translate_expr(program_state, ctx, opt_operand)
-        vars_ssa = ctx[opt_operand]
-        arg_types.append(ctx[opt_operand].type)
+    if operand is not None:
+        vars_ops += expressions.translate_expr(program_state, ctx, operand)
+        vars_ssa = ctx[operand]
+        arg_types.append(ctx[operand].type)
     elif not optional:
         raise Exception(f"Mandatory operand missing")
 
