@@ -570,13 +570,13 @@ def translate_omp_simd(program_state: ProgramState, ctx: SSAValueCtx, op: omp.Si
     )
     arg_types += nontemporal_vars_types
 
-    private_vars_ops, private_vars_ssa, private_vars_types = handle_opt_operand_field(
+    private_vars_ops, private_vars_ssa, private_vars_types = handle_var_operand_field(
         program_state, ctx, op.private_vars
     )
     arg_types += private_vars_types
 
     reduction_vars_ops, reduction_vars_ssa, reduction_vars_types = (
-        handle_opt_operand_field(program_state, ctx, op.reduction_vars)
+        handle_var_operand_field(program_state, ctx, op.reduction_vars)
     )
     arg_types += reduction_vars_types
 
