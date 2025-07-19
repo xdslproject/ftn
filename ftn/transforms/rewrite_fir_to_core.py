@@ -198,7 +198,9 @@ def translate_program(
             if private_op is not None:
                 block.add_op(private_op)
         elif isa(fn, omp.DeclareReductionOp):
-            declare_reduction_op = ftn_openmp.translate_declarereduction(program_state, global_ctx, fn)
+            declare_reduction_op = ftn_openmp.translate_declarereduction(
+                program_state, global_ctx, fn
+            )
             if declare_reduction_op is not None:
                 block.add_op(declare_reduction_op)
         else:

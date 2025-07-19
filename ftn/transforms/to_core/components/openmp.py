@@ -2,6 +2,7 @@ from xdsl.ir import Block, Region
 from xdsl.irdl import OptOperand, VarOperand
 from xdsl.utils.hints import isa
 from xdsl.dialects import builtin, omp
+from xdsl.irdl import OptOperand, VarOperand, Operand
 
 from ftn.transforms.to_core.misc.fortran_code_description import ProgramState
 from ftn.transforms.to_core.misc.ssa_context import SSAValueCtx
@@ -16,7 +17,9 @@ import ftn.transforms.to_core.expressions as expressions
 import ftn.transforms.to_core.statements as statements
 
 
-def handle_var_operand_field(program_state: ProgramState, ctx: SSAValueCtx, var_operands: VarOperand):
+def handle_var_operand_field(
+    program_state: ProgramState, ctx: SSAValueCtx, var_operands: VarOperand
+):
     arg_types = []
     vars_ops = []
     vars_ssa = []
@@ -30,15 +33,34 @@ def handle_var_operand_field(program_state: ProgramState, ctx: SSAValueCtx, var_
     return vars_ops, vars_ssa, arg_types
 
 
-def handle_opt_operand_field(program_state, ctx, opt_operand: OptOperand):
+def handle_operand_field(
+    program_state: ProgramState, ctx: SSAValueCtx, operand: Operand
+):
+    return handle_single_operand_field(program_state, ctx, operand, False)
+
+
+def handle_opt_operand_field(
+    program_state: ProgramState, ctx: SSAValueCtx, operand: VarOperand
+):
+    return handle_single_operand_field(program_state, ctx, operand, True)
+
+
+def handle_single_operand_field(
+    program_state: ProgramState,
+    ctx: SSAValueCtx,
+    operand: Operand | VarOperand,
+    optional: bool,
+):
     arg_types = []
     vars_ops = []
     vars_ssa = []
 
-    if opt_operand is not None:
-        vars_ops += expressions.translate_expr(program_state, ctx, opt_operand)
-        vars_ssa = ctx[opt_operand]
-        arg_types.append(ctx[opt_operand].type)
+    if operand is not None:
+        vars_ops += expressions.translate_expr(program_state, ctx, operand)
+        vars_ssa = ctx[operand]
+        arg_types.append(ctx[operand].type)
+    elif not optional:
+        raise Exception(f"Mandatory operand missing")
 
     return vars_ops, vars_ssa, arg_types
 
@@ -125,51 +147,36 @@ def translate_declarereduction(
 ):
     alloc_region_blocks = generate_op_region(program_state, ctx, op.alloc_region)
     init_region_blocks = generate_op_region(program_state, ctx, op.init_region)
-    reduction_region_blocks = generate_op_region(program_state, ctx, op.reduction_region)
-    atomic_region_blocks = generate_op_region(program_state, ctx, op.atomic_reduction_region)
+    reduction_region_blocks = generate_op_region(
+        program_state, ctx, op.reduction_region
+    )
+    atomic_reduction_region_blocks = generate_op_region(
+        program_state, ctx, op.atomic_reduction_region
+    )
     cleanup_region_blocks = generate_op_region(program_state, ctx, op.cleanup_region)
+
+    new_props = duplicate_op_properties(op)
 
     return omp.DeclareReductionOp.build(
         regions=[
             Region(alloc_region_blocks),
             Region(init_region_blocks),
             Region(reduction_region_blocks),
-            Region(atomic_region_blocks),
+            Region(atomic_reduction_region_blocks),
             Region(cleanup_region_blocks),
         ],
-        properties={
-            "sym_name": op.sym_name,
-            "type": op.var_type,
-        },
+        properties=new_props,
     )
 
 
-def translate_private(program_state: ProgramState, ctx: SSAValueCtx, op: omp.PrivateClauseOp):
-    if len(op.alloc_region.blocks) > 0:
-        alloc_region_ops = []
-        for single_op in op.alloc_region.blocks[0].ops:
-            alloc_region_ops += statements.translate_stmt(program_state, ctx, single_op)
-        alloc_region_blocks = [Block(alloc_region_ops)]
-    else:
-        alloc_region_blocks = []
+def translate_private(
+    program_state: ProgramState, ctx: SSAValueCtx, op: omp.PrivateClauseOp
+):
+    alloc_region_blocks = generate_op_region(program_state, ctx, op.alloc_region)
+    copy_region_blocks = generate_op_region(program_state, ctx, op.copy_region)
+    dealloc_region_blocks = generate_op_region(program_state, ctx, op.dealloc_region)
 
-    if len(op.copy_region.blocks) > 0:
-        copy_region_ops = []
-        for single_op in op.copy_region.blocks[0].ops:
-            copy_region_ops += statements.translate_stmt(program_state, ctx, single_op)
-        copy_region_blocks = [Block(copy_region_ops)]
-    else:
-        copy_region_blocks = []
-
-    if len(op.dealloc_region.blocks) > 0:
-        dealloc_region_ops = []
-        for single_op in op.dealloc_region.blocks[0].ops:
-            dealloc_region_ops += statements.translate_stmt(
-                program_state, ctx, single_op
-            )
-        dealloc_region_blocks = [Block(dealloc_region_ops)]
-    else:
-        dealloc_region_blocks = []
+    new_props = duplicate_op_properties(op)
 
     return omp.PrivateClauseOp.build(
         regions=[
@@ -177,11 +184,7 @@ def translate_private(program_state: ProgramState, ctx: SSAValueCtx, op: omp.Pri
             Region(copy_region_blocks),
             Region(dealloc_region_blocks),
         ],
-        properties={
-            "sym_name": op.sym_name,
-            "type": op.var_type,
-            "data_sharing_type": op.data_sharing_type,
-        },
+        properties=new_props,
     )
 
 
@@ -191,34 +194,28 @@ def translate_omp_mapinfo(
     if ctx.contains(op.results[0]):
         return []
 
-    var_ptr_ops = expressions.translate_expr(program_state, ctx, op.var_ptr)
-    var_ptr_ssa = ctx[op.var_ptr]
-    var_ptr_type = ctx[op.var_ptr].type
+    var_ptr_ops, var_ptr_ssa, var_ptr_types = handle_operand_field(
+        program_state, ctx, op.var_ptr
+    )
+    # The type returned here is the return type of the operation
+    assert len(var_ptr_types) == 1
 
-    var_ptr_ptr_ops = []
-    var_ptr_ptr_ssa = []
-    if op.var_ptr_ptr is not None:
-        var_ptr_ptr_ops = expressions.translate_expr(program_state, ctx, op.var_ptr_ptr)
-        var_ptr_ptr_ssa = [ctx[op.var_ptr_ptr]]
+    var_ptr_ptr_ops, var_ptr_ptr_ssa, __ = handle_opt_operand_field(
+        program_state, ctx, op.var_ptr_ptr
+    )
 
-    members_ops = []
-    members_ssa = []
-    for arg in op.members:
-        members_ops += expressions.translate_expr(program_state, ctx, arg)
-        members_ssa.append(ctx[arg])
+    members_ops, members_ssa, __ = handle_var_operand_field(
+        program_state, ctx, op.members
+    )
 
-    bounds_ops = []
-    bounds_ssa = []
-    for arg in op.bounds:
-        bounds_ops += expressions.translate_expr(program_state, ctx, arg)
-        bounds_ssa.append(bounds_ops[-1].results[0])
+    bounds_ops, bounds_ssa, __ = handle_var_operand_field(program_state, ctx, op.bounds)
 
     new_props = duplicate_op_properties(op)
 
     mapinfo_op = omp.MapInfoOp.build(
         operands=[var_ptr_ssa, var_ptr_ptr_ssa, members_ssa, bounds_ssa],
         properties=new_props,
-        result_types=[var_ptr_type],
+        result_types=var_ptr_types,
     )
 
     ctx[op.results[0]] = mapinfo_op.results[0]
@@ -232,20 +229,21 @@ def translate_omp_bounds(
     if ctx.contains(op.results[0]):
         return []
 
-    lower_ops = expressions.translate_expr(program_state, ctx, op.lower_bound)
-    lower_ssa = ctx[op.lower_bound]
+    lower_ops, lower_ssa, __ = handle_opt_operand_field(
+        program_state, ctx, op.lower_bound
+    )
 
-    upper_ops = expressions.translate_expr(program_state, ctx, op.upper_bound)
-    upper_ssa = ctx[op.upper_bound]
+    upper_ops, upper_ssa, __ = handle_opt_operand_field(
+        program_state, ctx, op.upper_bound
+    )
 
-    extent_ops = expressions.translate_expr(program_state, ctx, op.extent)
-    extent_ssa = ctx[op.extent]
+    extent_ops, extent_ssa, __ = handle_opt_operand_field(program_state, ctx, op.extent)
 
-    stride_ops = expressions.translate_expr(program_state, ctx, op.stride)
-    stride_ssa = ctx[op.stride]
+    stride_ops, stride_ssa, __ = handle_opt_operand_field(program_state, ctx, op.stride)
 
-    start_ops = expressions.translate_expr(program_state, ctx, op.start_idx)
-    start_ssa = ctx[op.start_idx]
+    start_ops, start_ssa, __ = handle_opt_operand_field(
+        program_state, ctx, op.start_idx
+    )
 
     new_props = duplicate_op_properties(op)
 
@@ -416,29 +414,23 @@ def translate_omp_loopnest(
 
     assert len(op.lowerBound) == len(op.upperBound) == len(op.step)
 
-    operands_ssa = [[], [], []]
-    ops_list = []
-    for lower, upper, step in zip(op.lowerBound, op.upperBound, op.step):
-        lb_ops = expressions.translate_expr(program_state, ctx, lower)
-        ub_ops = expressions.translate_expr(program_state, ctx, upper)
-        step_ops = expressions.translate_expr(program_state, ctx, step)
-        operands_ssa[0].append(ctx[lower])
-        operands_ssa[1].append(ctx[upper])
-        operands_ssa[2].append(ctx[step])
+    lb_ops, lb_ssa, __ = handle_var_operand_field(program_state, ctx, op.lowerBound)
 
-        ops_list += lb_ops + ub_ops + step_ops
+    ub_ops, ub_ssa, __ = handle_var_operand_field(program_state, ctx, op.upperBound)
+
+    step_ops, step_ssa, __ = handle_var_operand_field(program_state, ctx, op.step)
 
     new_block, __, new_props = create_block_and_properties_for_op(
         program_state, ctx, op, [builtin.i32] * len(op.lowerBound), op.body, False
     )
 
     loopnest_op = omp.LoopNestOp.build(
-        operands=operands_ssa,
+        operands=[lb_ssa, ub_ssa, step_ssa],
         regions=[Region([new_block])],
         properties=new_props,
     )
 
-    return ops_list + [loopnest_op]
+    return lb_ops + ub_ops + step_ops + [loopnest_op]
 
 
 def translate_omp_teams(program_state: ProgramState, ctx: SSAValueCtx, op: omp.TeamsOp):
@@ -755,10 +747,10 @@ def translate_omp_target_data(
     )
     arg_types += if_expr_types
 
-    map_vars_ops, map_vars_ssa, map_vars_types = handle_var_operand_field(
+    mapped_vars_ops, mapped_vars_ssa, mapped_vars_types = handle_var_operand_field(
         program_state, ctx, op.mapped_vars
     )
-    arg_types += map_vars_types
+    arg_types += mapped_vars_types
 
     use_device_addr_vars_ops, use_device_addr_vars_ssa, use_device_addr_vars_types = (
         handle_var_operand_field(program_state, ctx, op.use_device_addr_vars)
@@ -778,7 +770,7 @@ def translate_omp_target_data(
         operands=[
             device_ssa,
             if_expr_ssa,
-            map_vars_ssa,
+            mapped_vars_ssa,
             use_device_addr_vars_ssa,
             use_device_ptr_vars_ssa,
         ],
@@ -789,7 +781,7 @@ def translate_omp_target_data(
     return (
         device_ops
         + if_expr_ops
-        + map_vars_ops
+        + mapped_vars_ops
         + use_device_addr_vars_ops
         + use_device_ptr_vars_ops
         + [target_data_op]
@@ -818,10 +810,10 @@ def translate_omp_target_task_based_data_movement(
     )
     arg_types += if_expr_types
 
-    map_vars_ops, map_vars_ssa, map_vars_types = handle_var_operand_field(
+    mapped_vars_ops, mapped_vars_ssa, mapped_vars_types = handle_var_operand_field(
         program_state, ctx, op.mapped_vars
     )
-    arg_types += map_vars_types
+    arg_types += mapped_vars_types
 
     new_props = duplicate_op_properties(op)
 
@@ -830,13 +822,17 @@ def translate_omp_target_task_based_data_movement(
             depend_vars_ssa,
             device_ssa,
             if_expr_ssa,
-            map_vars_ssa,
+            mapped_vars_ssa,
         ],
         properties=new_props,
     )
 
     return (
-        depend_vars_ops + device_ops + if_expr_ops + map_vars_ops + [target_update_op]
+        depend_vars_ops
+        + device_ops
+        + if_expr_ops
+        + mapped_vars_ops
+        + [target_update_op]
     )
 
 
