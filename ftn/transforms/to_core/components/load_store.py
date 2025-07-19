@@ -552,17 +552,10 @@ def translate_load(program_state: ProgramState, ctx: SSAValueCtx, op: fir.LoadOp
             # This is held in a memref, it is a variable in the user's code,
             # therefore load it up
             assert isa(op.memref.owner.results[0].type, fir.ReferenceType)
-            # Check if this is an entire array we are loading
-            if isa(op.memref.owner.results[0].type.type, fir.BoxType):
-                # If its an entire array, link to the memref, as that will be used directly
-                ctx[op.results[0]] = ctx[op.memref]
-                return []
-            else:
-                # Otherwise assume it is a scalar
 
-                load_op = memref.LoadOp.get(ctx[op.memref], [])
-                ctx[op.results[0]] = load_op.results[0]
-                return [load_op]
+            load_op = memref.LoadOp.get(ctx[op.memref], [])
+            ctx[op.results[0]] = load_op.results[0]
+            return [load_op]
         elif isa(ctx[op.memref].type, llvm.LLVMPointerType):
             # This is referenced by an LLVM pointer, it is because it has been loaded by an addressof
             # operation, most likely because that loads in a global. Regardless, we issue and LLVM
