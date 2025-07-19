@@ -103,7 +103,7 @@ def try_translate_stmt(program_state: ProgramState, ctx: SSAValueCtx, op: Operat
         return ftn_openmp.translate_omp_target_update(program_state, ctx, op)
     elif isa(op, omp.TerminatorOp):
         return [omp.TerminatorOp.create()]
-    elif isa(op, omp.SIMDOp):
+    elif isa(op, omp.SimdOp):
         return ftn_openmp.translate_omp_simd(program_state, ctx, op)
     elif isa(op, omp.LoopNestOp):
         return ftn_openmp.translate_omp_loopnest(program_state, ctx, op)

@@ -83,7 +83,7 @@ def create_block_and_properties_for_op(
         assert (
             isa(region_body_ops[0], omp.LoopNestOp)
             or isa(region_body_ops[0], omp.WsLoopOp)
-            or isa(region_body_ops[0], omp.SIMDOp)
+            or isa(region_body_ops[0], omp.SimdOp)
             or isa(region_body_ops[0], omp.DistributeOp)
         )
     else:
@@ -124,26 +124,31 @@ def translate_declarereduction(
 ):
     alloc_region_blocks = generate_op_region(program_state, ctx, op.alloc_region)
     init_region_blocks = generate_op_region(program_state, ctx, op.init_region)
-    combiner_region_blocks = generate_op_region(program_state, ctx, op.combiner_region)
-    atomic_region_blocks = generate_op_region(program_state, ctx, op.atomic_region)
+    reduction_region_blocks = generate_op_region(
+        program_state, ctx, op.reduction_region
+    )
+    atomic_reduction_region_blocks = generate_op_region(
+        program_state, ctx, op.atomic_reduction_region
+    )
     cleanup_region_blocks = generate_op_region(program_state, ctx, op.cleanup_region)
+
+    new_props = duplicate_op_properties(op)
 
     return omp.DeclareReductionOp.build(
         regions=[
             Region(alloc_region_blocks),
             Region(init_region_blocks),
-            Region(combiner_region_blocks),
-            Region(atomic_region_blocks),
+            Region(reduction_region_blocks),
+            Region(atomic_reduction_region_blocks),
             Region(cleanup_region_blocks),
         ],
-        properties={
-            "sym_name": op.sym_name,
-            "type": op.var_type,
-        },
+        properties=new_props,
     )
 
 
-def translate_private(program_state: ProgramState, ctx: SSAValueCtx, op: omp.PrivateOp):
+def translate_private(
+    program_state: ProgramState, ctx: SSAValueCtx, op: omp.PrivateClauseOp
+):
     if len(op.alloc_region.blocks) > 0:
         alloc_region_ops = []
         for single_op in op.alloc_region.blocks[0].ops:
@@ -170,17 +175,15 @@ def translate_private(program_state: ProgramState, ctx: SSAValueCtx, op: omp.Pri
     else:
         dealloc_region_blocks = []
 
-    return omp.PrivateOp.build(
+    new_props = duplicate_op_properties(op)
+
+    return omp.PrivateClauseOp.build(
         regions=[
             Region(alloc_region_blocks),
             Region(copy_region_blocks),
             Region(dealloc_region_blocks),
         ],
-        properties={
-            "sym_name": op.sym_name,
-            "type": op.var_type,
-            "data_sharing_type": op.data_sharing_type,
-        },
+        properties=new_props,
     )
 
 
@@ -566,7 +569,7 @@ def translate_omp_distribute(
     )
 
 
-def translate_omp_simd(program_state: ProgramState, ctx: SSAValueCtx, op: omp.SIMDOp):
+def translate_omp_simd(program_state: ProgramState, ctx: SSAValueCtx, op: omp.SimdOp):
     arg_types = []
 
     aligned_vars_ops, aligned_vars_ssa, aligned_var_types = handle_var_operand_field(
@@ -608,7 +611,7 @@ def translate_omp_simd(program_state: ProgramState, ctx: SSAValueCtx, op: omp.SI
         program_state, ctx, op, arg_types, op.body, True
     )
 
-    simd_op = omp.SIMDOp.build(
+    simd_op = omp.SimdOp.build(
         operands=[
             aligned_vars_ssa,
             if_expr_ssa,
@@ -754,10 +757,10 @@ def translate_omp_target_data(
     )
     arg_types += if_expr_types
 
-    map_vars_ops, map_vars_ssa, map_vars_types = handle_var_operand_field(
-        program_state, ctx, op.map_vars
+    mapped_vars_ops, mapped_vars_ssa, mapped_vars_types = handle_var_operand_field(
+        program_state, ctx, op.mapped_vars
     )
-    arg_types += map_vars_types
+    arg_types += mapped_vars_types
 
     use_device_addr_vars_ops, use_device_addr_vars_ssa, use_device_addr_vars_types = (
         handle_var_operand_field(program_state, ctx, op.use_device_addr_vars)
@@ -777,7 +780,7 @@ def translate_omp_target_data(
         operands=[
             device_ssa,
             if_expr_ssa,
-            map_vars_ssa,
+            mapped_vars_ssa,
             use_device_addr_vars_ssa,
             use_device_ptr_vars_ssa,
         ],
@@ -788,7 +791,7 @@ def translate_omp_target_data(
     return (
         device_ops
         + if_expr_ops
-        + map_vars_ops
+        + mapped_vars_ops
         + use_device_addr_vars_ops
         + use_device_ptr_vars_ops
         + [target_data_op]
@@ -817,10 +820,10 @@ def translate_omp_target_task_based_data_movement(
     )
     arg_types += if_expr_types
 
-    map_vars_ops, map_vars_ssa, map_vars_types = handle_var_operand_field(
-        program_state, ctx, op.map_vars
+    mapped_vars_ops, mapped_vars_ssa, mapped_vars_types = handle_var_operand_field(
+        program_state, ctx, op.mapped_vars
     )
-    arg_types += map_vars_types
+    arg_types += mapped_vars_types
 
     new_props = duplicate_op_properties(op)
 
@@ -829,13 +832,17 @@ def translate_omp_target_task_based_data_movement(
             depend_vars_ssa,
             device_ssa,
             if_expr_ssa,
-            map_vars_ssa,
+            mapped_vars_ssa,
         ],
         properties=new_props,
     )
 
     return (
-        depend_vars_ops + device_ops + if_expr_ops + map_vars_ops + [target_update_op]
+        depend_vars_ops
+        + device_ops
+        + if_expr_ops
+        + mapped_vars_ops
+        + [target_update_op]
     )
 
 
