@@ -397,29 +397,23 @@ def translate_omp_loopnest(
 
     assert len(op.lowerBound) == len(op.upperBound) == len(op.step)
 
-    operands_ssa = [[], [], []]
-    ops_list = []
-    for lower, upper, step in zip(op.lowerBound, op.upperBound, op.step):
-        lb_ops = expressions.translate_expr(program_state, ctx, lower)
-        ub_ops = expressions.translate_expr(program_state, ctx, upper)
-        step_ops = expressions.translate_expr(program_state, ctx, step)
-        operands_ssa[0].append(ctx[lower])
-        operands_ssa[1].append(ctx[upper])
-        operands_ssa[2].append(ctx[step])
+    lb_ops, lb_ssa, __ = handle_var_operand_field(program_state, ctx, op.lowerBound)
 
-        ops_list += lb_ops + ub_ops + step_ops
+    ub_ops, ub_ssa, __ = handle_var_operand_field(program_state, ctx, op.upperBound)
+
+    step_ops, step_ssa, __ = handle_var_operand_field(program_state, ctx, op.step)
 
     new_block, __, new_props = create_block_and_properties_for_op(
         program_state, ctx, op, [builtin.i32] * len(op.lowerBound), op.body, False
     )
 
     loopnest_op = omp.LoopNestOp.build(
-        operands=operands_ssa,
+        operands=[lb_ssa, ub_ssa, step_ssa],
         regions=[Region([new_block])],
         properties=new_props,
     )
 
-    return ops_list + [loopnest_op]
+    return lb_ops + ub_ops + step_ops + [loopnest_op]
 
 
 def translate_omp_teams(program_state: ProgramState, ctx: SSAValueCtx, op: omp.TeamsOp):
