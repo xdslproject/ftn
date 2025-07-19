@@ -1,4 +1,5 @@
 from xdsl.ir import Block, Region
+from xdsl.irdl import OptOperand, VarOperand
 from xdsl.utils.hints import isa
 from xdsl.dialects import builtin, omp
 from xdsl.irdl import OptOperand, VarOperand, Operand

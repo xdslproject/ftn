@@ -2,10 +2,10 @@
 
 import sys
 import struct
+from typing import IO
 
-assert len(sys.argv) == 3
 
-with open(sys.argv[1]) as file:
+def preproc(file: IO[str]) -> str:
   lines=""
   for line in file:
     #line=line.replace(", omp.declare_target = #omp.declaretarget<device_type = (nohost), capture_clause = (to)>", "")
@@ -38,6 +38,17 @@ with open(sys.argv[1]) as file:
       to_add_line=line
     lines+=to_add_line
 
-with open(sys.argv[2], "w") as file:
-  file.write(lines)
+  return lines
 
+def main():
+    assert len(sys.argv) == 3
+
+    with open(sys.argv[1]) as file:
+        lines = preproc(file)
+
+    with open(sys.argv[2], "w") as file:
+      file.write(lines)
+
+
+if __name__ == "__main__":
+    main()

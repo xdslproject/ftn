@@ -12,7 +12,7 @@ from xdsl.pattern_rewriter import (RewritePattern, PatternRewriter,
                                    GreedyRewritePatternApplier)
 from xdsl.passes import ModulePass
 from xdsl.dialects import builtin, func, llvm, arith
-from util.visitor import Visitor
+from ftn.util.visitor import Visitor
 
 class RewriteTarget(RewritePattern):
   def __init__(self):

@@ -1,0 +1,46 @@
+[project]
+name = "ftn"
+description = "ftn"
+readme = "README.md"
+requires-python = ">=3.10"
+license = "BSD-3-Clause" 
+authors = [ { name = "Nick Brown" } ]
+classifiers = ["Programming Language :: Python :: 3"]
+dependencies = [
+    "xdsl@git+https://github.com/xdslproject/xdsl@main"
+]
+
+dynamic = [ "version" ]
+
+[project.optional-dependencies]
+dev=[]
+
+[project.scripts]
+ftn-opt = "ftn.tools.ftn_opt:main"
+preprocess_mlir_for_xdsl = "ftn.tools.preprocess_mlir_for_xdsl:main"
+postprocess_xdsl_for_mlir = "ftn.tools.postprocess_xdsl_for_mlir:main"
+
+
+[tool.setuptools]
+platforms = ["Linux", "Mac OS-X", "Unix"]
+zip-safe = false
+script-files = [
+    "ftn/tools/fep.sh",
+    "ftn/tools/fep_offload.sh",
+    "ftn/tools/fep_openmp.sh",
+    "ftn/tools/fep_tt.sh",
+]
+
+[tool.setuptools.packages]
+find = {}
+
+[build-system]
+requires = ["setuptools>=64", "setuptools-scm>=8"]
+build-backend = "setuptools.build_meta"
+
+[tool.pyright]
+# We need this for TypeForm, should remove it once that's in
+enableExperimentalFeatures = true
+
+exclude = [ "examples" ]
+include = [ "ftn" ]

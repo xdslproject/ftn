@@ -16,7 +16,7 @@ from xdsl.pattern_rewriter import (
 )
 from xdsl.passes import ModulePass
 from xdsl.dialects import builtin, func, llvm, arith
-from util.visitor import Visitor
+from ftn.util.visitor import Visitor
 
 
 class GatherReferencedMemrefs(Visitor):

@@ -12,7 +12,7 @@ from xdsl.pattern_rewriter import (RewritePattern, PatternRewriter,
                                    GreedyRewritePatternApplier)
 from xdsl.passes import ModulePass
 from xdsl.dialects import builtin, func, llvm, arith
-from util.visitor import Visitor
+from ftn.util.visitor import Visitor
 
 @dataclass(frozen=True)
 class IsolateTarget(ModulePass):
@@ -25,4 +25,4 @@ class IsolateTarget(ModulePass):
     for mod in module.regions[0].block.ops:
       assert isa(mod, builtin.ModuleOp)
       if "target" not in mod.attributes:
-        mod.detach()              
+        mod.detach()

@@ -1,10 +1,10 @@
 #!/usr/bin/env python3.10
 
 import sys
+from typing import IO
 
-assert len(sys.argv) == 3
 
-with open(sys.argv[1]) as file:
+def postproc(file: IO[str]) -> str:
   lines=""
   for line in file:
     if "arith.constant " in line and (": f64" in line or ": f32" in line):
@@ -22,7 +22,17 @@ with open(sys.argv[1]) as file:
     else:
       to_add_line=line
     lines+=to_add_line
+  return lines
 
-with open(sys.argv[2], "w") as file:
-  file.write(lines)
+def main():
+    assert len(sys.argv) == 3
 
+    with open(sys.argv[1]) as file:
+        lines = postproc(file)
+
+    with open(sys.argv[2], "w") as file:
+      file.write(lines)
+
+
+if __name__ == "__main__":
+    main()

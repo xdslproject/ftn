@@ -11,7 +11,7 @@ from typing import Dict, Optional
 from xdsl.ir import SSAValue, BlockArgument
 from xdsl.irdl import Operand
 from xdsl.utils.hints import isa
-from util.visitor import Visitor
+from ftn.util.visitor import Visitor
 from xdsl.context import Context
 from xdsl.ir import Operation, SSAValue, OpResult, Attribute, Block, Region
 
