@@ -6,7 +6,7 @@ from typing import IO
 
 
 def initialise_argument_parser():
-    parser = argparse.ArgumentParser()
+    parser = argparse.ArgumentParser(description="xDSL Fortran compiler flow")
     parser.add_argument("source file", help="Filename of source Fortran code")
     parser.add_argument(
         "-o",
