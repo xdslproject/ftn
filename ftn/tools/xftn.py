@@ -81,6 +81,23 @@ def build_options_db_from_args(args):
     options_db["run_mlir_to_llvmir_stage"] = "mlir" in stages_to_run
     options_db["run_build_executable_stage"] = "clang" in stages_to_run
 
+    if "flang" in stages_to_run:
+        stages_to_run.remove("flang")
+    if "pre" in stages_to_run:
+        stages_to_run.remove("pre")
+    if "ftn" in stages_to_run:
+        stages_to_run.remove("ftn")
+    if "post" in stages_to_run:
+        stages_to_run.remove("post")
+    if "mlir" in stages_to_run:
+        stages_to_run.remove("mlir")
+    if "clang" in stages_to_run:
+        stages_to_run.remove("clang")
+    if len(stages_to_run) > 0:
+        for e in stages_to_run:
+            print(f"Unknown stage provided as argument '{e}'")
+        exit(-1)
+
     # Option specific variations to the options database, where
     # a specific option will enable or disable others
     if options_db["offload"]:
