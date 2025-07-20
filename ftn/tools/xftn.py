@@ -26,6 +26,14 @@ def initialise_argument_parser():
         help="Define preprocessor macros for Flang",
     )
     parser.add_argument(
+        "-I",
+        "--include-directory",
+        action="append",
+        dest="flang_includes",
+        default=[],
+        help="Include directory into path for modules and header files",
+    )
+    parser.add_argument(
         "--offload", action="store_true", help="Run OpenMP accelerator offloading flow"
     )
     parser.add_argument(
@@ -147,6 +155,8 @@ def generate_flang_optional_args(options_db):
         optional_args += "-fopenmp "
     for flang_pp_macro in options_db["flang_pp_macros"]:
         optional_args += f"-D{flang_pp_macro} "
+    for flang_include in options_db["flang_includes"]:
+        optional_args += f"-I{flang_include} "
     return optional_args
 
 
