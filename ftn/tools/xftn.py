@@ -18,6 +18,14 @@ def initialise_argument_parser():
     parser.add_argument("-omp", "--openmp", action="store_true", help="Enable OpenMP")
     parser.add_argument("-fomp", "--fopenmp", action="store_true", help="Enable OpenMP")
     parser.add_argument(
+        "-D",
+        "--define-macro",
+        action="append",
+        dest="flang_pp_macros",
+        default=[],
+        help="Define preprocessor macros for Flang",
+    )
+    parser.add_argument(
         "--offload", action="store_true", help="Run OpenMP accelerator offloading flow"
     )
     parser.add_argument(
@@ -118,7 +126,7 @@ def print_verbose_message(options_db, *messages):
     if verbose_level == 1:
         print(messages[0])
     elif verbose_level == 2:
-        if len(messages > 1):
+        if len(messages) > 1:
             print(messages[1])
         else:
             print(messages[0])
@@ -137,6 +145,8 @@ def generate_flang_optional_args(options_db):
     optional_args = ""
     if options_db["openmp"]:
         optional_args += "-fopenmp "
+    for flang_pp_macro in options_db["flang_pp_macros"]:
+        optional_args += f"-D{flang_pp_macro} "
     return optional_args
 
 
