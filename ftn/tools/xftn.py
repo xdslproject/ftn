@@ -34,13 +34,20 @@ def initialise_argument_parser():
         help="Include directory into path for modules and header files",
     )
     parser.add_argument(
-        "--offload", action="store_true", help="Run OpenMP accelerator offloading flow"
+        "--offload",
+        action="store_true",
+        help="Run OpenMP accelerator offloading flow, overrides stages argument if present",
     )
     parser.add_argument(
         "-t",
         "--tempdir",
         default="tmp",
         help="Specify temporary compilation directory (default is 'tmp')",
+    )
+    parser.add_argument(
+        "--stages",
+        default="flang,pre,ftn,post,mlir,clang",
+        help="Specify which stages will run (a combination of: flang, pre, ftn, post, mlir, clang) in comma separated list without spaces",
     )
     parser.add_argument(
         "-v",
@@ -64,13 +71,15 @@ def build_options_db_from_args(args):
         options_db["openmp"] = True
     del options_db["fopenmp"]
 
+    stages_to_run = options_db["stages"].split(",")
+
     # Set the stages that will run, by default all stages run
-    options_db["run_flang_stage"] = True
-    options_db["run_preprocess_stage"] = True
-    options_db["run_lower_to_core_stage"] = True
-    options_db["run_postprocess_stage"] = True
-    options_db["run_mlir_to_llvmir_stage"] = True
-    options_db["run_build_executable_stage"] = True
+    options_db["run_flang_stage"] = "flang" in stages_to_run
+    options_db["run_preprocess_stage"] = "pre" in stages_to_run
+    options_db["run_lower_to_core_stage"] = "ftn" in stages_to_run
+    options_db["run_postprocess_stage"] = "post" in stages_to_run
+    options_db["run_mlir_to_llvmir_stage"] = "mlir" in stages_to_run
+    options_db["run_build_executable_stage"] = "clang" in stages_to_run
 
     # Option specific variations to the options database, where
     # a specific option will enable or disable others
