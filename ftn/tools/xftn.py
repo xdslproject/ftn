@@ -2,7 +2,6 @@
 import argparse
 import os
 import shutil
-from typing import IO
 
 
 def initialise_argument_parser():
@@ -37,6 +36,13 @@ def initialise_argument_parser():
         "--offload",
         action="store_true",
         help="Run OpenMP accelerator offloading flow, overrides stages argument if present",
+    )
+    parser.add_argument(
+        "--ftnopt-arg",
+        action="append",
+        dest="ftnopt_args",
+        default=[],
+        help="Additional arguments to pass to ftn-opt",
     )
     parser.add_argument(
         "-t",
@@ -209,6 +215,9 @@ def run_ftnopt_passes(
     passes_list = ",".join(passes)
 
     ftn_args = f"{input_f} -p {passes_list} -o {output_f}"
+
+    for arg in options_db["ftnopt_args"]:
+        ftn_args += f" --{arg}"
 
     print_verbose_message(
         options_db,
