@@ -45,6 +45,13 @@ def initialise_argument_parser():
         help="Additional arguments to pass to ftn-opt",
     )
     parser.add_argument(
+        "--linkobj",
+        action="append",
+        dest="link-objectfiles",
+        default=[],
+        help="Optional additional object files to link against",
+    )
+    parser.add_argument(
         "-t",
         "--tempdir",
         default="tmp",
@@ -76,6 +83,12 @@ def build_options_db_from_args(args):
     if options_db["fopenmp"]:
         options_db["openmp"] = True
     del options_db["fopenmp"]
+
+    for object_file in options_db["link-objectfiles"]:
+        if ".o" not in object_file and ".bc" not in object_file:
+            raise Exception(
+                f"All link object files must end in '.o' whereas '{object_file}' does not"
+            )
 
     stages_to_run = options_db["stages"].split(",")
 
@@ -139,6 +152,9 @@ def display_verbose_start_message(options_db):
     print(
         f"Stage 'Build executable': {'Enabled' if options_db['run_build_executable_stage'] else 'Disabled'}"
     )
+    if options_db["run_build_executable_stage"]:
+        print("")
+        print(f"Also linking against object files {options_db['link-objectfiles']}")
     print("------------------------------------------------")
 
 
@@ -196,6 +212,8 @@ def generate_clang_optional_args(options_db):
     optional_args = ""
     if options_db["openmp"]:
         optional_args += "-fopenmp "
+    for object_file in options_db["link-objectfiles"]:
+        optional_args += object_file + " "
     return optional_args
 
 
