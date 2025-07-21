@@ -2,6 +2,14 @@
 import argparse
 import os
 import shutil
+from enum import Enum
+
+
+class OutputType(Enum):
+    EXECUTABLE = 1
+    OBJECT = 2
+    BITCODE = 3
+    MLIR = 4
 
 
 def initialise_argument_parser():
@@ -35,7 +43,7 @@ def initialise_argument_parser():
     parser.add_argument(
         "--offload",
         action="store_true",
-        help="Run OpenMP accelerator offloading flow, overrides stages argument if present",
+        help="Run OpenMP accelerator offloading flow",
     )
     parser.add_argument(
         "--ftnopt-arg",
@@ -59,8 +67,8 @@ def initialise_argument_parser():
     )
     parser.add_argument(
         "--stages",
-        default="flang,pre,ftn,post,mlir,clang",
-        help="Specify which stages will run (a combination of: flang, pre, ftn, post, mlir, clang) in comma separated list without spaces",
+        default=None,
+        help="Specify which stages will run (a combination of: flang, pre, ftn, post, mlir, obj, clang) in comma separated list without spaces",
     )
     parser.add_argument(
         "-v",
@@ -73,11 +81,48 @@ def initialise_argument_parser():
     return parser
 
 
+def get_output_type_from_out_name(output_name):
+    if "." not in output_name:
+        return OutputType.EXECUTABLE
+    elif output_name.endswith(".o"):
+        return OutputType.OBJECT
+    elif output_name.endswith(".bc"):
+        return OutputType.BITCODE
+    elif output_name.endswith(".mlir"):
+        return OutputType.MLIR
+
+
+def enable_disable_stages_by_output_type(options_db, output_type):
+    options_db["run_flang_stage"] = True
+    options_db["run_preprocess_stage"] = True
+    options_db["run_lower_to_core_stage"] = True
+    options_db["run_postprocess_stage"] = (
+        output_type == OutputType.EXECUTABLE
+        or output_type == OutputType.OBJECT
+        or output_type == OutputType.BITCODE
+    )
+    options_db["run_mlir_to_llvmir_stage"] = options_db["run_postprocess_stage"]
+    options_db["run_create_object_stage"] = output_type == OutputType.OBJECT
+    options_db["run_build_executable_stage"] = output_type == OutputType.EXECUTABLE
+
+
 def build_options_db_from_args(args):
     # We build an options database from the arguments, this is simply a dictionary but
     # we do it this way so that some options can turn on lots of other options,
     # an example is fopenmp and openmp being aliases for each other
     options_db = args.__dict__
+
+    # Handle source filename
+    src_fn = options_db["source file"]
+    validate_source_filename(src_fn)
+    source_fn_no_ext = src_fn.split(".")[-2]
+    options_db["source_filename_no_ext"] = source_fn_no_ext
+
+    if options_db["out"] is None:
+        if options_db["offload"]:
+            options_db["out"] = source_fn_no_ext + "_offload.mlir"
+        else:
+            options_db["out"] = source_fn_no_ext
 
     # Handle fopenmp and openmp aliases
     if options_db["fopenmp"]:
@@ -85,37 +130,14 @@ def build_options_db_from_args(args):
     del options_db["fopenmp"]
 
     for object_file in options_db["link-objectfiles"]:
-        if ".o" not in object_file and ".bc" not in object_file:
+        if not object_file.endswith(".o") and not object_file.endswith(".bc"):
             raise Exception(
-                f"All link object files must end in '.o' whereas '{object_file}' does not"
+                f"All link object files must end in '.o' or '.bc' whereas '{object_file}' does not"
             )
 
-    stages_to_run = options_db["stages"].split(",")
-
-    # Set the stages that will run, by default all stages run
-    options_db["run_flang_stage"] = "flang" in stages_to_run
-    options_db["run_preprocess_stage"] = "pre" in stages_to_run
-    options_db["run_lower_to_core_stage"] = "ftn" in stages_to_run
-    options_db["run_postprocess_stage"] = "post" in stages_to_run
-    options_db["run_mlir_to_llvmir_stage"] = "mlir" in stages_to_run
-    options_db["run_build_executable_stage"] = "clang" in stages_to_run
-
-    if "flang" in stages_to_run:
-        stages_to_run.remove("flang")
-    if "pre" in stages_to_run:
-        stages_to_run.remove("pre")
-    if "ftn" in stages_to_run:
-        stages_to_run.remove("ftn")
-    if "post" in stages_to_run:
-        stages_to_run.remove("post")
-    if "mlir" in stages_to_run:
-        stages_to_run.remove("mlir")
-    if "clang" in stages_to_run:
-        stages_to_run.remove("clang")
-    if len(stages_to_run) > 0:
-        for e in stages_to_run:
-            print(f"Unknown stage provided as argument '{e}'")
-        exit(-1)
+    output_type = get_output_type_from_out_name(options_db["out"])
+    options_db["output_type"] = output_type
+    enable_disable_stages_by_output_type(options_db, output_type)
 
     # Option specific variations to the options database, where
     # a specific option will enable or disable others
@@ -124,6 +146,39 @@ def build_options_db_from_args(args):
         options_db["run_postprocess_stage"] = False
         options_db["run_mlir_to_llvmir_stage"] = False
         options_db["run_build_executable_stage"] = False
+
+    if options_db["stages"] is not None:
+        # We handle stages to run last, this overrides all other stage selection
+        # through other options or output filename
+        stages_to_run = options_db["stages"].split(",")
+
+        # Set the stages that will run, by default all stages run
+        options_db["run_flang_stage"] = "flang" in stages_to_run
+        options_db["run_preprocess_stage"] = "pre" in stages_to_run
+        options_db["run_lower_to_core_stage"] = "ftn" in stages_to_run
+        options_db["run_postprocess_stage"] = "post" in stages_to_run
+        options_db["run_mlir_to_llvmir_stage"] = "mlir" in stages_to_run
+        options_db["run_create_object_stage"] = "obj" in stages_to_run
+        options_db["run_build_executable_stage"] = "clang" in stages_to_run
+
+        if "flang" in stages_to_run:
+            stages_to_run.remove("flang")
+        if "pre" in stages_to_run:
+            stages_to_run.remove("pre")
+        if "ftn" in stages_to_run:
+            stages_to_run.remove("ftn")
+        if "post" in stages_to_run:
+            stages_to_run.remove("post")
+        if "mlir" in stages_to_run:
+            stages_to_run.remove("mlir")
+        if "obj" in stages_to_run:
+            stages_to_run.remove("obj")
+        if "clang" in stages_to_run:
+            stages_to_run.remove("clang")
+        if len(stages_to_run) > 0:
+            for e in stages_to_run:
+                print(f"Unknown stage provided as argument '{e}'")
+            exit(-1)
 
     return options_db
 
@@ -148,6 +203,9 @@ def display_verbose_start_message(options_db):
     )
     print(
         f"Stage 'Convert MLIR to LLVM-IR': {'Enabled' if options_db['run_mlir_to_llvmir_stage'] else 'Disabled'}"
+    )
+    print(
+        f"Stage 'Create object file': {'Enabled' if options_db['run_create_object_stage'] else 'Disabled'}"
     )
     print(
         f"Stage 'Build executable': {'Enabled' if options_db['run_build_executable_stage'] else 'Disabled'}"
@@ -299,9 +357,14 @@ def run_postprocess_core_mlir(output_tmp_dir, input_fn, output_fn, options_db):
     post_stage_check(output_f, options_db["verbose"])
 
 
-def run_mlir_pipeline_to_llvm_ir(output_tmp_dir, input_fn, output_fn, options_db):
+def run_mlir_pipeline_to_llvm_ir(
+    output_tmp_dir, input_fn, output_fn, options_db, store_out_in_tmp
+):
     input_f = os.path.join(output_tmp_dir, input_fn)
-    output_f = os.path.join(output_tmp_dir, output_fn)
+    if store_out_in_tmp:
+        output_f = os.path.join(output_tmp_dir, output_fn)
+    else:
+        output_f = output_fn
 
     mlir_pipeline_pass = '--pass-pipeline="builtin.module(canonicalize, cse, loop-invariant-code-motion, convert-linalg-to-loops, convert-scf-to-cf, convert-cf-to-llvm{index-bitwidth=64}, fold-memref-alias-ops,lower-affine,finalize-memref-to-llvm, convert-arith-to-llvm{index-bitwidth=64}, convert-func-to-llvm, math-uplift-to-fma, convert-math-to-llvm, fold-memref-alias-ops,lower-affine,finalize-memref-to-llvm, reconcile-unrealized-casts)"'
     mlir_args = f"{mlir_pipeline_pass} {input_f}"
@@ -314,6 +377,21 @@ def run_mlir_pipeline_to_llvm_ir(output_tmp_dir, input_fn, output_fn, options_db
 
     os.system(f"mlir-opt {mlir_args} | mlir-translate --mlir-to-llvmir -o {output_f}")
     post_stage_check(output_f, options_db["verbose"])
+
+
+def create_object_file(output_tmp_dir, input_fn, executable_fn, options_db):
+    input_f = os.path.join(output_tmp_dir, input_fn)
+
+    clang_args = f"-O3 -o {executable_fn} -c {input_f}"
+
+    print_verbose_message(
+        options_db,
+        "Creating object file",
+        f"Creating object by executing clang with arguments '{clang_args}'",
+    )
+
+    os.system(f"clang {clang_args}")
+    post_stage_check(executable_fn, options_db["verbose"])
 
 
 def build_executable(output_tmp_dir, input_fn, executable_fn, options_db):
@@ -339,16 +417,9 @@ def main():
         display_verbose_start_message(options_db)
 
     src_fn = options_db["source file"]
-    validate_source_filename(src_fn)
-    source_fn_no_ext = src_fn.split(".")[-2]
+    source_fn_no_ext = options_db["source_filename_no_ext"]
 
-    if options_db["out"] is not None:
-        out_file = options_db["out"]
-    else:
-        out_file = source_fn_no_ext
-        if options_db["offload"]:
-            out_file = source_fn_no_ext + "_offload.mlir"
-
+    out_file = options_db["out"]
     tmp_dir = options_db["tempdir"]
     os.makedirs(tmp_dir, exist_ok=True)
     remove_file_if_exists(
@@ -359,6 +430,9 @@ def main():
         source_fn_no_ext + "_post.mlir",
         source_fn_no_ext + "_res.bc",
     )
+
+    if os.path.exists(out_file):
+        os.remove(out_file)
 
     if options_db["run_flang_stage"]:
         run_flang(src_fn, tmp_dir, source_fn_no_ext + ".mlir", options_db)
@@ -387,9 +461,14 @@ def main():
         run_mlir_pipeline_to_llvm_ir(
             tmp_dir,
             source_fn_no_ext + "_post.mlir",
-            source_fn_no_ext + "_res.bc",
+            out_file
+            if options_db["output_type"] == OutputType.BITCODE
+            else source_fn_no_ext + "_res.bc",
             options_db,
+            not options_db["output_type"] == OutputType.BITCODE,
         )
+    if options_db["run_create_object_stage"]:
+        create_object_file(tmp_dir, source_fn_no_ext + "_res.bc", out_file, options_db)
     if options_db["run_build_executable_stage"]:
         build_executable(tmp_dir, source_fn_no_ext + "_res.bc", out_file, options_db)
 
