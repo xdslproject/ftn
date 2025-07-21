@@ -47,37 +47,23 @@ def translate_function(program_state: ProgramState, ctx: SSAValueCtx, fn: func.F
         fn_in_arg_types = []
         for idx, arg in enumerate(fn.args):
             fir_type = arg.type
-            if (
-                program_state.function_definitions[fn_identifier].args[idx].is_scalar
-                and program_state.function_definitions[fn_identifier].args[idx].intent
-                == ArgIntent.IN
-            ):
-                # This is a scalar in, therefore it's just the constant type (don't encode as a memref)
-                if isa(fir_type, fir.ReferenceType):
-                    fn_in_arg_types.append(
-                        ftn_types.convert_fir_type_to_standard(fir_type.type)
-                    )
-                else:
-                    fn_in_arg_types.append(
-                        ftn_types.convert_fir_type_to_standard(arg.type)
-                    )
-            else:
-                if ftn_types.does_type_represent_ftn_pointer(fir_type):
-                    # If we are passing a Fortran pointer then we need to handle this differently, actually pass
-                    # the LLVM pointer of this and reconstruct, to access the same underlying memref
-                    converted_type = llvm.LLVMPointerType.opaque()
-                    ptr_unpack_args.append((idx, fir_type))
-                else:
-                    converted_type = ftn_types.convert_fir_type_to_standard(fir_type)
-                    if (
-                        isa(converted_type, builtin.MemRefType)
-                        and program_state.function_definitions[fn_identifier]
-                        .args[idx]
-                        .is_allocatable
-                    ):
-                        converted_type = builtin.MemRefType(converted_type, shape=[])
 
-                fn_in_arg_types.append(converted_type)
+            if ftn_types.does_type_represent_ftn_pointer(fir_type):
+                # If we are passing a Fortran pointer then we need to handle this differently, actually pass
+                # the LLVM pointer of this and reconstruct, to access the same underlying memref
+                converted_type = llvm.LLVMPointerType.opaque()
+                ptr_unpack_args.append((idx, fir_type))
+            else:
+                converted_type = ftn_types.convert_fir_type_to_standard(fir_type)
+                if (
+                    isa(converted_type, builtin.MemRefType)
+                    and program_state.function_definitions[fn_identifier]
+                    .args[idx]
+                    .is_allocatable
+                ):
+                    converted_type = builtin.MemRefType(converted_type, shape=[])
+
+            fn_in_arg_types.append(converted_type)
 
         for idx, block in enumerate(fn.body.blocks):
             if idx == 0:
@@ -156,24 +142,19 @@ def handle_call_argument(
         arg_defn = program_state.function_definitions[fn_name].args[arg_index]
         # For now we just work with scalars here, could pass arrays by literal too
         assert arg_defn.is_scalar
-        if arg_defn.is_scalar and arg_defn.intent == ArgIntent.IN:
-            # This is a scalar with intent in, therefore just pass the constant
-            ops_list = expressions.translate_expr(program_state, ctx, arg.owner.source)
-            ctx[arg] = ctx[arg.owner.source]
-            return ops_list, False
-        else:
-            # Otherwise we need to pack the constant into a memref and pass this
-            assert isa(arg_defn.arg_type, fir.ReferenceType)
-            ops_list = expressions.translate_expr(program_state, ctx, arg.owner.source)
-            memref_alloca_op = memref.AllocaOp.get(
-                ftn_types.convert_fir_type_to_standard(arg_defn.arg_type.type), shape=[]
-            )
 
-            storage_op = memref.StoreOp.get(
-                ctx[arg.owner.source], memref_alloca_op.results[0], []
-            )
-            ctx[arg] = memref_alloca_op.results[0]
-            return ops_list + [memref_alloca_op, storage_op], True
+        # We need to pack the constant into a memref and pass this
+        assert isa(arg_defn.arg_type, fir.ReferenceType)
+        ops_list = expressions.translate_expr(program_state, ctx, arg.owner.source)
+        memref_alloca_op = memref.AllocaOp.get(
+            ftn_types.convert_fir_type_to_standard(arg_defn.arg_type.type), shape=[]
+        )
+
+        storage_op = memref.StoreOp.get(
+            ctx[arg.owner.source], memref_alloca_op.results[0], []
+        )
+        ctx[arg] = memref_alloca_op.results[0]
+        return ops_list + [memref_alloca_op, storage_op], True
     else:
         # Here passing a variable (array or scalar variable). This is a little confusing, as we
         # allow the translate_expr to handle it, but if the function accepts an integer due to
@@ -190,21 +171,6 @@ def handle_call_argument(
                 ctx[arg] = extract_ssa
             else:
                 if (
-                    arg_defn.is_scalar
-                    and arg_defn.intent == ArgIntent.IN
-                    and isa(ctx[arg].type, builtin.MemRefType)
-                ):
-                    # The function will accept a constant, but we are currently passing a memref
-                    # therefore need to load the value and pass this
-
-                    load_op = memref.LoadOp.get(ctx[arg], [])
-
-                    # arg is already in our ctx from above, so remove it and add in the load as
-                    # we want to reference that instead
-                    del ctx[arg]
-                    ctx[arg] = load_op.results[0]
-                    ops_list += [load_op]
-                elif (
                     not arg_defn.is_scalar
                     and not arg_defn.is_allocatable
                     and isa(ctx[arg].type, builtin.MemRefType)
@@ -214,6 +180,7 @@ def handle_call_argument(
                     del ctx[arg]
                     ctx[arg] = load_op.results[0]
                     ops_list += [load_op]
+
         else:
             # We have partial argument information, assumes all scalar and intent inout
             arg_defn = program_state.function_definitions[fn_name].args[arg_index]
