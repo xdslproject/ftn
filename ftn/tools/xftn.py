@@ -282,11 +282,15 @@ def run_ftnopt_passes(
     passes,
     options_db,
     verbose_msg_preamble="Executing ftn-opt transformation passes",
+    store_out_in_tmp=True,
 ):
     assert len(passes) > 0
 
     input_f = os.path.join(output_tmp_dir, input_fn)
-    output_f = os.path.join(output_tmp_dir, output_fn)
+    if store_out_in_tmp:
+        output_f = os.path.join(output_tmp_dir, output_fn)
+    else:
+        output_f = output_fn
 
     passes_list = ",".join(passes)
 
@@ -331,7 +335,9 @@ def run_preprocess_flang_to_xdsl(output_tmp_dir, input_fn, output_fn, options_db
     post_stage_check(output_f, options_db["verbose"])
 
 
-def lower_fir_to_core_dialects(output_tmp_dir, input_fn, output_fn, options_db):
+def lower_fir_to_core_dialects(
+    output_tmp_dir, input_fn, output_fn, options_db, store_out_in_tmp
+):
     transformation_passes = ["rewrite-fir-to-core", "merge-memref-deref"]
     run_ftnopt_passes(
         output_tmp_dir,
@@ -340,6 +346,7 @@ def lower_fir_to_core_dialects(output_tmp_dir, input_fn, output_fn, options_db):
         transformation_passes,
         options_db,
         "Lowering to core dialects",
+        store_out_in_tmp,
     )
 
 
@@ -447,8 +454,11 @@ def main():
         lower_fir_to_core_dialects(
             tmp_dir,
             source_fn_no_ext + "_pre.mlir",
-            source_fn_no_ext + "_res.mlir",
+            out_file
+            if options_db["output_type"] == OutputType.MLIR
+            else source_fn_no_ext + "_res.mlir",
             options_db,
+            not options_db["output_type"] == OutputType.MLIR,
         )
     if options_db["run_postprocess_stage"]:
         run_postprocess_core_mlir(
