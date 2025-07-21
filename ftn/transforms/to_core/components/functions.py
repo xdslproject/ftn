@@ -190,7 +190,10 @@ def handle_call_argument(
             ):
                 # The function argument is not a reference or sequence (array) so likely a scalar
                 if isa(ctx[arg].type, builtin.MemRefType):
-                    if isa(arg_defn.arg_type, fir.ReferenceType):
+                    if (
+                        isa(arg_defn.arg_type, fir.ReferenceType)
+                        and arg_defn.arg_type.type == builtin.i8
+                    ):
                         # It is expecting an LLVM pointer
                         extract_ops, extract_ssa = generate_extract_ptr_from_memref(
                             ctx[arg]
@@ -199,20 +202,21 @@ def handle_call_argument(
                         ctx[arg] = extract_ssa
                         ops_list += extract_ops
                     else:
-                        # We will extract the memref
-                        load_idx_ssa = []
-                        if len(ctx[arg].type.shape) != 0:
-                            assert len(ctx[arg].type.shape) == 1
-                            assert ctx[arg].type.shape.data[0].data == 1
-                            accessor_op = create_index_constant(0)
-                            ops_list.append(accessor_op)
-                            load_idx_ssa.append(accessor_op.results[0])
+                        if isa(ctx[arg].type.element_type, builtin.MemRefType):
+                            # We will extract the memref
+                            load_idx_ssa = []
+                            if len(ctx[arg].type.shape) != 0:
+                                assert len(ctx[arg].type.shape) == 1
+                                assert ctx[arg].type.shape.data[0].data == 1
+                                accessor_op = create_index_constant(0)
+                                ops_list.append(accessor_op)
+                                load_idx_ssa.append(accessor_op.results[0])
 
-                        # The passed argument is a memref, we therefore need to extract this
-                        load_op = memref.LoadOp.get(ctx[arg], load_idx_ssa)
-                        del ctx[arg]
-                        ctx[arg] = load_op.results[0]
-                        ops_list += [load_op]
+                            # The passed argument is a memref, we therefore need to extract this
+                            load_op = memref.LoadOp.get(ctx[arg], load_idx_ssa)
+                            del ctx[arg]
+                            ctx[arg] = load_op.results[0]
+                            ops_list += [load_op]
         if fn_name == "_FortranAProgramStart" and arg_index == 3:
             # This is a hack, Flang currently generates incorrect typing for passing memory to the program initialisation
             # routine. As func.call verifies this we can not get away with it, so must extract the llvm pointer
