@@ -49,7 +49,7 @@ def does_type_represent_ftn_pointer(type_chain):
 
 
 def convert_fir_type_to_standard_if_needed(fir_type):
-    if isa(fir_type, fir.ReferenceType):
+    if isa(fir_type, fir.ReferenceType) and fir_type.type == builtin.i8:
         return llvm.LLVMPointerType.opaque()
     else:
         return convert_fir_type_to_standard(fir_type)
