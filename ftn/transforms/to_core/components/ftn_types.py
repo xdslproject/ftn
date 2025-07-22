@@ -165,10 +165,10 @@ def translate_convert(program_state: ProgramState, ctx: SSAValueCtx, op: fir.Con
             # They are the same, ignore and use the input directly
             ctx[op.results[0]] = ctx[op.value]
             return value_ops
-    elif (
-        isa(in_type, fir.ReferenceType)
-        and isa(out_type, fir.ReferenceType)
-        or (isa(in_type, fir.BoxType) and isa(out_type, fir.BoxType))
+    elif (isa(in_type, fir.ReferenceType) and isa(out_type, fir.ReferenceType)) or (
+        isa(in_type, fir.BoxType)
+        and isa(out_type, fir.BoxType)
+        or (isa(in_type, fir.HeapType) and isa(out_type, fir.ReferenceType))
     ):
         if isa(out_type.type, builtin.IntegerType) and out_type.type.width.data == 8:
             # Converting to an LLVM pointer
@@ -207,6 +207,8 @@ def translate_convert(program_state: ProgramState, ctx: SSAValueCtx, op: fir.Con
         elif isa(out_type.type, fir.BoxType) and isa(in_type.type, fir.BoxType):
             ctx[op.results[0]] = ctx[op.value]
             return value_ops
+        else:
+            assert False
     elif isa(in_type, fir.HeapType) and isa(out_type, fir.ReferenceType):
         # When passing arrays to subroutines will box_addr to a heaptype, then convert
         # to a reference type. Both these contain arrays, therefore set this to
