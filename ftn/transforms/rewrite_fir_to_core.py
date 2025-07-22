@@ -43,6 +43,7 @@ from ftn.transforms.to_core.components.intrinsics import (
 )
 import ftn.transforms.to_core.components.functions as ftn_functions
 import ftn.transforms.to_core.components.openmp as ftn_openmp
+import ftn.transforms.to_core.components.ftn_types as ftn_types
 
 from ftn.transforms.to_core.expressions import translate_expr
 from ftn.transforms.to_core.statements import translate_stmt
@@ -212,71 +213,93 @@ def translate_program(
 def translate_global(program_state, global_ctx, global_op: fir.GlobalOp):
     if global_op.sym_name.data == "_QQEnvironmentDefaults":
         return None
-    assert len(global_op.regions) == 1
-    assert len(global_op.regions[0].blocks) == 1
 
-    ops_list = []
-    program_state.enterGlobal()
-    for op in global_op.regions[0].blocks[0].ops:
-        ops_list += translate_stmt(program_state, global_ctx, op)
+    if len(global_op.regions) > 0 and len(global_op.regions[0].blocks) > 0:
+        # If this has a body, then there will be some contents associated that we need to handle
+        assert len(global_op.regions) == 1
+        assert len(global_op.regions[0].blocks) == 1
 
-    program_state.leaveGlobal()
+        ops_list = []
+        program_state.enterGlobal()
+        for op in global_op.regions[0].blocks[0].ops:
+            ops_list += translate_stmt(program_state, global_ctx, op)
 
-    if isa(global_op.type, fir.CharacterType):
-        assert len(ops_list) == 1
-        rebuilt_global = llvm.GlobalOp(
-            ops_list[0].global_type,
-            global_op.sym_name,
-            ops_list[0].linkage,
-            ops_list[0].addr_space.value.data,
-            global_op.constant,
-            value=ops_list[0].value,
-            unnamed_addr=ops_list[0].unnamed_addr.value.data,
-        )
-        return rebuilt_global
-    elif (
-        isa(global_op.type, builtin.IntegerType)
-        or isa(global_op.type, builtin.AnyFloat)
-        or isa(global_op.type, fir.SequenceType)
-        or isa(global_op.type, fir.LogicalType)
-    ):
-        assert len(ops_list) == 1
-        global_contained_op = ops_list[0]
-        if isa(global_contained_op, memref.GlobalOp):
-            # If this is a memref global operation then simply return that and are done
-            return global_contained_op
-        else:
-            # Otherwise need to package in llvm.GlobalOp
-            assert isa(global_contained_op, arith.ConstantOp) or isa(
-                global_contained_op, llvm.ZeroOp
-            )
-            return_op = llvm.ReturnOp.build(operands=[global_contained_op.results[0]])
+        program_state.leaveGlobal()
 
-            return llvm.GlobalOp(
-                global_contained_op.results[0].type,
+        if isa(global_op.type, fir.CharacterType):
+            assert len(ops_list) == 1
+            rebuilt_global = llvm.GlobalOp(
+                ops_list[0].global_type,
                 global_op.sym_name,
-                "internal",
-                constant=global_op.constant,
-                body=Region([Block([global_contained_op, return_op])]),
+                ops_list[0].linkage,
+                ops_list[0].addr_space.value.data,
+                global_op.constant,
+                value=ops_list[0].value,
+                unnamed_addr=ops_list[0].unnamed_addr.value.data,
             )
-    elif (
-        isa(global_op.type, fir.BoxType)
-        and isa(global_op.type.type, fir.HeapType)
-        and isa(global_op.type.type.type, fir.SequenceType)
-    ):
-        # This represents a container of an allocatable array, Flang will generate these when we have
-        # an allocatable passed between procedures. However we handle this differently by a memref of a memref
-        # which is scoped, and hence ignore this here to avoid a global
-        pass
-    elif (
-        isa(global_op.type, fir.BoxType)
-        and isa(global_op.type.type, fir.PointerType)
-        and isa(global_op.type.type.type, fir.SequenceType)
-    ):
-        # This represents an initial value for a pointer, such as NULL(), for now we ignore these
-        pass
+            return rebuilt_global
+        elif (
+            isa(global_op.type, builtin.IntegerType)
+            or isa(global_op.type, builtin.AnyFloat)
+            or isa(global_op.type, fir.SequenceType)
+            or isa(global_op.type, fir.LogicalType)
+        ):
+            assert len(ops_list) == 1
+            global_contained_op = ops_list[0]
+            if isa(global_contained_op, memref.GlobalOp):
+                # If this is a memref global operation then simply return that and are done
+                return global_contained_op
+            else:
+                # Otherwise need to package in llvm.GlobalOp
+                assert isa(global_contained_op, arith.ConstantOp) or isa(
+                    global_contained_op, llvm.ZeroOp
+                )
+                return_op = llvm.ReturnOp.build(
+                    operands=[global_contained_op.results[0]]
+                )
+
+                return llvm.GlobalOp(
+                    ftn_types.convert_fir_type_to_standard(
+                        global_contained_op.results[0].type
+                    ),
+                    global_op.sym_name,
+                    "internal",
+                    constant=global_op.constant,
+                    body=Region([Block([global_contained_op, return_op])]),
+                )
+        elif (
+            isa(global_op.type, fir.BoxType)
+            and isa(global_op.type.type, fir.HeapType)
+            and isa(global_op.type.type.type, fir.SequenceType)
+        ):
+            # This represents a container of an allocatable array, Flang will generate these when we have
+            # an allocatable passed between procedures. However we handle this differently by a memref of a memref
+            # which is scoped, and hence ignore this here to avoid a global
+            pass
+        elif (
+            isa(global_op.type, fir.BoxType)
+            and isa(global_op.type.type, fir.PointerType)
+            and isa(global_op.type.type.type, fir.SequenceType)
+        ):
+            # This represents an initial value for a pointer, such as NULL(), for now we ignore these
+            pass
+        else:
+            raise Exception(
+                f"Could not translate global region of type `{global_op.type}'"
+            )
     else:
-        raise Exception(f"Could not translate global region of type `{global_op.type}'")
+        # No body here, this is likely a variable declaration in another module
+        if (
+            not isa(global_op.type, fir.BoxType)
+            or not isa(global_op.type.type, fir.HeapType)
+            and not isa(global_op.type.type, fir.PointerType)
+        ):
+            # If it's a box type that contains a heap or pointer then ignore it
+            return llvm.GlobalOp(
+                ftn_types.convert_fir_type_to_standard(global_op.type),
+                global_op.sym_name,
+                "external",
+            )
 
 
 class RewriteRelativeBranch(RewritePattern):
