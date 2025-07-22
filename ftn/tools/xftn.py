@@ -115,8 +115,8 @@ def build_options_db_from_args(args):
     # Handle source filename
     src_fn = options_db["source file"]
     validate_source_filename(src_fn)
-    source_fn_no_ext = src_fn.split(".")[-2]
-    options_db["source_filename_no_ext"] = source_fn_no_ext
+    source_fn_no_ext = os.path.basename(src_fn).split(".")[-2]
+    options_db["source_filename_no_ext_no_path"] = source_fn_no_ext
 
     if options_db["out"] is None:
         if options_db["offload"]:
@@ -424,7 +424,7 @@ def main():
         display_verbose_start_message(options_db)
 
     src_fn = options_db["source file"]
-    source_fn_no_ext = options_db["source_filename_no_ext"]
+    source_fn_no_ext = options_db["source_filename_no_ext_no_path"]
 
     out_file = options_db["out"]
     tmp_dir = options_db["tempdir"]
