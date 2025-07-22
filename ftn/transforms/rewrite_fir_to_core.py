@@ -243,6 +243,13 @@ def translate_global(program_state, global_ctx, global_op: fir.GlobalOp):
             or isa(global_op.type, builtin.AnyFloat)
             or isa(global_op.type, fir.SequenceType)
             or isa(global_op.type, fir.LogicalType)
+        ) or (
+            isa(global_op.type, fir.BoxType)
+            and (
+                isa(global_op.type.type, fir.HeapType)
+                or isa(global_op.type.type, fir.PointerType)
+            )
+            and isa(global_op.type.type.type, fir.SequenceType)
         ):
             assert len(ops_list) == 1
             global_contained_op = ops_list[0]

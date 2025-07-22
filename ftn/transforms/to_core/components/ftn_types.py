@@ -56,7 +56,7 @@ def convert_fir_type_to_standard_if_needed(fir_type):
 
 
 def convert_fir_type_to_standard(fir_type, ref_as_mem_ref=True):
-    if isa(fir_type, fir.ReferenceType):
+    if isa(fir_type, fir.ReferenceType) or isa(fir_type, fir.PointerType):
         if ref_as_mem_ref:
             base_t = convert_fir_type_to_standard(fir_type.type, ref_as_mem_ref)
             if isa(base_t, builtin.MemRefType):

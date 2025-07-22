@@ -556,8 +556,9 @@ def translate_zerobits(
             assert isa(op.parent.parent.parent, fir.GlobalOp)
 
             converted_result_type = ftn_types.convert_fir_type_to_standard(result_type)
-            if isa(result_type, fir.HeapType):
-                # This is an allocatable array as it's heaptype (otherwise just an arraytype)
+            if isa(result_type, fir.HeapType) or isa(result_type, fir.PointerType):
+                # This is an allocatable array if it's heaptype or a pointer if its
+                # a pointer type, (otherwise this is just an arraytype)
                 # therefore wrap this in a memref type due to allocatable nature
                 converted_result_type = builtin.MemRefType(converted_result_type, [])
             global_memref = memref.GlobalOp.get(
