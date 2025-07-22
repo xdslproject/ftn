@@ -395,16 +395,31 @@ def translate_declare(
 
         assert isa(op.results[0].type.type.type.type, fir.SequenceType)
         num_dims = len(op.results[0].type.type.type.type.shape)
-        alloc_memref_container = memref.AllocaOp.get(
-            builtin.MemRefType(
-                op.results[0].type.type.type.type.type, shape=num_dims * [-1]
-            ),
-            shape=[],
-        )
 
-        ctx[op.results[0]] = alloc_memref_container.results[0]
-        ctx[op.results[1]] = alloc_memref_container.results[0]
-        return [alloc_memref_container]
+        if isa(op.memref.owner, fir.AddressOfOp):
+            memref_lookup = memref.GetGlobalOp(
+                op.memref.owner.symbol.string_value(),
+                builtin.MemRefType(
+                    ftn_types.convert_fir_type_to_standard(
+                        op.memref.owner.results[0].type
+                    ),
+                    shape=[],
+                ),
+            )
+            ctx[op.results[0]] = memref_lookup.results[0]
+            ctx[op.results[1]] = memref_lookup.results[0]
+            return [memref_lookup]
+        else:
+            alloc_memref_container = memref.AllocaOp.get(
+                builtin.MemRefType(
+                    op.results[0].type.type.type.type.type, shape=num_dims * [-1]
+                ),
+                shape=[],
+            )
+
+            ctx[op.results[0]] = alloc_memref_container.results[0]
+            ctx[op.results[1]] = alloc_memref_container.results[0]
+            return [alloc_memref_container]
 
     if len(op.results[0].uses) == 0 and len(op.results[1].uses) == 0:
         # Some declare ops are never actually used in the code, Flang seems to generate
@@ -541,18 +556,17 @@ def translate_zerobits(
             assert isa(op.parent.parent.parent, fir.GlobalOp)
 
             converted_result_type = ftn_types.convert_fir_type_to_standard(result_type)
+            if isa(result_type, fir.HeapType):
+                # This is an allocatable array as it's heaptype (otherwise just an arraytype)
+                # therefore wrap this in a memref type due to allocatable nature
+                converted_result_type = builtin.MemRefType(converted_result_type, [])
             global_memref = memref.GlobalOp.get(
                 op.parent.parent.parent.sym_name,
                 converted_result_type,
                 builtin.UnitAttr(),
             )
 
-            get_global_op = memref.GetGlobalOp(
-                op.parent.parent.parent.sym_name, converted_result_type
-            )
-
-            ctx[op.results[0]] = get_global_op.results[0]
-            return [global_memref, get_global_op]
+            return [global_memref]
         else:
             # Otherwise is not a memref, so need to allocate as LLVM compatible operation
             total_size = reduce((lambda x, y: x * y), array_sizes)
