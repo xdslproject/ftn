@@ -118,8 +118,8 @@ def translate_convert(program_state: ProgramState, ctx: SSAValueCtx, op: fir.Con
     ):
         new_conv = arith.ExtFOp(ctx[op.value], out_type)
         ctx[op.results[0]] = new_conv.results[0]
-
-    if (
+        return value_ops + [new_conv]
+    elif (
         isa(in_type, builtin.Float64Type)
         and isa(out_type, builtin.Float32Type)
         or isa(in_type, builtin.Float64Type)
@@ -129,8 +129,8 @@ def translate_convert(program_state: ProgramState, ctx: SSAValueCtx, op: fir.Con
     ):
         new_conv = arith.TruncFOp(ctx[op.value], out_type)
         ctx[op.results[0]] = new_conv.results[0]
-
-    if (isa(in_type, builtin.IndexType) and isa(out_type, builtin.IntegerType)) or (
+        return value_ops + [new_conv]
+    elif (isa(in_type, builtin.IndexType) and isa(out_type, builtin.IntegerType)) or (
         isa(in_type, builtin.IntegerType) and isa(out_type, builtin.IndexType)
     ):
         if isa(ctx[op.value].type, builtin.IndexType) or isa(
@@ -138,38 +138,34 @@ def translate_convert(program_state: ProgramState, ctx: SSAValueCtx, op: fir.Con
         ):
             new_conv = arith.IndexCastOp(ctx[op.value], out_type)
             ctx[op.results[0]] = new_conv.results[0]
+            return value_ops + [new_conv]
         else:
             ctx[op.results[0]] = ctx[op.value]
-            return []
-
-    if isa(in_type, builtin.IntegerType) and isa(out_type, builtin.AnyFloat):
+            return value_ops
+    elif isa(in_type, builtin.IntegerType) and isa(out_type, builtin.AnyFloat):
         new_conv = arith.SIToFPOp(ctx[op.value], out_type)
         ctx[op.results[0]] = new_conv.results[0]
-
-    if isa(in_type, builtin.AnyFloat) and isa(out_type, builtin.IntegerType):
+        return value_ops + [new_conv]
+    elif isa(in_type, builtin.AnyFloat) and isa(out_type, builtin.IntegerType):
         new_conv = arith.FPToSIOp(ctx[op.value], out_type)
         ctx[op.results[0]] = new_conv.results[0]
-
-    if new_conv is not None:
-        new_conv = [new_conv]
-
-    if isa(in_type, builtin.IntegerType) and isa(out_type, builtin.IntegerType):
+        return value_ops + [new_conv]
+    elif isa(in_type, builtin.IntegerType) and isa(out_type, builtin.IntegerType):
         in_width = in_type.width.data
         out_width = out_type.width.data
         if in_width < out_width:
             new_conv = arith.ExtUIOp(ctx[op.value], out_type)
             ctx[op.results[0]] = new_conv.results[0]
-            new_conv = [new_conv]
+            return value_ops + [new_conv]
         elif in_width > out_width:
             new_conv = arith.TruncIOp(ctx[op.value], out_type)
             ctx[op.results[0]] = new_conv.results[0]
-            new_conv = [new_conv]
+            return value_ops + [new_conv]
         else:
             # They are the same, ignore and use the input directly
-            new_conv = []
             ctx[op.results[0]] = ctx[op.value]
-
-    if (
+            return value_ops
+    elif (
         isa(in_type, fir.ReferenceType)
         and isa(out_type, fir.ReferenceType)
         or (isa(in_type, fir.BoxType) and isa(out_type, fir.BoxType))
@@ -187,7 +183,7 @@ def translate_convert(program_state: ProgramState, ctx: SSAValueCtx, op: fir.Con
                 ),
             )
             ctx[op.results[0]] = get_element_ptr.results[0]
-            new_conv = [get_element_ptr]
+            return value_ops + [get_element_ptr]
         elif isa(out_type.type, fir.SequenceType) and isa(
             in_type.type, fir.SequenceType
         ):
@@ -207,12 +203,11 @@ def translate_convert(program_state: ProgramState, ctx: SSAValueCtx, op: fir.Con
             cast_op = memref.CastOp.get(ctx[op.value], target_type)
 
             ctx[op.results[0]] = cast_op.results[0]
-            new_conv = [cast_op]
+            return value_ops + [cast_op]
         elif isa(out_type.type, fir.BoxType) and isa(in_type.type, fir.BoxType):
-            new_conv = []
             ctx[op.results[0]] = ctx[op.value]
-
-    if isa(in_type, fir.HeapType) and isa(out_type, fir.ReferenceType):
+            return value_ops
+    elif isa(in_type, fir.HeapType) and isa(out_type, fir.ReferenceType):
         # When passing arrays to subroutines will box_addr to a heaptype, then convert
         # to a reference type. Both these contain arrays, therefore set this to
         # short circuit to the type of the arg (effectively this is a pass through)
@@ -221,31 +216,25 @@ def translate_convert(program_state: ProgramState, ctx: SSAValueCtx, op: fir.Con
         # Assert that what we will forward to is in-fact a memref type
         assert isa(ctx[op.value].type, builtin.MemRefType)
         ctx[op.results[0]] = ctx[op.value]
-        new_conv = []
-
-    if isa(out_type, fir.BoxType) and isa(in_type, fir.BoxType):
-        new_conv = []
+        return value_ops
+    elif isa(out_type, fir.BoxType) and isa(in_type, fir.BoxType):
         ctx[op.results[0]] = ctx[op.value]
-
-    if isa(in_type, fir.PointerType) and isa(out_type, fir.ReferenceType):
+        return value_ops
+    elif isa(in_type, fir.PointerType) and isa(out_type, fir.ReferenceType):
         assert isa(in_type.type, fir.SequenceType)
         assert isa(out_type.type, fir.SequenceType)
         ctx[op.results[0]] = ctx[op.value]
-        new_conv = []
-
-    if isa(in_type, fir.LogicalType):
+        return value_ops
+    elif isa(in_type, fir.LogicalType):
         assert out_type == builtin.i1
         ctx[op.results[0]] = ctx[op.value]
-        new_conv = []
-
-    if in_type == builtin.i1:
+        return value_ops
+    elif in_type == builtin.i1:
         assert isa(out_type, fir.LogicalType)
         ctx[op.results[0]] = ctx[op.value]
-        new_conv = []
+        return value_ops
 
-    if new_conv is None:
-        raise Exception(f"Could not convert between `{in_type}' and `{out_type}`")
-    return value_ops + new_conv
+    raise Exception(f"Could not convert between `{in_type}' and `{out_type}`")
 
 
 def translate_string_literal(
