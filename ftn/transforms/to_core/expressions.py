@@ -1,7 +1,7 @@
 from xdsl.dialects.experimental import fir, hlfir
 from xdsl.utils.hints import isa
 from xdsl.ir import Operation, SSAValue, Block, BlockArgument
-from xdsl.dialects import arith, math, omp
+from xdsl.dialects import arith, math, omp, memref
 
 from ftn.transforms.to_core.misc.fortran_code_description import ProgramState
 from ftn.transforms.to_core.misc.ssa_context import SSAValueCtx
@@ -109,7 +109,10 @@ def try_translate_expr(
         return ftn_maths.translate_select(program_state, ctx, op)
     elif isa(op, fir.EmboxOp):
         expr_ops = translate_expr(program_state, ctx, op.memref)
-        ctx[op.results[0]] = ctx[op.memref.owner.results[0]]
+        if not (len(expr_ops) == 1 and isa(expr_ops[0], memref.GlobalOp)):
+            # This is a special case, here we are in a global and it would embox
+            # a zero array, but instead the memref global creates the array for us
+            ctx[op.results[0]] = ctx[op.memref.owner.results[0]]
         return expr_ops
     elif isa(op, fir.EmboxcharOp):
         expr_ops = ftn_memory.translate_emboxchar(program_state, ctx, op)
