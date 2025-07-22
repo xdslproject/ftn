@@ -15,6 +15,7 @@ from ftn.transforms.to_core.utils import (
     generate_dereference_memref,
 )
 
+import ftn.transforms.to_core.components.ftn_types as ftn_types
 import ftn.transforms.to_core.expressions as expressions
 
 
@@ -540,7 +541,10 @@ def translate_load(program_state: ProgramState, ctx: SSAValueCtx, op: fir.LoadOp
     ):
         if isa(ctx[op.memref].type, llvm.LLVMPointerType):
             # If this is an LLVM pointer then load it
-            load_op = llvm.LoadOp(ctx[op.memref], op.results[0].type)
+            load_op = llvm.LoadOp(
+                ctx[op.memref],
+                ftn_types.convert_fir_type_to_standard(op.results[0].type),
+            )
             ctx[op.results[0]] = load_op.results[0]
             return [load_op]
         else:
@@ -563,7 +567,12 @@ def translate_load(program_state: ProgramState, ctx: SSAValueCtx, op: fir.LoadOp
             assert isa(op.memref.owner.results[0].type, fir.ReferenceType)
             # As LLVM pointer types are opaque, we need to grab the element type from
             # the declaration fir.reference type
-            load_op = llvm.LoadOp(ctx[op.memref], op.memref.owner.results[0].type.type)
+            load_op = llvm.LoadOp(
+                ctx[op.memref],
+                ftn_types.convert_fir_type_to_standard(
+                    op.memref.owner.results[0].type.type
+                ),
+            )
             ctx[op.results[0]] = load_op.results[0]
             return [load_op]
         else:
