@@ -539,12 +539,20 @@ def translate_zerobits(
             # If this is a memref type, then use memref.global here, we don't need to update the context
             # as it is used directly as a global region (it isn't embedded in anything)
             assert isa(op.parent.parent.parent, fir.GlobalOp)
+
+            converted_result_type = ftn_types.convert_fir_type_to_standard(result_type)
             global_memref = memref.GlobalOp.get(
                 op.parent.parent.parent.sym_name,
-                ftn_types.convert_fir_type_to_standard(result_type),
+                converted_result_type,
                 builtin.UnitAttr(),
             )
-            return [global_memref]
+
+            get_global_op = memref.GetGlobalOp(
+                op.parent.parent.parent.sym_name, converted_result_type
+            )
+
+            ctx[op.results[0]] = get_global_op.results[0]
+            return [global_memref, get_global_op]
         else:
             # Otherwise is not a memref, so need to allocate as LLVM compatible operation
             total_size = reduce((lambda x, y: x * y), array_sizes)
