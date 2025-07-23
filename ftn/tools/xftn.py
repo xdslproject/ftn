@@ -66,6 +66,11 @@ def initialise_argument_parser():
         help="Specify temporary compilation directory (default is 'tmp')",
     )
     parser.add_argument(
+        "--flang-module-dir",
+        default=None,
+        help="Specify Flang's module directory, this defaults to the temporary directory)",
+    )
+    parser.add_argument(
         "--stages",
         default=None,
         help="Specify which stages will run (a combination of: flang, pre, ftn, post, mlir, obj, clang) in comma separated list without spaces",
@@ -311,7 +316,13 @@ def run_ftnopt_passes(
 
 def run_flang(source_filename, output_tmp_dir, output_filename, options_db):
     output_mlir_fn = os.path.join(output_tmp_dir, output_filename)
-    flang_args = f"-fc1 -module-dir {output_tmp_dir} -emit-hlfir -mmlir -mlir-print-op-generic {generate_flang_optional_args(options_db)} {source_filename} -o {output_mlir_fn}"
+
+    if options_db["flang_module_dir"] is None:
+        module_out_dir = output_tmp_dir
+    else:
+        module_out_dir = options_db["flang_module_dir"]
+
+    flang_args = f"-fc1 -module-dir {module_out_dir} -emit-hlfir -mmlir -mlir-print-op-generic {generate_flang_optional_args(options_db)} {source_filename} -o {output_mlir_fn}"
 
     print_verbose_message(
         options_db, "Running Flang", f"Running Flang with arguments '{flang_args}'"
