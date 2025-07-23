@@ -2,6 +2,8 @@
 __pycache__/
 *.py[cod]
 *$py.class
+uv.lock
+.lit_test_times*
 
 ftn/tools/test/
 ftn/tools/tt_eg/
