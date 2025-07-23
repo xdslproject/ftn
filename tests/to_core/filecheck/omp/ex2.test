@@ -1,4 +1,4 @@
-// RUN: xftn %S/../../../../examples/omp/ex2.F90 -DFRAGMENT_ONLY --openmp --stdout -t %S/tmp --cleanup --stages=flang,pre,ftn -v0 | FileCheck %s 
+// RUN: xftn %S/../../../../examples/omp/ex2.F90 --openmp --stdout -t %S/tmp --cleanup --stages=flang,pre,ftn -v0 | FileCheck %s
 //CHECK:       builtin.module attributes {llvm.data_layout = "e-m:e-p270:32:32-p271:32:32-p272:64:64-i64:64-i128:128-f80:128-n8:16:32:64-S128", llvm.ident = "flang version 20.1.7 (https://github.com/llvm/llvm-project 6146a88f60492b520a36f8f8f3231e15f3cc6082)", llvm.target_triple = "x86_64-unknown-linux-gnu", omp.is_gpu = false, omp.is_target_device = false, omp.target_triples = [], omp.version = #omp<version <version = 11>>} {
 //CHECK-NEXT:    omp.declare_reduction @add_reduction_f32 : f32 init {
 //CHECK-NEXT:    ^0(%0 : f32):
