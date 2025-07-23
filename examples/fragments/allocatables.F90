@@ -10,10 +10,24 @@ contains
 
   subroutine calc()
       real, dimension(:), allocatable :: a, b, tmp
+      integer, dimension(:,:,:), allocatable :: c
 
-      integer :: i
+      integer :: i, j, k
 
-      allocate(a(100), b(100), global_array(100))
+      allocate(a(100), b(100), global_array(100), c(10,10,10))
+
+      ! Test that the rank is correctly returned (number of dimensions)
+      call assert(rank(a)==1, __FILE__, __LINE__)
+      call assert(rank(b)==1, __FILE__, __LINE__)
+      call assert(rank(global_array)==1, __FILE__, __LINE__)
+      call assert(rank(c)==3, __FILE__, __LINE__)
+
+      ! Test that size works, both in total and per dimension
+      call assert(size(a, 1)==100, __FILE__, __LINE__)
+      call assert(size(a)==100, __FILE__, __LINE__)
+      call assert(size(global_array)==100, __FILE__, __LINE__)
+      call assert(size(c)==1000, __FILE__, __LINE__)
+      call assert(size(c, 2)==10, __FILE__, __LINE__)
 
       do i=1, 100
         a(i)=real(i)
@@ -62,7 +76,18 @@ contains
         call assert(a(i)==real(100-i), __FILE__, __LINE__)
       end do
 
-      deallocate(a,b)
+      ! Test multi-dimensional arrays
+      do i=1, 10
+        do j=1, 10
+          do k=1, 10
+            c(k, j, i) = k+(j*10)+(i*100)
+          end do
+        end do
+      end do
+      call assert(c(3,4,5)==543, __FILE__, __LINE__)
+      call assert(c(8,9,1)==198, __FILE__, __LINE__)
+
+      deallocate(a,b,c)
   end subroutine calc
 
   subroutine modify_array_one(a, idx, value)

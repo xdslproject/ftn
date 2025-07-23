@@ -10,12 +10,14 @@ contains
 
   subroutine calc()
       real, dimension(:), allocatable, target :: a, b
+      integer, dimension(:,:,:), allocatable, target :: c
       real, dimension(:), pointer :: ptr1=>NULL(), ptr2=>NULL()
+      integer, dimension(:,:,:), pointer :: ptr_md=>NULL()
       real :: t
 
-      integer :: i
+      integer :: i, j, k
 
-      allocate(a(100), b(100))
+      allocate(a(100), b(100), c(10,10,10))
 
       do i=1, 100
         a(i)=i
@@ -24,18 +26,27 @@ contains
 
       ! Test pointing to a target
       ptr1 => a
+      call assert(rank(ptr1)==1, __FILE__, __LINE__)
+      call assert(size(ptr1, 1)==100, __FILE__, __LINE__)
+      call assert(size(ptr1)==100, __FILE__, __LINE__)
       do i=1, 100
         call assert(ptr1(i)==real(i), __FILE__, __LINE__)
       end do
 
       ! Test another pointer pointing to a target
       ptr2 => a
+      call assert(rank(ptr2)==1, __FILE__, __LINE__)
+      call assert(size(ptr2, 1)==100, __FILE__, __LINE__)
+      call assert(size(ptr2)==100, __FILE__, __LINE__)
       do i=1, 100
         call assert(ptr2(i)==real(i), __FILE__, __LINE__)
       end do
 
       ! Test assigning pointer to a pointer
       ptr3 => ptr1
+      call assert(rank(ptr3)==1, __FILE__, __LINE__)
+      call assert(size(ptr3, 1)==100, __FILE__, __LINE__)
+      call assert(size(ptr3)==100, __FILE__, __LINE__)
       do i=1, 100
         call assert(ptr3(i)==real(i), __FILE__, __LINE__)
       end do
@@ -74,6 +85,21 @@ contains
       ! Grab a scalar from a pointer and store it
       t=ptr1(3)
       call assert(t==real(100-3), __FILE__, __LINE__)
+
+      ! Test pointer to multi-dimensional array
+      do i=1, 10
+        do j=1, 10
+          do k=1, 10
+            c(k, j, i) = k+(j*10)+(i*100)
+          end do
+        end do
+      end do
+      ptr_md=>c
+      call assert(rank(ptr_md)==3, __FILE__, __LINE__)
+      call assert(size(ptr_md)==1000, __FILE__, __LINE__)
+      call assert(size(ptr_md, 2)==10, __FILE__, __LINE__)
+      call assert(ptr_md(3,4,5)==543, __FILE__, __LINE__)
+      call assert(ptr_md(8,9,1)==198, __FILE__, __LINE__)
   end subroutine calc
 
   subroutine swap(swp1, swp2)
