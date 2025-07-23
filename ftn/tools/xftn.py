@@ -510,7 +510,11 @@ def main():
             and not options_db["run_create_object_stage"]
             and not options_db["run_build_executable_stage"]
         ):
-            print_file_contents(os.path.join(tmp_dir, source_fn_no_ext + "_res.mlir"))
+            print_file_contents(
+                out_file
+                if options_db["output_type"] == OutputType.MLIR
+                else os.path.join(tmp_dir, source_fn_no_ext + "_res.mlir")
+            )
     if options_db["run_postprocess_stage"]:
         run_postprocess_core_mlir(
             tmp_dir,
@@ -540,8 +544,6 @@ def main():
         build_executable(tmp_dir, source_fn_no_ext + "_res.bc", out_file, options_db)
 
     if options_db["offload"]:
-        # If this is the offload flow then copy the result in the temporary directory to the specified output
-        shutil.copy(os.path.join(tmp_dir, source_fn_no_ext + "_res.mlir"), out_file)
         print_verbose_message(options_db, f"Offload MLIR in '{out_file}'")
 
     if options_db["cleanup"]:
