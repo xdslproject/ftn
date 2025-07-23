@@ -25,6 +25,13 @@ contains
     end do
     call assert(c==2500, __FILE__, __LINE__)
 
+    ! Test counting upwards from a specific start point
+    c=0
+    do n = 80, a
+      c=c+n
+    end do
+    call assert(c==1890, __FILE__, __LINE__)
+
     ! Test counting downwards
     c=10000
     do n = a, 1, -1
@@ -38,6 +45,13 @@ contains
       c=c-n
     end do
     call assert(c==9615, __FILE__, __LINE__)
+
+    ! Test counting downwards from a specific start point
+    c=10000
+    do n = a-80, 1, -1
+      c=c-n
+    end do
+    call assert(c==9790, __FILE__, __LINE__)
 
     ! Test exiting from a loop
     c=0
