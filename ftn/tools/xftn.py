@@ -502,7 +502,7 @@ def main():
             if options_db["output_type"] == OutputType.MLIR
             else source_fn_no_ext + "_res.mlir",
             options_db,
-            not options_db["output_type"] == OutputType.MLIR,
+            not options_db["output_type"] == OutputType.MLIR or options_db["stdout"],
         )
         if options_db["stdout"] and (
             not options_db["run_postprocess_stage"]
@@ -511,7 +511,7 @@ def main():
             and not options_db["run_build_executable_stage"]
         ):
             print_file_contents(
-                out_file
+                os.path.join(tmp_dir, out_file)
                 if options_db["output_type"] == OutputType.MLIR
                 else os.path.join(tmp_dir, source_fn_no_ext + "_res.mlir")
             )
@@ -552,6 +552,7 @@ def main():
             source_fn_no_ext + ".mlir",
             source_fn_no_ext + "_pre.mlir",
             source_fn_no_ext + "_res.mlir",
+            source_fn_no_ext + "_offload.mlir",
             source_fn_no_ext + "_post.mlir",
             source_fn_no_ext + "_res.bc",
         )
