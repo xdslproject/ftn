@@ -1,5 +1,5 @@
-#ifndef FRAGMENT_ONLY
 module pointers_test
+#ifndef FRAGMENT_ONLY
   use assertion
 #endif
   implicit none
