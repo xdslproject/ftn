@@ -1,6 +1,6 @@
 ! Tests OpenMP target directive with parallel do
 
-module ftn_example
+module ex4_test
   implicit none
 
 contains
@@ -19,10 +19,10 @@ contains
     !$omp end target parallel do
   end subroutine calc
 
-end module ftn_example
+end module ex4_test
 
 program main
-  use ftn_example
+  use ex4_test
 
 implicit none
 

@@ -5,7 +5,7 @@
    !! ***                             IS-ENES2 - CMCC/STFC                            ***
    !!=====================================================================================
    
-module benchmark
+module tra_adv_mod
 
 implicit none
 
@@ -262,10 +262,10 @@ subroutine tra_adv
   deallocate(rnfmsk_z)
 end subroutine tra_adv
 
-end module benchmark
+end module tra_adv_mod
 
 program main
-	use benchmark
+	use tra_adv_mod
 	implicit none
 	
 	call tra_adv()

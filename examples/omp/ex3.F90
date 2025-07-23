@@ -1,6 +1,6 @@
 ! Tests OpenMP parallel do with collapse clause
 
-module ftn_example
+module ex3_test
   implicit none
 
 contains
@@ -21,10 +21,10 @@ contains
     !$omp end parallel do
   end subroutine calc
 
-end module ftn_example
+end module ex3_test
 
 program main
-  use ftn_example
+  use ex3_test
 
 implicit none
 

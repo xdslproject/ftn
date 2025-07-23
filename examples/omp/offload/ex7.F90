@@ -1,6 +1,6 @@
 ! Tests OpenMP target data directive with target update
 
-module ftn_example
+module ex7_test
   implicit none
 
 contains
@@ -24,10 +24,10 @@ contains
     !$omp end target data
   end subroutine calc
 
-end module ftn_example
+end module ex7_test
 
 program main
-  use ftn_example
+  use ex7_test
 
 implicit none
 

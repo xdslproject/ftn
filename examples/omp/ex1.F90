@@ -1,6 +1,6 @@
 ! Tests OpenMP parallel do
 
-module ftn_example
+module ex1_test
   implicit none
 
 contains
@@ -19,10 +19,10 @@ contains
     !$omp end parallel do
   end subroutine calc
 
-end module ftn_example
+end module ex1_test
 
 program main
-  use ftn_example
+  use ex1_test
 
 implicit none
 

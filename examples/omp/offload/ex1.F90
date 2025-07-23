@@ -1,6 +1,6 @@
 ! Tests simple OpenMP target directive
 
-module ftn_example
+module ex1_test
   implicit none
 
 contains
@@ -19,10 +19,10 @@ contains
     !$omp end target
   end subroutine calc
 
-end module ftn_example
+end module ex1_test
 
 program main
-  use ftn_example
+  use ex1_test
 
 implicit none
 

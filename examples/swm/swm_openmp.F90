@@ -1,4 +1,4 @@
-module swm_mod
+module swm_openmp_mod
   implicit none
 
   logical, parameter :: L_OUT = .true.
@@ -328,10 +328,10 @@ contains
 
     deallocate(u, unew, uold, v, vnew, vold, p, pnew, pold, cu, cv, z, h, psi)
   end subroutine run_model
-end module swm_mod
+end module swm_openmp_mod
 
 program swm
-  use swm_mod
+  use swm_openmp_mod
 
 implicit none
 

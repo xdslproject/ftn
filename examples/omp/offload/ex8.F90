@@ -1,6 +1,6 @@
 ! Tests OpenMP target enter and exit data
 
-module ftn_example
+module ex8_test
   implicit none
 
 contains
@@ -22,10 +22,10 @@ contains
     !$omp target exit data map(from: c)
   end subroutine calc
 
-end module ftn_example
+end module ex8_test
 
 program main
-  use ftn_example
+  use ex8_test
 
 implicit none
 

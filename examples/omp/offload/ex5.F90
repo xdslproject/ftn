@@ -1,6 +1,6 @@
 ! Tests OpenMP target directive with simd
 
-module ftn_example
+module ex5_test
   implicit none
 
 contains
@@ -19,10 +19,10 @@ contains
     !$omp end target simd
   end subroutine calc
 
-end module ftn_example
+end module ex5_test
 
 program main
-  use ftn_example
+  use ex5_test
 
 implicit none
 

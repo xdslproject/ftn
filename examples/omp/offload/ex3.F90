@@ -1,6 +1,6 @@
 ! Tests OpenMP target directive with distribute, teams and parallel do
 
-module ftn_example
+module ex3_test
   implicit none
 
 contains
@@ -19,10 +19,10 @@ contains
     !$omp end target teams distribute parallel do
   end subroutine calc
 
-end module ftn_example
+end module ex3_test
 
 program main
-  use ftn_example
+  use ex3_test
 
 implicit none
 
