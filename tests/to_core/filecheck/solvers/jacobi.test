@@ -109,374 +109,335 @@
 //CHECK-NEXT:        %78 = arith.index_cast %77 : index to i64
 //CHECK-NEXT:        %79 = "llvm.inttoptr"(%78) : (i64) -> !llvm.ptr
 //CHECK-NEXT:        %80 = arith.constant 1 : i32
-//CHECK-NEXT:        %81 = memref.load %4[] : memref<i32>
-//CHECK-NEXT:        %82 = arith.constant 1 : i32
+//CHECK-NEXT:        %81 = arith.constant 1 : i32
+//CHECK-NEXT:        %82 = memref.load %4[] : memref<i32>
+//CHECK-NEXT:        %83 = memref.load %5[] : memref<i32>
+//CHECK-NEXT:        %84 = arith.constant 1 : i32
+//CHECK-NEXT:        %85 = arith.constant 1 : i32
 //CHECK-NEXT:        "omp.wsloop"(%79) <{reduction_byref = array<i1: false>, reduction_syms = [@add_reduction_f64], operandSegmentSizes = array<i32: 0, 0, 0, 0, 0, 1, 0>}> ({
-//CHECK-NEXT:        ^0(%83 : !llvm.ptr):
-//CHECK-NEXT:          "omp.loop_nest"(%80, %81, %82) <{loop_inclusive}> ({
-//CHECK-NEXT:          ^1(%84 : i32):
-//CHECK-NEXT:            memref.store %84, %75[] : memref<i32>
-//CHECK-NEXT:            %85 = arith.constant 1 : i32
-//CHECK-NEXT:            %86 = arith.index_cast %85 : i32 to index
-//CHECK-NEXT:            %87 = memref.load %5[] : memref<i32>
-//CHECK-NEXT:            %88 = arith.index_cast %87 : i32 to index
-//CHECK-NEXT:            %89 = arith.constant 1 : index
-//CHECK-NEXT:            %90 = arith.index_cast %86 : index to i32
-//CHECK-NEXT:            %91 = arith.constant 1 : index
-//CHECK-NEXT:            %92 = arith.addi %88, %91 : index
-//CHECK-NEXT:            %93 = scf.for %94 = %86 to %92 step %89 iter_args(%95 = %90) -> (i32) {
-//CHECK-NEXT:              memref.store %95, %76[] : memref<i32>
-//CHECK-NEXT:              %96 = "llvm.load"(%83) : (!llvm.ptr) -> f64
-//CHECK-NEXT:              %97 = memref.load %76[] : memref<i32>
-//CHECK-NEXT:              %98 = arith.extui %97 : i32 to i64
-//CHECK-NEXT:              %99 = arith.index_cast %98 : i64 to index
-//CHECK-NEXT:              %100 = memref.load %75[] : memref<i32>
-//CHECK-NEXT:              %101 = arith.extui %100 : i32 to i64
-//CHECK-NEXT:              %102 = arith.index_cast %101 : i64 to index
-//CHECK-NEXT:              %103 = memref.load %13[] : memref<memref<?x?xf64>>
-//CHECK-NEXT:              %104 = memref.load %103[%102, %99] : memref<?x?xf64>
-//CHECK-NEXT:              %105 = arith.constant 4.000000e+00 : f64
-//CHECK-NEXT:              %106 = arith.mulf %104, %105 fastmath<contract> : f64
-//CHECK-NEXT:              %107 = memref.load %76[] : memref<i32>
-//CHECK-NEXT:              %108 = arith.constant 1 : i32
-//CHECK-NEXT:              %109 = arith.subi %107, %108 : i32
-//CHECK-NEXT:              %110 = arith.extui %109 : i32 to i64
-//CHECK-NEXT:              %111 = arith.index_cast %110 : i64 to index
-//CHECK-NEXT:              %112 = memref.load %75[] : memref<i32>
-//CHECK-NEXT:              %113 = arith.extui %112 : i32 to i64
-//CHECK-NEXT:              %114 = arith.index_cast %113 : i64 to index
-//CHECK-NEXT:              %115 = memref.load %13[] : memref<memref<?x?xf64>>
-//CHECK-NEXT:              %116 = memref.load %115[%114, %111] : memref<?x?xf64>
-//CHECK-NEXT:              %117 = arith.subf %106, %116 fastmath<contract> : f64
-//CHECK-NEXT:              %118 = memref.load %76[] : memref<i32>
-//CHECK-NEXT:              %119 = arith.constant 1 : i32
-//CHECK-NEXT:              %120 = arith.addi %118, %119 : i32
-//CHECK-NEXT:              %121 = arith.extui %120 : i32 to i64
-//CHECK-NEXT:              %122 = arith.index_cast %121 : i64 to index
-//CHECK-NEXT:              %123 = memref.load %75[] : memref<i32>
-//CHECK-NEXT:              %124 = arith.extui %123 : i32 to i64
-//CHECK-NEXT:              %125 = arith.index_cast %124 : i64 to index
-//CHECK-NEXT:              %126 = memref.load %13[] : memref<memref<?x?xf64>>
-//CHECK-NEXT:              %127 = memref.load %126[%125, %122] : memref<?x?xf64>
-//CHECK-NEXT:              %128 = arith.subf %117, %127 fastmath<contract> : f64
-//CHECK-NEXT:              %129 = memref.load %76[] : memref<i32>
-//CHECK-NEXT:              %130 = arith.extui %129 : i32 to i64
-//CHECK-NEXT:              %131 = arith.index_cast %130 : i64 to index
-//CHECK-NEXT:              %132 = memref.load %75[] : memref<i32>
-//CHECK-NEXT:              %133 = arith.constant 1 : i32
-//CHECK-NEXT:              %134 = arith.subi %132, %133 : i32
-//CHECK-NEXT:              %135 = arith.extui %134 : i32 to i64
-//CHECK-NEXT:              %136 = arith.index_cast %135 : i64 to index
-//CHECK-NEXT:              %137 = memref.load %13[] : memref<memref<?x?xf64>>
-//CHECK-NEXT:              %138 = memref.load %137[%136, %131] : memref<?x?xf64>
-//CHECK-NEXT:              %139 = arith.subf %128, %138 fastmath<contract> : f64
-//CHECK-NEXT:              %140 = memref.load %76[] : memref<i32>
-//CHECK-NEXT:              %141 = arith.extui %140 : i32 to i64
-//CHECK-NEXT:              %142 = arith.index_cast %141 : i64 to index
-//CHECK-NEXT:              %143 = memref.load %75[] : memref<i32>
-//CHECK-NEXT:              %144 = arith.constant 1 : i32
-//CHECK-NEXT:              %145 = arith.addi %143, %144 : i32
-//CHECK-NEXT:              %146 = arith.extui %145 : i32 to i64
-//CHECK-NEXT:              %147 = arith.index_cast %146 : i64 to index
-//CHECK-NEXT:              %148 = memref.load %13[] : memref<memref<?x?xf64>>
-//CHECK-NEXT:              %149 = memref.load %148[%147, %142] : memref<?x?xf64>
-//CHECK-NEXT:              %150 = arith.subf %139, %149 fastmath<contract> : f64
-//CHECK-NEXT:              %151 = arith.constant 2 : i32
-//CHECK-NEXT:              %152 = math.fpowi %150, %151 {fastmath = #arith.fastmath<contract>} : f64, i32
-//CHECK-NEXT:              %153 = arith.addf %96, %152 fastmath<contract> : f64
-//CHECK-NEXT:              "llvm.store"(%153, %83) <{ordering = 0 : i64}> : (f64, !llvm.ptr) -> ()
-//CHECK-NEXT:              %154 = arith.addi %94, %89 : index
-//CHECK-NEXT:              %155 = memref.load %76[] : memref<i32>
-//CHECK-NEXT:              %156 = arith.index_cast %89 : index to i32
-//CHECK-NEXT:              %157 = arith.addi %155, %156 : i32
-//CHECK-NEXT:              scf.yield %157 : i32
-//CHECK-NEXT:            }
-//CHECK-NEXT:            memref.store %93, %76[] : memref<i32>
+//CHECK-NEXT:        ^0(%86 : !llvm.ptr):
+//CHECK-NEXT:          "omp.loop_nest"(%80, %81, %82, %83, %84, %85) <{loop_inclusive}> ({
+//CHECK-NEXT:          ^1(%87 : i32, %88 : i32):
+//CHECK-NEXT:            memref.store %87, %75[] : memref<i32>
+//CHECK-NEXT:            memref.store %88, %76[] : memref<i32>
+//CHECK-NEXT:            %89 = "llvm.load"(%86) : (!llvm.ptr) -> f64
+//CHECK-NEXT:            %90 = memref.load %76[] : memref<i32>
+//CHECK-NEXT:            %91 = arith.extui %90 : i32 to i64
+//CHECK-NEXT:            %92 = arith.index_cast %91 : i64 to index
+//CHECK-NEXT:            %93 = memref.load %75[] : memref<i32>
+//CHECK-NEXT:            %94 = arith.extui %93 : i32 to i64
+//CHECK-NEXT:            %95 = arith.index_cast %94 : i64 to index
+//CHECK-NEXT:            %96 = memref.load %13[] : memref<memref<?x?xf64>>
+//CHECK-NEXT:            %97 = memref.load %96[%95, %92] : memref<?x?xf64>
+//CHECK-NEXT:            %98 = arith.constant 4.000000e+00 : f64
+//CHECK-NEXT:            %99 = arith.mulf %97, %98 fastmath<contract> : f64
+//CHECK-NEXT:            %100 = memref.load %76[] : memref<i32>
+//CHECK-NEXT:            %101 = arith.constant 1 : i32
+//CHECK-NEXT:            %102 = arith.subi %100, %101 : i32
+//CHECK-NEXT:            %103 = arith.extui %102 : i32 to i64
+//CHECK-NEXT:            %104 = arith.index_cast %103 : i64 to index
+//CHECK-NEXT:            %105 = memref.load %75[] : memref<i32>
+//CHECK-NEXT:            %106 = arith.extui %105 : i32 to i64
+//CHECK-NEXT:            %107 = arith.index_cast %106 : i64 to index
+//CHECK-NEXT:            %108 = memref.load %13[] : memref<memref<?x?xf64>>
+//CHECK-NEXT:            %109 = memref.load %108[%107, %104] : memref<?x?xf64>
+//CHECK-NEXT:            %110 = arith.subf %99, %109 fastmath<contract> : f64
+//CHECK-NEXT:            %111 = memref.load %76[] : memref<i32>
+//CHECK-NEXT:            %112 = arith.constant 1 : i32
+//CHECK-NEXT:            %113 = arith.addi %111, %112 : i32
+//CHECK-NEXT:            %114 = arith.extui %113 : i32 to i64
+//CHECK-NEXT:            %115 = arith.index_cast %114 : i64 to index
+//CHECK-NEXT:            %116 = memref.load %75[] : memref<i32>
+//CHECK-NEXT:            %117 = arith.extui %116 : i32 to i64
+//CHECK-NEXT:            %118 = arith.index_cast %117 : i64 to index
+//CHECK-NEXT:            %119 = memref.load %13[] : memref<memref<?x?xf64>>
+//CHECK-NEXT:            %120 = memref.load %119[%118, %115] : memref<?x?xf64>
+//CHECK-NEXT:            %121 = arith.subf %110, %120 fastmath<contract> : f64
+//CHECK-NEXT:            %122 = memref.load %76[] : memref<i32>
+//CHECK-NEXT:            %123 = arith.extui %122 : i32 to i64
+//CHECK-NEXT:            %124 = arith.index_cast %123 : i64 to index
+//CHECK-NEXT:            %125 = memref.load %75[] : memref<i32>
+//CHECK-NEXT:            %126 = arith.constant 1 : i32
+//CHECK-NEXT:            %127 = arith.subi %125, %126 : i32
+//CHECK-NEXT:            %128 = arith.extui %127 : i32 to i64
+//CHECK-NEXT:            %129 = arith.index_cast %128 : i64 to index
+//CHECK-NEXT:            %130 = memref.load %13[] : memref<memref<?x?xf64>>
+//CHECK-NEXT:            %131 = memref.load %130[%129, %124] : memref<?x?xf64>
+//CHECK-NEXT:            %132 = arith.subf %121, %131 fastmath<contract> : f64
+//CHECK-NEXT:            %133 = memref.load %76[] : memref<i32>
+//CHECK-NEXT:            %134 = arith.extui %133 : i32 to i64
+//CHECK-NEXT:            %135 = arith.index_cast %134 : i64 to index
+//CHECK-NEXT:            %136 = memref.load %75[] : memref<i32>
+//CHECK-NEXT:            %137 = arith.constant 1 : i32
+//CHECK-NEXT:            %138 = arith.addi %136, %137 : i32
+//CHECK-NEXT:            %139 = arith.extui %138 : i32 to i64
+//CHECK-NEXT:            %140 = arith.index_cast %139 : i64 to index
+//CHECK-NEXT:            %141 = memref.load %13[] : memref<memref<?x?xf64>>
+//CHECK-NEXT:            %142 = memref.load %141[%140, %135] : memref<?x?xf64>
+//CHECK-NEXT:            %143 = arith.subf %132, %142 fastmath<contract> : f64
+//CHECK-NEXT:            %144 = arith.constant 2 : i32
+//CHECK-NEXT:            %145 = math.fpowi %143, %144 {fastmath = #arith.fastmath<contract>} : f64, i32
+//CHECK-NEXT:            %146 = arith.addf %89, %145 fastmath<contract> : f64
+//CHECK-NEXT:            "llvm.store"(%146, %86) <{ordering = 0 : i64}> : (f64, !llvm.ptr) -> ()
 //CHECK-NEXT:            omp.yield
-//CHECK-NEXT:          }) : (i32, i32, i32) -> ()
+//CHECK-NEXT:          }) : (i32, i32, i32, i32, i32, i32) -> ()
 //CHECK-NEXT:        }) : (!llvm.ptr) -> ()
 //CHECK-NEXT:        "omp.terminator"() : () -> ()
 //CHECK-NEXT:      }) : () -> ()
-//CHECK-NEXT:      %158 = memref.load %8[] : memref<f64>
-//CHECK-NEXT:      %159 = math.sqrt %158 fastmath<contract> : f64
-//CHECK-NEXT:      memref.store %159, %8[] : memref<f64>
-//CHECK-NEXT:      %160 = arith.constant 100000 : i32
-//CHECK-NEXT:      %161 = arith.constant 0 : i32
-//CHECK-NEXT:      %162 = arith.subi %160, %161 : i32
-//CHECK-NEXT:      %163 = arith.constant 1 : i32
-//CHECK-NEXT:      %164 = arith.addi %162, %163 : i32
-//CHECK-NEXT:      %165 = arith.divsi %164, %163 : i32
-//CHECK-NEXT:      memref.store %165, %7[] : memref<i32>
-//CHECK-NEXT:      memref.store %161, %9[] : memref<i32>
+//CHECK-NEXT:      %147 = memref.load %8[] : memref<f64>
+//CHECK-NEXT:      %148 = math.sqrt %147 fastmath<contract> : f64
+//CHECK-NEXT:      memref.store %148, %8[] : memref<f64>
+//CHECK-NEXT:      %149 = arith.constant 100000 : i32
+//CHECK-NEXT:      %150 = arith.constant 0 : i32
+//CHECK-NEXT:      %151 = arith.subi %149, %150 : i32
+//CHECK-NEXT:      %152 = arith.constant 1 : i32
+//CHECK-NEXT:      %153 = arith.addi %151, %152 : i32
+//CHECK-NEXT:      %154 = arith.divsi %153, %152 : i32
+//CHECK-NEXT:      memref.store %154, %7[] : memref<i32>
+//CHECK-NEXT:      memref.store %150, %9[] : memref<i32>
 //CHECK-NEXT:      cf.br ^2
 //CHECK-NEXT:    ^2:
-//CHECK-NEXT:      %166 = memref.load %7[] : memref<i32>
-//CHECK-NEXT:      %167 = arith.constant 0 : i32
-//CHECK-NEXT:      %168 = arith.cmpi sgt, %166, %167 : i32
-//CHECK-NEXT:      cf.cond_br %168, ^3, ^4
+//CHECK-NEXT:      %155 = memref.load %7[] : memref<i32>
+//CHECK-NEXT:      %156 = arith.constant 0 : i32
+//CHECK-NEXT:      %157 = arith.cmpi sgt, %155, %156 : i32
+//CHECK-NEXT:      cf.cond_br %157, ^3, ^4
 //CHECK-NEXT:    ^3:
-//CHECK-NEXT:      %169 = arith.constant 0.000000e+00 : f64
-//CHECK-NEXT:      memref.store %169, %11[] : memref<f64>
+//CHECK-NEXT:      %158 = arith.constant 0.000000e+00 : f64
+//CHECK-NEXT:      memref.store %158, %11[] : memref<f64>
 //CHECK-NEXT:      "omp.parallel"() <{operandSegmentSizes = array<i32: 0, 0, 0, 0, 0, 0>}> ({
-//CHECK-NEXT:        %170 = "memref.alloca"() <{operandSegmentSizes = array<i32: 0, 0>}> : () -> memref<i32>
-//CHECK-NEXT:        %171 = "memref.alloca"() <{operandSegmentSizes = array<i32: 0, 0>}> : () -> memref<i32>
-//CHECK-NEXT:        %172 = "memref.extract_aligned_pointer_as_index"(%11) : (memref<f64>) -> index
-//CHECK-NEXT:        %173 = arith.index_cast %172 : index to i64
-//CHECK-NEXT:        %174 = "llvm.inttoptr"(%173) : (i64) -> !llvm.ptr
-//CHECK-NEXT:        %175 = arith.constant 1 : i32
-//CHECK-NEXT:        %176 = memref.load %4[] : memref<i32>
-//CHECK-NEXT:        %177 = arith.constant 1 : i32
-//CHECK-NEXT:        "omp.wsloop"(%174) <{reduction_byref = array<i1: false>, reduction_syms = [@add_reduction_f64], operandSegmentSizes = array<i32: 0, 0, 0, 0, 0, 1, 0>}> ({
-//CHECK-NEXT:        ^5(%178 : !llvm.ptr):
-//CHECK-NEXT:          "omp.loop_nest"(%175, %176, %177) <{loop_inclusive}> ({
-//CHECK-NEXT:          ^6(%179 : i32):
-//CHECK-NEXT:            memref.store %179, %170[] : memref<i32>
-//CHECK-NEXT:            %180 = arith.constant 1 : i32
-//CHECK-NEXT:            %181 = arith.index_cast %180 : i32 to index
-//CHECK-NEXT:            %182 = memref.load %5[] : memref<i32>
-//CHECK-NEXT:            %183 = arith.index_cast %182 : i32 to index
-//CHECK-NEXT:            %184 = arith.constant 1 : index
-//CHECK-NEXT:            %185 = arith.index_cast %181 : index to i32
-//CHECK-NEXT:            %186 = arith.constant 1 : index
-//CHECK-NEXT:            %187 = arith.addi %183, %186 : index
-//CHECK-NEXT:            %188 = scf.for %189 = %181 to %187 step %184 iter_args(%190 = %185) -> (i32) {
-//CHECK-NEXT:              memref.store %190, %171[] : memref<i32>
-//CHECK-NEXT:              %191 = "llvm.load"(%178) : (!llvm.ptr) -> f64
-//CHECK-NEXT:              %192 = memref.load %171[] : memref<i32>
-//CHECK-NEXT:              %193 = arith.extui %192 : i32 to i64
-//CHECK-NEXT:              %194 = arith.index_cast %193 : i64 to index
-//CHECK-NEXT:              %195 = memref.load %170[] : memref<i32>
-//CHECK-NEXT:              %196 = arith.extui %195 : i32 to i64
-//CHECK-NEXT:              %197 = arith.index_cast %196 : i64 to index
-//CHECK-NEXT:              %198 = memref.load %13[] : memref<memref<?x?xf64>>
-//CHECK-NEXT:              %199 = memref.load %198[%197, %194] : memref<?x?xf64>
-//CHECK-NEXT:              %200 = arith.constant 4.000000e+00 : f64
-//CHECK-NEXT:              %201 = arith.mulf %199, %200 fastmath<contract> : f64
-//CHECK-NEXT:              %202 = memref.load %171[] : memref<i32>
-//CHECK-NEXT:              %203 = arith.constant 1 : i32
-//CHECK-NEXT:              %204 = arith.subi %202, %203 : i32
-//CHECK-NEXT:              %205 = arith.extui %204 : i32 to i64
-//CHECK-NEXT:              %206 = arith.index_cast %205 : i64 to index
-//CHECK-NEXT:              %207 = memref.load %170[] : memref<i32>
-//CHECK-NEXT:              %208 = arith.extui %207 : i32 to i64
-//CHECK-NEXT:              %209 = arith.index_cast %208 : i64 to index
-//CHECK-NEXT:              %210 = memref.load %13[] : memref<memref<?x?xf64>>
-//CHECK-NEXT:              %211 = memref.load %210[%209, %206] : memref<?x?xf64>
-//CHECK-NEXT:              %212 = arith.subf %201, %211 fastmath<contract> : f64
-//CHECK-NEXT:              %213 = memref.load %171[] : memref<i32>
-//CHECK-NEXT:              %214 = arith.constant 1 : i32
-//CHECK-NEXT:              %215 = arith.addi %213, %214 : i32
-//CHECK-NEXT:              %216 = arith.extui %215 : i32 to i64
-//CHECK-NEXT:              %217 = arith.index_cast %216 : i64 to index
-//CHECK-NEXT:              %218 = memref.load %170[] : memref<i32>
-//CHECK-NEXT:              %219 = arith.extui %218 : i32 to i64
-//CHECK-NEXT:              %220 = arith.index_cast %219 : i64 to index
-//CHECK-NEXT:              %221 = memref.load %13[] : memref<memref<?x?xf64>>
-//CHECK-NEXT:              %222 = memref.load %221[%220, %217] : memref<?x?xf64>
-//CHECK-NEXT:              %223 = arith.subf %212, %222 fastmath<contract> : f64
-//CHECK-NEXT:              %224 = memref.load %171[] : memref<i32>
-//CHECK-NEXT:              %225 = arith.extui %224 : i32 to i64
-//CHECK-NEXT:              %226 = arith.index_cast %225 : i64 to index
-//CHECK-NEXT:              %227 = memref.load %170[] : memref<i32>
-//CHECK-NEXT:              %228 = arith.constant 1 : i32
-//CHECK-NEXT:              %229 = arith.subi %227, %228 : i32
-//CHECK-NEXT:              %230 = arith.extui %229 : i32 to i64
-//CHECK-NEXT:              %231 = arith.index_cast %230 : i64 to index
-//CHECK-NEXT:              %232 = memref.load %13[] : memref<memref<?x?xf64>>
-//CHECK-NEXT:              %233 = memref.load %232[%231, %226] : memref<?x?xf64>
-//CHECK-NEXT:              %234 = arith.subf %223, %233 fastmath<contract> : f64
-//CHECK-NEXT:              %235 = memref.load %171[] : memref<i32>
-//CHECK-NEXT:              %236 = arith.extui %235 : i32 to i64
-//CHECK-NEXT:              %237 = arith.index_cast %236 : i64 to index
-//CHECK-NEXT:              %238 = memref.load %170[] : memref<i32>
-//CHECK-NEXT:              %239 = arith.constant 1 : i32
-//CHECK-NEXT:              %240 = arith.addi %238, %239 : i32
-//CHECK-NEXT:              %241 = arith.extui %240 : i32 to i64
-//CHECK-NEXT:              %242 = arith.index_cast %241 : i64 to index
-//CHECK-NEXT:              %243 = memref.load %13[] : memref<memref<?x?xf64>>
-//CHECK-NEXT:              %244 = memref.load %243[%242, %237] : memref<?x?xf64>
-//CHECK-NEXT:              %245 = arith.subf %234, %244 fastmath<contract> : f64
-//CHECK-NEXT:              %246 = arith.constant 2 : i32
-//CHECK-NEXT:              %247 = math.fpowi %245, %246 {fastmath = #arith.fastmath<contract>} : f64, i32
-//CHECK-NEXT:              %248 = arith.addf %191, %247 fastmath<contract> : f64
-//CHECK-NEXT:              "llvm.store"(%248, %178) <{ordering = 0 : i64}> : (f64, !llvm.ptr) -> ()
-//CHECK-NEXT:              %249 = arith.addi %189, %184 : index
-//CHECK-NEXT:              %250 = memref.load %171[] : memref<i32>
-//CHECK-NEXT:              %251 = arith.index_cast %184 : index to i32
-//CHECK-NEXT:              %252 = arith.addi %250, %251 : i32
-//CHECK-NEXT:              scf.yield %252 : i32
-//CHECK-NEXT:            }
-//CHECK-NEXT:            memref.store %188, %171[] : memref<i32>
+//CHECK-NEXT:        %159 = "memref.alloca"() <{operandSegmentSizes = array<i32: 0, 0>}> : () -> memref<i32>
+//CHECK-NEXT:        %160 = "memref.alloca"() <{operandSegmentSizes = array<i32: 0, 0>}> : () -> memref<i32>
+//CHECK-NEXT:        %161 = "memref.extract_aligned_pointer_as_index"(%11) : (memref<f64>) -> index
+//CHECK-NEXT:        %162 = arith.index_cast %161 : index to i64
+//CHECK-NEXT:        %163 = "llvm.inttoptr"(%162) : (i64) -> !llvm.ptr
+//CHECK-NEXT:        %164 = arith.constant 1 : i32
+//CHECK-NEXT:        %165 = arith.constant 1 : i32
+//CHECK-NEXT:        %166 = memref.load %4[] : memref<i32>
+//CHECK-NEXT:        %167 = memref.load %5[] : memref<i32>
+//CHECK-NEXT:        %168 = arith.constant 1 : i32
+//CHECK-NEXT:        %169 = arith.constant 1 : i32
+//CHECK-NEXT:        "omp.wsloop"(%163) <{reduction_byref = array<i1: false>, reduction_syms = [@add_reduction_f64], operandSegmentSizes = array<i32: 0, 0, 0, 0, 0, 1, 0>}> ({
+//CHECK-NEXT:        ^5(%170 : !llvm.ptr):
+//CHECK-NEXT:          "omp.loop_nest"(%164, %165, %166, %167, %168, %169) <{loop_inclusive}> ({
+//CHECK-NEXT:          ^6(%171 : i32, %172 : i32):
+//CHECK-NEXT:            memref.store %171, %159[] : memref<i32>
+//CHECK-NEXT:            memref.store %172, %160[] : memref<i32>
+//CHECK-NEXT:            %173 = "llvm.load"(%170) : (!llvm.ptr) -> f64
+//CHECK-NEXT:            %174 = memref.load %160[] : memref<i32>
+//CHECK-NEXT:            %175 = arith.extui %174 : i32 to i64
+//CHECK-NEXT:            %176 = arith.index_cast %175 : i64 to index
+//CHECK-NEXT:            %177 = memref.load %159[] : memref<i32>
+//CHECK-NEXT:            %178 = arith.extui %177 : i32 to i64
+//CHECK-NEXT:            %179 = arith.index_cast %178 : i64 to index
+//CHECK-NEXT:            %180 = memref.load %13[] : memref<memref<?x?xf64>>
+//CHECK-NEXT:            %181 = memref.load %180[%179, %176] : memref<?x?xf64>
+//CHECK-NEXT:            %182 = arith.constant 4.000000e+00 : f64
+//CHECK-NEXT:            %183 = arith.mulf %181, %182 fastmath<contract> : f64
+//CHECK-NEXT:            %184 = memref.load %160[] : memref<i32>
+//CHECK-NEXT:            %185 = arith.constant 1 : i32
+//CHECK-NEXT:            %186 = arith.subi %184, %185 : i32
+//CHECK-NEXT:            %187 = arith.extui %186 : i32 to i64
+//CHECK-NEXT:            %188 = arith.index_cast %187 : i64 to index
+//CHECK-NEXT:            %189 = memref.load %159[] : memref<i32>
+//CHECK-NEXT:            %190 = arith.extui %189 : i32 to i64
+//CHECK-NEXT:            %191 = arith.index_cast %190 : i64 to index
+//CHECK-NEXT:            %192 = memref.load %13[] : memref<memref<?x?xf64>>
+//CHECK-NEXT:            %193 = memref.load %192[%191, %188] : memref<?x?xf64>
+//CHECK-NEXT:            %194 = arith.subf %183, %193 fastmath<contract> : f64
+//CHECK-NEXT:            %195 = memref.load %160[] : memref<i32>
+//CHECK-NEXT:            %196 = arith.constant 1 : i32
+//CHECK-NEXT:            %197 = arith.addi %195, %196 : i32
+//CHECK-NEXT:            %198 = arith.extui %197 : i32 to i64
+//CHECK-NEXT:            %199 = arith.index_cast %198 : i64 to index
+//CHECK-NEXT:            %200 = memref.load %159[] : memref<i32>
+//CHECK-NEXT:            %201 = arith.extui %200 : i32 to i64
+//CHECK-NEXT:            %202 = arith.index_cast %201 : i64 to index
+//CHECK-NEXT:            %203 = memref.load %13[] : memref<memref<?x?xf64>>
+//CHECK-NEXT:            %204 = memref.load %203[%202, %199] : memref<?x?xf64>
+//CHECK-NEXT:            %205 = arith.subf %194, %204 fastmath<contract> : f64
+//CHECK-NEXT:            %206 = memref.load %160[] : memref<i32>
+//CHECK-NEXT:            %207 = arith.extui %206 : i32 to i64
+//CHECK-NEXT:            %208 = arith.index_cast %207 : i64 to index
+//CHECK-NEXT:            %209 = memref.load %159[] : memref<i32>
+//CHECK-NEXT:            %210 = arith.constant 1 : i32
+//CHECK-NEXT:            %211 = arith.subi %209, %210 : i32
+//CHECK-NEXT:            %212 = arith.extui %211 : i32 to i64
+//CHECK-NEXT:            %213 = arith.index_cast %212 : i64 to index
+//CHECK-NEXT:            %214 = memref.load %13[] : memref<memref<?x?xf64>>
+//CHECK-NEXT:            %215 = memref.load %214[%213, %208] : memref<?x?xf64>
+//CHECK-NEXT:            %216 = arith.subf %205, %215 fastmath<contract> : f64
+//CHECK-NEXT:            %217 = memref.load %160[] : memref<i32>
+//CHECK-NEXT:            %218 = arith.extui %217 : i32 to i64
+//CHECK-NEXT:            %219 = arith.index_cast %218 : i64 to index
+//CHECK-NEXT:            %220 = memref.load %159[] : memref<i32>
+//CHECK-NEXT:            %221 = arith.constant 1 : i32
+//CHECK-NEXT:            %222 = arith.addi %220, %221 : i32
+//CHECK-NEXT:            %223 = arith.extui %222 : i32 to i64
+//CHECK-NEXT:            %224 = arith.index_cast %223 : i64 to index
+//CHECK-NEXT:            %225 = memref.load %13[] : memref<memref<?x?xf64>>
+//CHECK-NEXT:            %226 = memref.load %225[%224, %219] : memref<?x?xf64>
+//CHECK-NEXT:            %227 = arith.subf %216, %226 fastmath<contract> : f64
+//CHECK-NEXT:            %228 = arith.constant 2 : i32
+//CHECK-NEXT:            %229 = math.fpowi %227, %228 {fastmath = #arith.fastmath<contract>} : f64, i32
+//CHECK-NEXT:            %230 = arith.addf %173, %229 fastmath<contract> : f64
+//CHECK-NEXT:            "llvm.store"(%230, %170) <{ordering = 0 : i64}> : (f64, !llvm.ptr) -> ()
 //CHECK-NEXT:            omp.yield
-//CHECK-NEXT:          }) : (i32, i32, i32) -> ()
+//CHECK-NEXT:          }) : (i32, i32, i32, i32, i32, i32) -> ()
 //CHECK-NEXT:        }) : (!llvm.ptr) -> ()
 //CHECK-NEXT:        "omp.terminator"() : () -> ()
 //CHECK-NEXT:      }) : () -> ()
-//CHECK-NEXT:      %253 = memref.load %11[] : memref<f64>
-//CHECK-NEXT:      %254 = math.sqrt %253 fastmath<contract> : f64
-//CHECK-NEXT:      %255 = memref.load %8[] : memref<f64>
-//CHECK-NEXT:      %256 = arith.divf %254, %255 fastmath<contract> : f64
-//CHECK-NEXT:      memref.store %256, %10[] : memref<f64>
-//CHECK-NEXT:      %257 = memref.load %10[] : memref<f64>
-//CHECK-NEXT:      %258 = memref.load %6[] : memref<f64>
-//CHECK-NEXT:      %259 = arith.cmpf olt, %257, %258 : f64
-//CHECK-NEXT:      cf.cond_br %259, ^7, ^8
+//CHECK-NEXT:      %231 = memref.load %11[] : memref<f64>
+//CHECK-NEXT:      %232 = math.sqrt %231 fastmath<contract> : f64
+//CHECK-NEXT:      %233 = memref.load %8[] : memref<f64>
+//CHECK-NEXT:      %234 = arith.divf %232, %233 fastmath<contract> : f64
+//CHECK-NEXT:      memref.store %234, %10[] : memref<f64>
+//CHECK-NEXT:      %235 = memref.load %10[] : memref<f64>
+//CHECK-NEXT:      %236 = memref.load %6[] : memref<f64>
+//CHECK-NEXT:      %237 = arith.cmpf olt, %235, %236 : f64
+//CHECK-NEXT:      cf.cond_br %237, ^7, ^8
 //CHECK-NEXT:    ^7:
 //CHECK-NEXT:      cf.br ^4
 //CHECK-NEXT:    ^8:
 //CHECK-NEXT:      "omp.parallel"() <{operandSegmentSizes = array<i32: 0, 0, 0, 0, 0, 0>}> ({
-//CHECK-NEXT:        %260 = "memref.alloca"() <{operandSegmentSizes = array<i32: 0, 0>}> : () -> memref<i32>
-//CHECK-NEXT:        %261 = "memref.alloca"() <{operandSegmentSizes = array<i32: 0, 0>}> : () -> memref<i32>
-//CHECK-NEXT:        %262 = arith.constant 1 : i32
-//CHECK-NEXT:        %263 = memref.load %4[] : memref<i32>
-//CHECK-NEXT:        %264 = arith.constant 1 : i32
+//CHECK-NEXT:        %238 = "memref.alloca"() <{operandSegmentSizes = array<i32: 0, 0>}> : () -> memref<i32>
+//CHECK-NEXT:        %239 = "memref.alloca"() <{operandSegmentSizes = array<i32: 0, 0>}> : () -> memref<i32>
+//CHECK-NEXT:        %240 = arith.constant 1 : i32
+//CHECK-NEXT:        %241 = arith.constant 1 : i32
+//CHECK-NEXT:        %242 = memref.load %4[] : memref<i32>
+//CHECK-NEXT:        %243 = memref.load %5[] : memref<i32>
+//CHECK-NEXT:        %244 = arith.constant 1 : i32
+//CHECK-NEXT:        %245 = arith.constant 1 : i32
 //CHECK-NEXT:        "omp.wsloop"() <{operandSegmentSizes = array<i32: 0, 0, 0, 0, 0, 0, 0>}> ({
-//CHECK-NEXT:          "omp.loop_nest"(%262, %263, %264) <{loop_inclusive}> ({
-//CHECK-NEXT:          ^9(%265 : i32):
-//CHECK-NEXT:            memref.store %265, %260[] : memref<i32>
-//CHECK-NEXT:            %266 = arith.constant 1 : i32
-//CHECK-NEXT:            %267 = arith.index_cast %266 : i32 to index
-//CHECK-NEXT:            %268 = memref.load %5[] : memref<i32>
-//CHECK-NEXT:            %269 = arith.index_cast %268 : i32 to index
-//CHECK-NEXT:            %270 = arith.constant 1 : index
-//CHECK-NEXT:            %271 = arith.index_cast %267 : index to i32
-//CHECK-NEXT:            %272 = arith.constant 1 : index
-//CHECK-NEXT:            %273 = arith.addi %269, %272 : index
-//CHECK-NEXT:            %274 = scf.for %275 = %267 to %273 step %270 iter_args(%276 = %271) -> (i32) {
-//CHECK-NEXT:              memref.store %276, %261[] : memref<i32>
-//CHECK-NEXT:              %277 = arith.constant 2.500000e-01 : f64
-//CHECK-NEXT:              %278 = memref.load %261[] : memref<i32>
-//CHECK-NEXT:              %279 = arith.constant 1 : i32
-//CHECK-NEXT:              %280 = arith.subi %278, %279 : i32
-//CHECK-NEXT:              %281 = arith.extui %280 : i32 to i64
-//CHECK-NEXT:              %282 = arith.index_cast %281 : i64 to index
-//CHECK-NEXT:              %283 = memref.load %260[] : memref<i32>
-//CHECK-NEXT:              %284 = arith.extui %283 : i32 to i64
-//CHECK-NEXT:              %285 = arith.index_cast %284 : i64 to index
-//CHECK-NEXT:              %286 = memref.load %13[] : memref<memref<?x?xf64>>
-//CHECK-NEXT:              %287 = memref.load %286[%285, %282] : memref<?x?xf64>
-//CHECK-NEXT:              %288 = memref.load %261[] : memref<i32>
-//CHECK-NEXT:              %289 = arith.constant 1 : i32
-//CHECK-NEXT:              %290 = arith.addi %288, %289 : i32
-//CHECK-NEXT:              %291 = arith.extui %290 : i32 to i64
-//CHECK-NEXT:              %292 = arith.index_cast %291 : i64 to index
-//CHECK-NEXT:              %293 = memref.load %260[] : memref<i32>
-//CHECK-NEXT:              %294 = arith.extui %293 : i32 to i64
-//CHECK-NEXT:              %295 = arith.index_cast %294 : i64 to index
-//CHECK-NEXT:              %296 = memref.load %13[] : memref<memref<?x?xf64>>
-//CHECK-NEXT:              %297 = memref.load %296[%295, %292] : memref<?x?xf64>
-//CHECK-NEXT:              %298 = arith.addf %287, %297 fastmath<contract> : f64
-//CHECK-NEXT:              %299 = memref.load %261[] : memref<i32>
-//CHECK-NEXT:              %300 = arith.extui %299 : i32 to i64
-//CHECK-NEXT:              %301 = arith.index_cast %300 : i64 to index
-//CHECK-NEXT:              %302 = memref.load %260[] : memref<i32>
-//CHECK-NEXT:              %303 = arith.constant 1 : i32
-//CHECK-NEXT:              %304 = arith.subi %302, %303 : i32
-//CHECK-NEXT:              %305 = arith.extui %304 : i32 to i64
-//CHECK-NEXT:              %306 = arith.index_cast %305 : i64 to index
-//CHECK-NEXT:              %307 = memref.load %13[] : memref<memref<?x?xf64>>
-//CHECK-NEXT:              %308 = memref.load %307[%306, %301] : memref<?x?xf64>
-//CHECK-NEXT:              %309 = arith.addf %298, %308 fastmath<contract> : f64
-//CHECK-NEXT:              %310 = memref.load %261[] : memref<i32>
-//CHECK-NEXT:              %311 = arith.extui %310 : i32 to i64
-//CHECK-NEXT:              %312 = arith.index_cast %311 : i64 to index
-//CHECK-NEXT:              %313 = memref.load %260[] : memref<i32>
-//CHECK-NEXT:              %314 = arith.constant 1 : i32
-//CHECK-NEXT:              %315 = arith.addi %313, %314 : i32
-//CHECK-NEXT:              %316 = arith.extui %315 : i32 to i64
-//CHECK-NEXT:              %317 = arith.index_cast %316 : i64 to index
-//CHECK-NEXT:              %318 = memref.load %13[] : memref<memref<?x?xf64>>
-//CHECK-NEXT:              %319 = memref.load %318[%317, %312] : memref<?x?xf64>
-//CHECK-NEXT:              %320 = arith.addf %309, %319 fastmath<contract> : f64
-//CHECK-NEXT:              %321 = arith.mulf %277, %320 fastmath<contract> : f64
-//CHECK-NEXT:              %322 = memref.load %261[] : memref<i32>
-//CHECK-NEXT:              %323 = arith.extui %322 : i32 to i64
-//CHECK-NEXT:              %324 = arith.index_cast %323 : i64 to index
-//CHECK-NEXT:              %325 = memref.load %260[] : memref<i32>
-//CHECK-NEXT:              %326 = arith.extui %325 : i32 to i64
-//CHECK-NEXT:              %327 = arith.index_cast %326 : i64 to index
-//CHECK-NEXT:              %328 = memref.load %14[] : memref<memref<?x?xf64>>
-//CHECK-NEXT:              memref.store %321, %328[%327, %324] : memref<?x?xf64>
-//CHECK-NEXT:              %329 = arith.addi %275, %270 : index
-//CHECK-NEXT:              %330 = memref.load %261[] : memref<i32>
-//CHECK-NEXT:              %331 = arith.index_cast %270 : index to i32
-//CHECK-NEXT:              %332 = arith.addi %330, %331 : i32
-//CHECK-NEXT:              scf.yield %332 : i32
-//CHECK-NEXT:            }
-//CHECK-NEXT:            memref.store %274, %261[] : memref<i32>
+//CHECK-NEXT:          "omp.loop_nest"(%240, %241, %242, %243, %244, %245) <{loop_inclusive}> ({
+//CHECK-NEXT:          ^9(%246 : i32, %247 : i32):
+//CHECK-NEXT:            memref.store %246, %238[] : memref<i32>
+//CHECK-NEXT:            memref.store %247, %239[] : memref<i32>
+//CHECK-NEXT:            %248 = arith.constant 2.500000e-01 : f64
+//CHECK-NEXT:            %249 = memref.load %239[] : memref<i32>
+//CHECK-NEXT:            %250 = arith.constant 1 : i32
+//CHECK-NEXT:            %251 = arith.subi %249, %250 : i32
+//CHECK-NEXT:            %252 = arith.extui %251 : i32 to i64
+//CHECK-NEXT:            %253 = arith.index_cast %252 : i64 to index
+//CHECK-NEXT:            %254 = memref.load %238[] : memref<i32>
+//CHECK-NEXT:            %255 = arith.extui %254 : i32 to i64
+//CHECK-NEXT:            %256 = arith.index_cast %255 : i64 to index
+//CHECK-NEXT:            %257 = memref.load %13[] : memref<memref<?x?xf64>>
+//CHECK-NEXT:            %258 = memref.load %257[%256, %253] : memref<?x?xf64>
+//CHECK-NEXT:            %259 = memref.load %239[] : memref<i32>
+//CHECK-NEXT:            %260 = arith.constant 1 : i32
+//CHECK-NEXT:            %261 = arith.addi %259, %260 : i32
+//CHECK-NEXT:            %262 = arith.extui %261 : i32 to i64
+//CHECK-NEXT:            %263 = arith.index_cast %262 : i64 to index
+//CHECK-NEXT:            %264 = memref.load %238[] : memref<i32>
+//CHECK-NEXT:            %265 = arith.extui %264 : i32 to i64
+//CHECK-NEXT:            %266 = arith.index_cast %265 : i64 to index
+//CHECK-NEXT:            %267 = memref.load %13[] : memref<memref<?x?xf64>>
+//CHECK-NEXT:            %268 = memref.load %267[%266, %263] : memref<?x?xf64>
+//CHECK-NEXT:            %269 = arith.addf %258, %268 fastmath<contract> : f64
+//CHECK-NEXT:            %270 = memref.load %239[] : memref<i32>
+//CHECK-NEXT:            %271 = arith.extui %270 : i32 to i64
+//CHECK-NEXT:            %272 = arith.index_cast %271 : i64 to index
+//CHECK-NEXT:            %273 = memref.load %238[] : memref<i32>
+//CHECK-NEXT:            %274 = arith.constant 1 : i32
+//CHECK-NEXT:            %275 = arith.subi %273, %274 : i32
+//CHECK-NEXT:            %276 = arith.extui %275 : i32 to i64
+//CHECK-NEXT:            %277 = arith.index_cast %276 : i64 to index
+//CHECK-NEXT:            %278 = memref.load %13[] : memref<memref<?x?xf64>>
+//CHECK-NEXT:            %279 = memref.load %278[%277, %272] : memref<?x?xf64>
+//CHECK-NEXT:            %280 = arith.addf %269, %279 fastmath<contract> : f64
+//CHECK-NEXT:            %281 = memref.load %239[] : memref<i32>
+//CHECK-NEXT:            %282 = arith.extui %281 : i32 to i64
+//CHECK-NEXT:            %283 = arith.index_cast %282 : i64 to index
+//CHECK-NEXT:            %284 = memref.load %238[] : memref<i32>
+//CHECK-NEXT:            %285 = arith.constant 1 : i32
+//CHECK-NEXT:            %286 = arith.addi %284, %285 : i32
+//CHECK-NEXT:            %287 = arith.extui %286 : i32 to i64
+//CHECK-NEXT:            %288 = arith.index_cast %287 : i64 to index
+//CHECK-NEXT:            %289 = memref.load %13[] : memref<memref<?x?xf64>>
+//CHECK-NEXT:            %290 = memref.load %289[%288, %283] : memref<?x?xf64>
+//CHECK-NEXT:            %291 = arith.addf %280, %290 fastmath<contract> : f64
+//CHECK-NEXT:            %292 = arith.mulf %248, %291 fastmath<contract> : f64
+//CHECK-NEXT:            %293 = memref.load %239[] : memref<i32>
+//CHECK-NEXT:            %294 = arith.extui %293 : i32 to i64
+//CHECK-NEXT:            %295 = arith.index_cast %294 : i64 to index
+//CHECK-NEXT:            %296 = memref.load %238[] : memref<i32>
+//CHECK-NEXT:            %297 = arith.extui %296 : i32 to i64
+//CHECK-NEXT:            %298 = arith.index_cast %297 : i64 to index
+//CHECK-NEXT:            %299 = memref.load %14[] : memref<memref<?x?xf64>>
+//CHECK-NEXT:            memref.store %292, %299[%298, %295] : memref<?x?xf64>
 //CHECK-NEXT:            omp.yield
-//CHECK-NEXT:          }) : (i32, i32, i32) -> ()
+//CHECK-NEXT:          }) : (i32, i32, i32, i32, i32, i32) -> ()
 //CHECK-NEXT:        }) : () -> ()
 //CHECK-NEXT:        "omp.terminator"() : () -> ()
 //CHECK-NEXT:      }) : () -> ()
-//CHECK-NEXT:      %333 = memref.load %14[] : memref<memref<?x?xf64>>
-//CHECK-NEXT:      memref.store %333, %12[] : memref<memref<?x?xf64>>
-//CHECK-NEXT:      %334 = memref.load %13[] : memref<memref<?x?xf64>>
-//CHECK-NEXT:      memref.store %334, %14[] : memref<memref<?x?xf64>>
-//CHECK-NEXT:      %335 = memref.load %12[] : memref<memref<?x?xf64>>
-//CHECK-NEXT:      memref.store %335, %13[] : memref<memref<?x?xf64>>
-//CHECK-NEXT:      %336 = memref.load %9[] : memref<i32>
-//CHECK-NEXT:      %337 = arith.constant 100 : i32
-//CHECK-NEXT:      %338 = arith.remsi %336, %337 : i32
-//CHECK-NEXT:      %339 = arith.constant 0 : i32
-//CHECK-NEXT:      %340 = arith.cmpi eq, %338, %339 : i32
-//CHECK-NEXT:      scf.if %340 {
-//CHECK-NEXT:        %341 = arith.constant 6 : i32
-//CHECK-NEXT:        %342 = "llvm.mlir.addressof"() <{global_name = @{{.*}}}> : () -> !llvm.ptr
-//CHECK-NEXT:        %343 = "llvm.getelementptr"(%342) <{rawConstantIndices = array<i32: 0, 0>, elem_type = !llvm.array<1 x i8>}> : (!llvm.ptr) -> !llvm.ptr
-//CHECK-NEXT:        %344 = arith.constant 75 : i32
-//CHECK-NEXT:        %345 = func.call @_FortranAioBeginExternalListOutput(%341, %343, %344) : (i32, !llvm.ptr, i32) -> !llvm.ptr
-//CHECK-NEXT:        %346 = "llvm.mlir.addressof"() <{global_name = @{{.*}}}> : () -> !llvm.ptr
-//CHECK-NEXT:        %347 = "llvm.getelementptr"(%346) <{rawConstantIndices = array<i32: 0, 0>, elem_type = !llvm.array<1 x i8>}> : (!llvm.ptr) -> !llvm.ptr
-//CHECK-NEXT:        %348 = arith.constant 10 : index
-//CHECK-NEXT:        %349 = arith.index_cast %348 : index to i64
-//CHECK-NEXT:        %350 = func.call @_FortranAioOutputAscii(%345, %347, %349) : (!llvm.ptr, !llvm.ptr, i64) -> i1
-//CHECK-NEXT:        %351 = memref.load %9[] : memref<i32>
-//CHECK-NEXT:        %352 = func.call @_FortranAioOutputInteger32(%345, %351) : (!llvm.ptr, i32) -> i1
-//CHECK-NEXT:        %353 = "llvm.mlir.addressof"() <{global_name = @{{.*}}}> : () -> !llvm.ptr
-//CHECK-NEXT:        %354 = "llvm.getelementptr"(%353) <{rawConstantIndices = array<i32: 0, 0>, elem_type = !llvm.array<1 x i8>}> : (!llvm.ptr) -> !llvm.ptr
-//CHECK-NEXT:        %355 = arith.constant 15 : index
-//CHECK-NEXT:        %356 = arith.index_cast %355 : index to i64
-//CHECK-NEXT:        %357 = func.call @_FortranAioOutputAscii(%345, %354, %356) : (!llvm.ptr, !llvm.ptr, i64) -> i1
-//CHECK-NEXT:        %358 = memref.load %10[] : memref<f64>
-//CHECK-NEXT:        %359 = func.call @_FortranAioOutputReal64(%345, %358) : (!llvm.ptr, f64) -> i1
-//CHECK-NEXT:        %360 = func.call @_FortranAioEndIoStatement(%345) : (!llvm.ptr) -> i32
+//CHECK-NEXT:      %300 = memref.load %14[] : memref<memref<?x?xf64>>
+//CHECK-NEXT:      memref.store %300, %12[] : memref<memref<?x?xf64>>
+//CHECK-NEXT:      %301 = memref.load %13[] : memref<memref<?x?xf64>>
+//CHECK-NEXT:      memref.store %301, %14[] : memref<memref<?x?xf64>>
+//CHECK-NEXT:      %302 = memref.load %12[] : memref<memref<?x?xf64>>
+//CHECK-NEXT:      memref.store %302, %13[] : memref<memref<?x?xf64>>
+//CHECK-NEXT:      %303 = memref.load %9[] : memref<i32>
+//CHECK-NEXT:      %304 = arith.constant 100 : i32
+//CHECK-NEXT:      %305 = arith.remsi %303, %304 : i32
+//CHECK-NEXT:      %306 = arith.constant 0 : i32
+//CHECK-NEXT:      %307 = arith.cmpi eq, %305, %306 : i32
+//CHECK-NEXT:      scf.if %307 {
+//CHECK-NEXT:        %308 = arith.constant 6 : i32
+//CHECK-NEXT:        %309 = "llvm.mlir.addressof"() <{global_name = @{{.*}}}> : () -> !llvm.ptr
+//CHECK-NEXT:        %310 = "llvm.getelementptr"(%309) <{rawConstantIndices = array<i32: 0, 0>, elem_type = !llvm.array<1 x i8>}> : (!llvm.ptr) -> !llvm.ptr
+//CHECK-NEXT:        %311 = arith.constant 75 : i32
+//CHECK-NEXT:        %312 = func.call @_FortranAioBeginExternalListOutput(%308, %310, %311) : (i32, !llvm.ptr, i32) -> !llvm.ptr
+//CHECK-NEXT:        %313 = "llvm.mlir.addressof"() <{global_name = @{{.*}}}> : () -> !llvm.ptr
+//CHECK-NEXT:        %314 = "llvm.getelementptr"(%313) <{rawConstantIndices = array<i32: 0, 0>, elem_type = !llvm.array<1 x i8>}> : (!llvm.ptr) -> !llvm.ptr
+//CHECK-NEXT:        %315 = arith.constant 10 : index
+//CHECK-NEXT:        %316 = arith.index_cast %315 : index to i64
+//CHECK-NEXT:        %317 = func.call @_FortranAioOutputAscii(%312, %314, %316) : (!llvm.ptr, !llvm.ptr, i64) -> i1
+//CHECK-NEXT:        %318 = memref.load %9[] : memref<i32>
+//CHECK-NEXT:        %319 = func.call @_FortranAioOutputInteger32(%312, %318) : (!llvm.ptr, i32) -> i1
+//CHECK-NEXT:        %320 = "llvm.mlir.addressof"() <{global_name = @{{.*}}}> : () -> !llvm.ptr
+//CHECK-NEXT:        %321 = "llvm.getelementptr"(%320) <{rawConstantIndices = array<i32: 0, 0>, elem_type = !llvm.array<1 x i8>}> : (!llvm.ptr) -> !llvm.ptr
+//CHECK-NEXT:        %322 = arith.constant 15 : index
+//CHECK-NEXT:        %323 = arith.index_cast %322 : index to i64
+//CHECK-NEXT:        %324 = func.call @_FortranAioOutputAscii(%312, %321, %323) : (!llvm.ptr, !llvm.ptr, i64) -> i1
+//CHECK-NEXT:        %325 = memref.load %10[] : memref<f64>
+//CHECK-NEXT:        %326 = func.call @_FortranAioOutputReal64(%312, %325) : (!llvm.ptr, f64) -> i1
+//CHECK-NEXT:        %327 = func.call @_FortranAioEndIoStatement(%312) : (!llvm.ptr) -> i32
 //CHECK-NEXT:      } else {
 //CHECK-NEXT:      }
-//CHECK-NEXT:      %361 = memref.load %7[] : memref<i32>
-//CHECK-NEXT:      %362 = arith.constant 1 : i32
-//CHECK-NEXT:      %363 = arith.subi %361, %362 : i32
-//CHECK-NEXT:      memref.store %363, %7[] : memref<i32>
-//CHECK-NEXT:      %364 = memref.load %9[] : memref<i32>
-//CHECK-NEXT:      %365 = arith.constant 1 : i32
-//CHECK-NEXT:      %366 = arith.addi %364, %365 : i32
-//CHECK-NEXT:      memref.store %366, %9[] : memref<i32>
+//CHECK-NEXT:      %328 = memref.load %7[] : memref<i32>
+//CHECK-NEXT:      %329 = arith.constant 1 : i32
+//CHECK-NEXT:      %330 = arith.subi %328, %329 : i32
+//CHECK-NEXT:      memref.store %330, %7[] : memref<i32>
+//CHECK-NEXT:      %331 = memref.load %9[] : memref<i32>
+//CHECK-NEXT:      %332 = arith.constant 1 : i32
+//CHECK-NEXT:      %333 = arith.addi %331, %332 : i32
+//CHECK-NEXT:      memref.store %333, %9[] : memref<i32>
 //CHECK-NEXT:      cf.br ^2
 //CHECK-NEXT:    ^4:
-//CHECK-NEXT:      %367 = arith.constant 6 : i32
-//CHECK-NEXT:      %368 = "llvm.mlir.addressof"() <{global_name = @{{.*}}}> : () -> !llvm.ptr
-//CHECK-NEXT:      %369 = "llvm.getelementptr"(%368) <{rawConstantIndices = array<i32: 0, 0>, elem_type = !llvm.array<1 x i8>}> : (!llvm.ptr) -> !llvm.ptr
-//CHECK-NEXT:      %370 = arith.constant 77 : i32
-//CHECK-NEXT:      %371 = func.call @_FortranAioBeginExternalListOutput(%367, %369, %370) : (i32, !llvm.ptr, i32) -> !llvm.ptr
-//CHECK-NEXT:      %372 = "llvm.mlir.addressof"() <{global_name = @{{.*}}}> : () -> !llvm.ptr
-//CHECK-NEXT:      %373 = "llvm.getelementptr"(%372) <{rawConstantIndices = array<i32: 0, 0>, elem_type = !llvm.array<1 x i8>}> : (!llvm.ptr) -> !llvm.ptr
-//CHECK-NEXT:      %374 = arith.constant 14 : index
-//CHECK-NEXT:      %375 = arith.index_cast %374 : index to i64
-//CHECK-NEXT:      %376 = func.call @_FortranAioOutputAscii(%371, %373, %375) : (!llvm.ptr, !llvm.ptr, i64) -> i1
-//CHECK-NEXT:      %377 = memref.load %9[] : memref<i32>
-//CHECK-NEXT:      %378 = func.call @_FortranAioOutputInteger32(%371, %377) : (!llvm.ptr, i32) -> i1
-//CHECK-NEXT:      %379 = "llvm.mlir.addressof"() <{global_name = @{{.*}}}> : () -> !llvm.ptr
-//CHECK-NEXT:      %380 = "llvm.getelementptr"(%379) <{rawConstantIndices = array<i32: 0, 0>, elem_type = !llvm.array<1 x i8>}> : (!llvm.ptr) -> !llvm.ptr
-//CHECK-NEXT:      %381 = arith.constant 27 : index
-//CHECK-NEXT:      %382 = arith.index_cast %381 : index to i64
-//CHECK-NEXT:      %383 = func.call @_FortranAioOutputAscii(%371, %380, %382) : (!llvm.ptr, !llvm.ptr, i64) -> i1
-//CHECK-NEXT:      %384 = memref.load %10[] : memref<f64>
-//CHECK-NEXT:      %385 = func.call @_FortranAioOutputReal64(%371, %384) : (!llvm.ptr, f64) -> i1
-//CHECK-NEXT:      %386 = func.call @_FortranAioEndIoStatement(%371) : (!llvm.ptr) -> i32
-//CHECK-NEXT:      %387 = memref.load %13[] : memref<memref<?x?xf64>>
-//CHECK-NEXT:      memref.dealloc %387 : memref<?x?xf64>
-//CHECK-NEXT:      %388 = memref.load %14[] : memref<memref<?x?xf64>>
-//CHECK-NEXT:      memref.dealloc %388 : memref<?x?xf64>
+//CHECK-NEXT:      %334 = arith.constant 6 : i32
+//CHECK-NEXT:      %335 = "llvm.mlir.addressof"() <{global_name = @{{.*}}}> : () -> !llvm.ptr
+//CHECK-NEXT:      %336 = "llvm.getelementptr"(%335) <{rawConstantIndices = array<i32: 0, 0>, elem_type = !llvm.array<1 x i8>}> : (!llvm.ptr) -> !llvm.ptr
+//CHECK-NEXT:      %337 = arith.constant 77 : i32
+//CHECK-NEXT:      %338 = func.call @_FortranAioBeginExternalListOutput(%334, %336, %337) : (i32, !llvm.ptr, i32) -> !llvm.ptr
+//CHECK-NEXT:      %339 = "llvm.mlir.addressof"() <{global_name = @{{.*}}}> : () -> !llvm.ptr
+//CHECK-NEXT:      %340 = "llvm.getelementptr"(%339) <{rawConstantIndices = array<i32: 0, 0>, elem_type = !llvm.array<1 x i8>}> : (!llvm.ptr) -> !llvm.ptr
+//CHECK-NEXT:      %341 = arith.constant 14 : index
+//CHECK-NEXT:      %342 = arith.index_cast %341 : index to i64
+//CHECK-NEXT:      %343 = func.call @_FortranAioOutputAscii(%338, %340, %342) : (!llvm.ptr, !llvm.ptr, i64) -> i1
+//CHECK-NEXT:      %344 = memref.load %9[] : memref<i32>
+//CHECK-NEXT:      %345 = func.call @_FortranAioOutputInteger32(%338, %344) : (!llvm.ptr, i32) -> i1
+//CHECK-NEXT:      %346 = "llvm.mlir.addressof"() <{global_name = @{{.*}}}> : () -> !llvm.ptr
+//CHECK-NEXT:      %347 = "llvm.getelementptr"(%346) <{rawConstantIndices = array<i32: 0, 0>, elem_type = !llvm.array<1 x i8>}> : (!llvm.ptr) -> !llvm.ptr
+//CHECK-NEXT:      %348 = arith.constant 27 : index
+//CHECK-NEXT:      %349 = arith.index_cast %348 : index to i64
+//CHECK-NEXT:      %350 = func.call @_FortranAioOutputAscii(%338, %347, %349) : (!llvm.ptr, !llvm.ptr, i64) -> i1
+//CHECK-NEXT:      %351 = memref.load %10[] : memref<f64>
+//CHECK-NEXT:      %352 = func.call @_FortranAioOutputReal64(%338, %351) : (!llvm.ptr, f64) -> i1
+//CHECK-NEXT:      %353 = func.call @_FortranAioEndIoStatement(%338) : (!llvm.ptr) -> i32
+//CHECK-NEXT:      %354 = memref.load %13[] : memref<memref<?x?xf64>>
+//CHECK-NEXT:      memref.dealloc %354 : memref<?x?xf64>
+//CHECK-NEXT:      %355 = memref.load %14[] : memref<memref<?x?xf64>>
+//CHECK-NEXT:      memref.dealloc %355 : memref<?x?xf64>
 //CHECK-NEXT:      func.return
 //CHECK-NEXT:    }
 //CHECK-NEXT:    func.func @_QMjacobi_modPinitialise_values(%4 : memref<?x?xf64> {fir.bindc_name = "u_k"}, %5 : memref<?x?xf64> {fir.bindc_name = "u_kp1"}, %6 : memref<i32> {fir.bindc_name = "nx"}, %7 : memref<i32> {fir.bindc_name = "ny"}) {

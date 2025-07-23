@@ -30,7 +30,7 @@ contains
     call initialise_values(u_k, u_kp1, nx, ny)
 
     ! Calculate the initial residual
-    !$omp parallel do reduction(+:bnorm)
+    !$omp parallel do collapse(2) reduction(+:bnorm)
     do i=1, nx
       do j=1, ny
         bnorm=bnorm+((u_k(j,i)*4-u_k(j-1,i)-u_k(j+1,i)-u_k(j,i-1)-u_k(j,i+1)) ** 2)
@@ -45,7 +45,7 @@ contains
       ! The halo swapping will likely need to go in here
       rnorm=0.0
       ! Calculates the current residual norm
-      !$omp parallel do reduction(+:rnorm)
+      !$omp parallel do collapse(2) reduction(+:rnorm)
       do i=1, nx
         do j=1, ny
           rnorm=rnorm+((u_k(j,i)*4-u_k(j-1,i)-u_k(j+1,i)-u_k(j,i-1)-u_k(j,i+1)) ** 2)
@@ -59,7 +59,7 @@ contains
       if (norm .lt. convergence_accuracy) exit
 
       ! Do the Jacobi iteration
-      !$omp parallel do
+      !$omp parallel do collapse(2)
       do i=1, nx
         do j=1, ny
           u_kp1(j,i)=0.25 * (u_k(j-1,i) + u_k(j+1,i) + u_k(j,i-1) + u_k(j,i+1))
