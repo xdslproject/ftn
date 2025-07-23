@@ -1,4 +1,4 @@
-module ftn_example
+module gauss_seidel_heap_mod
 	implicit none
 	
 contains
@@ -20,10 +20,10 @@ contains
       	enddo
     	enddo
 	end subroutine main
-end module ftn_example
+end module gauss_seidel_heap_mod
 
 program me
-  use ftn_example
+  use gauss_seidel_heap_mod
   
 implicit none  
 

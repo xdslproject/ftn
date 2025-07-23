@@ -1,4 +1,4 @@
-module ftn_example
+module gauss_seidel_stack_mod
 	implicit none
 	
 contains
@@ -16,10 +16,10 @@ contains
       enddo
 
   end subroutine main
-end module ftn_example
+end module gauss_seidel_stack_mod
 
 program me
-  use ftn_example
+  use gauss_seidel_stack_mod
 	
 implicit none
 

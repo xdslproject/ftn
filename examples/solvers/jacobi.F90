@@ -1,4 +1,4 @@
-module problem_mod	
+module jacobi_mod	
   implicit none	
 
   ! Boundary value at the LHS of the pipe
@@ -100,10 +100,10 @@ contains
     end do		
     u_kp1=u_k
   end subroutine initialise_values  
-end module problem_mod
+end module jacobi_mod
 
 program diffusion
-  use problem_mod
+  use jacobi_mod
   implicit none
 
   call run_solver(512, 512, 1D-4)
