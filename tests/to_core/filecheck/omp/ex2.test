@@ -1,0 +1,99 @@
+// RUN: xftn %S/../../../../examples/omp/ex2.F90 -DFRAGMENT_ONLY --openmp --stdout -t %S/tmp --cleanup --stages=flang,pre,ftn -v0 | FileCheck %s 
+//CHECK:       builtin.module attributes {llvm.data_layout = "e-m:e-p270:32:32-p271:32:32-p272:64:64-i64:64-i128:128-f80:128-n8:16:32:64-S128", llvm.ident = "flang version 20.1.7 (https://github.com/llvm/llvm-project 6146a88f60492b520a36f8f8f3231e15f3cc6082)", llvm.target_triple = "x86_64-unknown-linux-gnu", omp.is_gpu = false, omp.is_target_device = false, omp.target_triples = [], omp.version = #omp<version <version = 11>>} {
+//CHECK-NEXT:    omp.declare_reduction @add_reduction_f32 : f32 init {
+//CHECK-NEXT:    ^0(%0 : f32):
+//CHECK-NEXT:      %1 = arith.constant 0.000000e+00 : f32
+//CHECK-NEXT:      omp.yield(%1 : f32)
+//CHECK-NEXT:    } combiner {
+//CHECK-NEXT:    ^1(%2 : f32, %3 : f32):
+//CHECK-NEXT:      %4 = arith.addf %2, %3 fastmath<contract> : f32
+//CHECK-NEXT:      omp.yield(%4 : f32)
+//CHECK-NEXT:    }
+//CHECK-NEXT:    func.func @_QMex2_testPcalc() {
+//CHECK-NEXT:      %0 = "memref.alloca"() <{operandSegmentSizes = array<i32: 0, 0>}> : () -> memref<memref<?xf32>>
+//CHECK-NEXT:      %1 = "memref.alloca"() <{operandSegmentSizes = array<i32: 0, 0>}> : () -> memref<f32>
+//CHECK-NEXT:      %2 = arith.constant 100 : index
+//CHECK-NEXT:      %3 = memref.alloc(%2) : memref<?xf32>
+//CHECK-NEXT:      memref.store %3, %0[] : memref<memref<?xf32>>
+//CHECK-NEXT:      "omp.parallel"() <{operandSegmentSizes = array<i32: 0, 0, 0, 0, 0, 0>}> ({
+//CHECK-NEXT:        %4 = "memref.alloca"() <{operandSegmentSizes = array<i32: 0, 0>}> : () -> memref<i32>
+//CHECK-NEXT:        %5 = arith.constant 1 : i32
+//CHECK-NEXT:        %6 = arith.constant 100 : i32
+//CHECK-NEXT:        %7 = arith.constant 1 : i32
+//CHECK-NEXT:        "omp.wsloop"() <{operandSegmentSizes = array<i32: 0, 0, 0, 0, 0, 0, 0>}> ({
+//CHECK-NEXT:          "omp.loop_nest"(%5, %6, %7) <{loop_inclusive}> ({
+//CHECK-NEXT:          ^0(%8 : i32):
+//CHECK-NEXT:            memref.store %8, %4[] : memref<i32>
+//CHECK-NEXT:            %9 = memref.load %4[] : memref<i32>
+//CHECK-NEXT:            %10 = arith.sitofp %9 : i32 to f32
+//CHECK-NEXT:            %11 = memref.load %4[] : memref<i32>
+//CHECK-NEXT:            %12 = arith.extui %11 : i32 to i64
+//CHECK-NEXT:            %13 = arith.index_cast %12 : i64 to index
+//CHECK-NEXT:            %14 = arith.constant 1 : index
+//CHECK-NEXT:            %15 = arith.subi %13, %14 : index
+//CHECK-NEXT:            %16 = memref.load %0[] : memref<memref<?xf32>>
+//CHECK-NEXT:            memref.store %10, %16[%15] : memref<?xf32>
+//CHECK-NEXT:            omp.yield
+//CHECK-NEXT:          }) : (i32, i32, i32) -> ()
+//CHECK-NEXT:        }) : () -> ()
+//CHECK-NEXT:        "omp.terminator"() : () -> ()
+//CHECK-NEXT:      }) : () -> ()
+//CHECK-NEXT:      "omp.parallel"() <{operandSegmentSizes = array<i32: 0, 0, 0, 0, 0, 0>}> ({
+//CHECK-NEXT:        %17 = "memref.alloca"() <{operandSegmentSizes = array<i32: 0, 0>}> : () -> memref<i32>
+//CHECK-NEXT:        %18 = "memref.extract_aligned_pointer_as_index"(%1) : (memref<f32>) -> index
+//CHECK-NEXT:        %19 = arith.index_cast %18 : index to i64
+//CHECK-NEXT:        %20 = "llvm.inttoptr"(%19) : (i64) -> !llvm.ptr
+//CHECK-NEXT:        %21 = arith.constant 1 : i32
+//CHECK-NEXT:        %22 = arith.constant 100 : i32
+//CHECK-NEXT:        %23 = arith.constant 1 : i32
+//CHECK-NEXT:        "omp.wsloop"(%20) <{reduction_byref = array<i1: false>, reduction_syms = [@add_reduction_f32], operandSegmentSizes = array<i32: 0, 0, 0, 0, 0, 1, 0>}> ({
+//CHECK-NEXT:        ^1(%24 : !llvm.ptr):
+//CHECK-NEXT:          "omp.loop_nest"(%21, %22, %23) <{loop_inclusive}> ({
+//CHECK-NEXT:          ^2(%25 : i32):
+//CHECK-NEXT:            memref.store %25, %17[] : memref<i32>
+//CHECK-NEXT:            %26 = "llvm.load"(%24) : (!llvm.ptr) -> f32
+//CHECK-NEXT:            %27 = memref.load %17[] : memref<i32>
+//CHECK-NEXT:            %28 = arith.extui %27 : i32 to i64
+//CHECK-NEXT:            %29 = arith.index_cast %28 : i64 to index
+//CHECK-NEXT:            %30 = arith.constant 1 : index
+//CHECK-NEXT:            %31 = arith.subi %29, %30 : index
+//CHECK-NEXT:            %32 = memref.load %0[] : memref<memref<?xf32>>
+//CHECK-NEXT:            %33 = memref.load %32[%31] : memref<?xf32>
+//CHECK-NEXT:            %34 = arith.addf %26, %33 fastmath<contract> : f32
+//CHECK-NEXT:            "llvm.store"(%34, %24) <{ordering = 0 : i64}> : (f32, !llvm.ptr) -> ()
+//CHECK-NEXT:            omp.yield
+//CHECK-NEXT:          }) : (i32, i32, i32) -> ()
+//CHECK-NEXT:        }) : (!llvm.ptr) -> ()
+//CHECK-NEXT:        "omp.terminator"() : () -> ()
+//CHECK-NEXT:      }) : () -> ()
+//CHECK-NEXT:      func.return
+//CHECK-NEXT:    }
+//CHECK-NEXT:    func.func @_QQmain() {
+//CHECK-NEXT:      "memref.alloca_scope"() ({
+//CHECK-NEXT:        func.call @_QMex2_testPcalc() : () -> ()
+//CHECK-NEXT:        "memref.alloca_scope.return"() : () -> ()
+//CHECK-NEXT:      }) : () -> ()
+//CHECK-NEXT:      func.return
+//CHECK-NEXT:    }
+//CHECK-NEXT:    "llvm.mlir.global"() <{global_type = !llvm.array<{{[0-9]+}} x i8>, sym_name = "_{{.*}}", linkage = #llvm.linkage<"internal">, addr_space = 0 : i32, constant, value = "{{.*}}", unnamed_addr = 0 : i64}> ({
+//CHECK-NEXT:    }) : () -> ()
+//CHECK-NEXT:    func.func private @_FortranAProgramStart(i32, !llvm.ptr, !llvm.ptr, !llvm.ptr) -> () 
+//CHECK-NEXT:    func.func private @_FortranAProgramEndStatement() -> () 
+//CHECK-NEXT:    func.func @main(%0 : i32, %1 : !llvm.ptr, %2 : !llvm.ptr) -> i32 {
+//CHECK-NEXT:      %3 = memref.alloc() : memref<1xmemref<memref<1xmemref<i8>>>>
+//CHECK-NEXT:      %4 = arith.constant 0 : index
+//CHECK-NEXT:      %5 = memref.load %3[%4] : memref<1xmemref<memref<1xmemref<i8>>>>
+//CHECK-NEXT:      %6 = "memref.extract_aligned_pointer_as_index"(%5) : (memref<memref<1xmemref<i8>>>) -> index
+//CHECK-NEXT:      %7 = arith.index_cast %6 : index to i64
+//CHECK-NEXT:      %8 = "llvm.inttoptr"(%7) : (i64) -> !llvm.ptr
+//CHECK-NEXT:      func.call @_FortranAProgramStart(%0, %1, %2, %8) : (i32, !llvm.ptr, !llvm.ptr, !llvm.ptr) -> ()
+//CHECK-NEXT:      "memref.alloca_scope"() ({
+//CHECK-NEXT:        func.call @_QQmain() : () -> ()
+//CHECK-NEXT:        "memref.alloca_scope.return"() : () -> ()
+//CHECK-NEXT:      }) : () -> ()
+//CHECK-NEXT:      func.call @_FortranAProgramEndStatement() : () -> ()
+//CHECK-NEXT:      %9 = arith.constant 0 : i32
+//CHECK-NEXT:      func.return %9 : i32
+//CHECK-NEXT:    }
+//CHECK-NEXT:  }
+//CHECK-EMPTY:  
