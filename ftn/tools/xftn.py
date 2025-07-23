@@ -3,6 +3,7 @@ import argparse
 import os
 import shutil
 from enum import Enum
+import glob
 
 
 class OutputType(Enum):
@@ -24,6 +25,14 @@ def initialise_argument_parser():
     )
     parser.add_argument("-omp", "--openmp", action="store_true", help="Enable OpenMP")
     parser.add_argument("-fomp", "--fopenmp", action="store_true", help="Enable OpenMP")
+    parser.add_argument(
+        "--cleanup",
+        action="store_true",
+        help="Remove temporary compilation files on successful build",
+    )
+    parser.add_argument(
+        "--stdout", action="store_true", help="Write resulting output to stdout"
+    )
     parser.add_argument(
         "-D",
         "--define-macro",
@@ -230,12 +239,14 @@ def remove_file_if_exists(dir_prefix, *filenames):
 
 def validate_source_filename(src_fn):
     components = src_fn.split(".")
-    if len(components) != 2:
+    if len(components) == 1:
         raise Exception(
-            "Source filename must have a filetype, '.x', where x is 'F90', 'f90' or 'f'"
+            f"Source filename must have a filetype, '.x', where x is 'F90', 'f90' or 'f', you provided '{src_fn}'"
         )
     if components[-1] != "F90" and components[-1] != "f90" and components[-1] != "f":
-        raise Exception("Source filename must end in 'F90', 'f90' or 'f'")
+        raise Exception(
+            "Source filename must end in 'F90', 'f90' or 'f', you provided '{src_fn}'"
+        )
 
 
 def print_verbose_message(options_db, *messages):
@@ -427,6 +438,11 @@ def build_executable(output_tmp_dir, input_fn, executable_fn, options_db):
     post_stage_check(executable_fn, options_db["verbose"], executable=True)
 
 
+def print_file_contents(filename):
+    with open(filename) as f:
+        print(f.read())
+
+
 def main():
     parser = initialise_argument_parser()
     args = parser.parse_args()
@@ -454,6 +470,15 @@ def main():
 
     if options_db["run_flang_stage"]:
         run_flang(src_fn, tmp_dir, source_fn_no_ext + ".mlir", options_db)
+        if options_db["stdout"] and (
+            not options_db["run_preprocess_stage"]
+            and not options_db["run_lower_to_core_stage"]
+            and not options_db["run_postprocess_stage"]
+            and not options_db["run_mlir_to_llvmir_stage"]
+            and not options_db["run_create_object_stage"]
+            and not options_db["run_build_executable_stage"]
+        ):
+            print_file_contents(os.path.join(tmp_dir, source_fn_no_ext + ".mlir"))
     if options_db["run_preprocess_stage"]:
         run_preprocess_flang_to_xdsl(
             tmp_dir,
@@ -461,6 +486,14 @@ def main():
             source_fn_no_ext + "_pre.mlir",
             options_db,
         )
+        if options_db["stdout"] and (
+            not options_db["run_lower_to_core_stage"]
+            and not options_db["run_postprocess_stage"]
+            and not options_db["run_mlir_to_llvmir_stage"]
+            and not options_db["run_create_object_stage"]
+            and not options_db["run_build_executable_stage"]
+        ):
+            print_file_contents(os.path.join(tmp_dir, source_fn_no_ext + "_pre.mlir"))
     if options_db["run_lower_to_core_stage"]:
         lower_fir_to_core_dialects(
             tmp_dir,
@@ -471,6 +504,13 @@ def main():
             options_db,
             not options_db["output_type"] == OutputType.MLIR,
         )
+        if options_db["stdout"] and (
+            not options_db["run_postprocess_stage"]
+            and not options_db["run_mlir_to_llvmir_stage"]
+            and not options_db["run_create_object_stage"]
+            and not options_db["run_build_executable_stage"]
+        ):
+            print_file_contents(os.path.join(tmp_dir, source_fn_no_ext + "_res.mlir"))
     if options_db["run_postprocess_stage"]:
         run_postprocess_core_mlir(
             tmp_dir,
@@ -478,6 +518,12 @@ def main():
             source_fn_no_ext + "_post.mlir",
             options_db,
         )
+        if options_db["stdout"] and (
+            not options_db["run_mlir_to_llvmir_stage"]
+            and not options_db["run_create_object_stage"]
+            and not options_db["run_build_executable_stage"]
+        ):
+            print_file_contents(os.path.join(tmp_dir, source_fn_no_ext + "_post.mlir"))
     if options_db["run_mlir_to_llvmir_stage"]:
         run_mlir_pipeline_to_llvm_ir(
             tmp_dir,
@@ -497,6 +543,20 @@ def main():
         # If this is the offload flow then copy the result in the temporary directory to the specified output
         shutil.copy(os.path.join(tmp_dir, source_fn_no_ext + "_res.mlir"), out_file)
         print_verbose_message(options_db, f"Offload MLIR in '{out_file}'")
+
+    if options_db["cleanup"]:
+        remove_file_if_exists(
+            tmp_dir,
+            source_fn_no_ext + ".mlir",
+            source_fn_no_ext + "_pre.mlir",
+            source_fn_no_ext + "_res.mlir",
+            source_fn_no_ext + "_post.mlir",
+            source_fn_no_ext + "_res.bc",
+        )
+        for f in glob.glob(os.path.join(tmp_dir, f"{source_fn_no_ext}*.mod")):
+            os.remove(f)
+        if len(os.listdir(tmp_dir)) == 0:
+            os.rmdir(tmp_dir)
 
 
 if __name__ == "__main__":
