@@ -24,12 +24,12 @@
 //CHECK-NEXT:      %16 = arith.constant 10 : index
 //CHECK-NEXT:      %17 = memref.alloc(%16, %15, %14) : memref<?x?x?xi32>
 //CHECK-NEXT:      memref.store %17, %3[] : memref<memref<?x?x?xi32>>
-//CHECK-NEXT:      %18 = "llvm.mlir.addressof"() <{global_name = @_QQclX5ae9cb004e963b794fb71cb493930af9}> : () -> !llvm.ptr
+//CHECK-NEXT:      %18 = "llvm.mlir.addressof"() <{global_name = @{{.*}}}> : () -> !llvm.ptr
 //CHECK-NEXT:      "memref.alloca_scope"() ({
 //CHECK-NEXT:        %19 = arith.constant true
 //CHECK-NEXT:        %20 = "memref.alloca"() <{operandSegmentSizes = array<i32: 0, 0>}> : () -> memref<i1>
 //CHECK-NEXT:        memref.store %19, %20[] : memref<i1>
-//CHECK-NEXT:        %21 = arith.constant 110 : index
+//CHECK-NEXT:        %21 = arith.constant {{.*}} : index
 //CHECK-NEXT:        %22 = arith.index_cast %21 : index to i64
 //CHECK-NEXT:        %23 = "llvm.mlir.undef"() : () -> !llvm.struct<(!llvm.ptr, i64)>
 //CHECK-NEXT:        %24 = "llvm.insertvalue"(%23, %18) <{position = array<i64: 0>}> : (!llvm.struct<(!llvm.ptr, i64)>, !llvm.ptr) -> !llvm.struct<(!llvm.ptr, i64)>
@@ -40,12 +40,12 @@
 //CHECK-NEXT:        func.call @_QPassert(%20, %25, %27) : (memref<i1>, !llvm.struct<(!llvm.ptr, i64)>, memref<i32>) -> ()
 //CHECK-NEXT:        "memref.alloca_scope.return"() : () -> ()
 //CHECK-NEXT:      }) : () -> ()
-//CHECK-NEXT:      %28 = "llvm.mlir.addressof"() <{global_name = @_QQclX5ae9cb004e963b794fb71cb493930af9}> : () -> !llvm.ptr
+//CHECK-NEXT:      %28 = "llvm.mlir.addressof"() <{global_name = @{{.*}}}> : () -> !llvm.ptr
 //CHECK-NEXT:      "memref.alloca_scope"() ({
 //CHECK-NEXT:        %29 = arith.constant true
 //CHECK-NEXT:        %30 = "memref.alloca"() <{operandSegmentSizes = array<i32: 0, 0>}> : () -> memref<i1>
 //CHECK-NEXT:        memref.store %29, %30[] : memref<i1>
-//CHECK-NEXT:        %31 = arith.constant 110 : index
+//CHECK-NEXT:        %31 = arith.constant {{.*}} : index
 //CHECK-NEXT:        %32 = arith.index_cast %31 : index to i64
 //CHECK-NEXT:        %33 = "llvm.mlir.undef"() : () -> !llvm.struct<(!llvm.ptr, i64)>
 //CHECK-NEXT:        %34 = "llvm.insertvalue"(%33, %28) <{position = array<i64: 0>}> : (!llvm.struct<(!llvm.ptr, i64)>, !llvm.ptr) -> !llvm.struct<(!llvm.ptr, i64)>
@@ -56,12 +56,12 @@
 //CHECK-NEXT:        func.call @_QPassert(%30, %35, %37) : (memref<i1>, !llvm.struct<(!llvm.ptr, i64)>, memref<i32>) -> ()
 //CHECK-NEXT:        "memref.alloca_scope.return"() : () -> ()
 //CHECK-NEXT:      }) : () -> ()
-//CHECK-NEXT:      %38 = "llvm.mlir.addressof"() <{global_name = @_QQclX5ae9cb004e963b794fb71cb493930af9}> : () -> !llvm.ptr
+//CHECK-NEXT:      %38 = "llvm.mlir.addressof"() <{global_name = @{{.*}}}> : () -> !llvm.ptr
 //CHECK-NEXT:      "memref.alloca_scope"() ({
 //CHECK-NEXT:        %39 = arith.constant true
 //CHECK-NEXT:        %40 = "memref.alloca"() <{operandSegmentSizes = array<i32: 0, 0>}> : () -> memref<i1>
 //CHECK-NEXT:        memref.store %39, %40[] : memref<i1>
-//CHECK-NEXT:        %41 = arith.constant 110 : index
+//CHECK-NEXT:        %41 = arith.constant {{.*}} : index
 //CHECK-NEXT:        %42 = arith.index_cast %41 : index to i64
 //CHECK-NEXT:        %43 = "llvm.mlir.undef"() : () -> !llvm.struct<(!llvm.ptr, i64)>
 //CHECK-NEXT:        %44 = "llvm.insertvalue"(%43, %38) <{position = array<i64: 0>}> : (!llvm.struct<(!llvm.ptr, i64)>, !llvm.ptr) -> !llvm.struct<(!llvm.ptr, i64)>
@@ -72,12 +72,12 @@
 //CHECK-NEXT:        func.call @_QPassert(%40, %45, %47) : (memref<i1>, !llvm.struct<(!llvm.ptr, i64)>, memref<i32>) -> ()
 //CHECK-NEXT:        "memref.alloca_scope.return"() : () -> ()
 //CHECK-NEXT:      }) : () -> ()
-//CHECK-NEXT:      %48 = "llvm.mlir.addressof"() <{global_name = @_QQclX5ae9cb004e963b794fb71cb493930af9}> : () -> !llvm.ptr
+//CHECK-NEXT:      %48 = "llvm.mlir.addressof"() <{global_name = @{{.*}}}> : () -> !llvm.ptr
 //CHECK-NEXT:      "memref.alloca_scope"() ({
 //CHECK-NEXT:        %49 = arith.constant true
 //CHECK-NEXT:        %50 = "memref.alloca"() <{operandSegmentSizes = array<i32: 0, 0>}> : () -> memref<i1>
 //CHECK-NEXT:        memref.store %49, %50[] : memref<i1>
-//CHECK-NEXT:        %51 = arith.constant 110 : index
+//CHECK-NEXT:        %51 = arith.constant {{.*}} : index
 //CHECK-NEXT:        %52 = arith.index_cast %51 : index to i64
 //CHECK-NEXT:        %53 = "llvm.mlir.undef"() : () -> !llvm.struct<(!llvm.ptr, i64)>
 //CHECK-NEXT:        %54 = "llvm.insertvalue"(%53, %48) <{position = array<i64: 0>}> : (!llvm.struct<(!llvm.ptr, i64)>, !llvm.ptr) -> !llvm.struct<(!llvm.ptr, i64)>
@@ -88,7 +88,7 @@
 //CHECK-NEXT:        func.call @_QPassert(%50, %55, %57) : (memref<i1>, !llvm.struct<(!llvm.ptr, i64)>, memref<i32>) -> ()
 //CHECK-NEXT:        "memref.alloca_scope.return"() : () -> ()
 //CHECK-NEXT:      }) : () -> ()
-//CHECK-NEXT:      %58 = "llvm.mlir.addressof"() <{global_name = @_QQclX5ae9cb004e963b794fb71cb493930af9}> : () -> !llvm.ptr
+//CHECK-NEXT:      %58 = "llvm.mlir.addressof"() <{global_name = @{{.*}}}> : () -> !llvm.ptr
 //CHECK-NEXT:      "memref.alloca_scope"() ({
 //CHECK-NEXT:        %59 = memref.load %1[] : memref<memref<?xf32>>
 //CHECK-NEXT:        %60 = arith.constant 0 : index
@@ -101,7 +101,7 @@
 //CHECK-NEXT:        %67 = arith.cmpi eq, %65, %66 : i32
 //CHECK-NEXT:        %68 = "memref.alloca"() <{operandSegmentSizes = array<i32: 0, 0>}> : () -> memref<i1>
 //CHECK-NEXT:        memref.store %67, %68[] : memref<i1>
-//CHECK-NEXT:        %69 = arith.constant 110 : index
+//CHECK-NEXT:        %69 = arith.constant {{.*}} : index
 //CHECK-NEXT:        %70 = arith.index_cast %69 : index to i64
 //CHECK-NEXT:        %71 = "llvm.mlir.undef"() : () -> !llvm.struct<(!llvm.ptr, i64)>
 //CHECK-NEXT:        %72 = "llvm.insertvalue"(%71, %58) <{position = array<i64: 0>}> : (!llvm.struct<(!llvm.ptr, i64)>, !llvm.ptr) -> !llvm.struct<(!llvm.ptr, i64)>
@@ -112,7 +112,7 @@
 //CHECK-NEXT:        func.call @_QPassert(%68, %73, %75) : (memref<i1>, !llvm.struct<(!llvm.ptr, i64)>, memref<i32>) -> ()
 //CHECK-NEXT:        "memref.alloca_scope.return"() : () -> ()
 //CHECK-NEXT:      }) : () -> ()
-//CHECK-NEXT:      %76 = "llvm.mlir.addressof"() <{global_name = @_QQclX5ae9cb004e963b794fb71cb493930af9}> : () -> !llvm.ptr
+//CHECK-NEXT:      %76 = "llvm.mlir.addressof"() <{global_name = @{{.*}}}> : () -> !llvm.ptr
 //CHECK-NEXT:      "memref.alloca_scope"() ({
 //CHECK-NEXT:        %77 = memref.load %1[] : memref<memref<?xf32>>
 //CHECK-NEXT:        %78 = arith.constant 0 : index
@@ -125,7 +125,7 @@
 //CHECK-NEXT:        %85 = arith.cmpi eq, %83, %84 : i32
 //CHECK-NEXT:        %86 = "memref.alloca"() <{operandSegmentSizes = array<i32: 0, 0>}> : () -> memref<i1>
 //CHECK-NEXT:        memref.store %85, %86[] : memref<i1>
-//CHECK-NEXT:        %87 = arith.constant 110 : index
+//CHECK-NEXT:        %87 = arith.constant {{.*}} : index
 //CHECK-NEXT:        %88 = arith.index_cast %87 : index to i64
 //CHECK-NEXT:        %89 = "llvm.mlir.undef"() : () -> !llvm.struct<(!llvm.ptr, i64)>
 //CHECK-NEXT:        %90 = "llvm.insertvalue"(%89, %76) <{position = array<i64: 0>}> : (!llvm.struct<(!llvm.ptr, i64)>, !llvm.ptr) -> !llvm.struct<(!llvm.ptr, i64)>
@@ -136,7 +136,7 @@
 //CHECK-NEXT:        func.call @_QPassert(%86, %91, %93) : (memref<i1>, !llvm.struct<(!llvm.ptr, i64)>, memref<i32>) -> ()
 //CHECK-NEXT:        "memref.alloca_scope.return"() : () -> ()
 //CHECK-NEXT:      }) : () -> ()
-//CHECK-NEXT:      %94 = "llvm.mlir.addressof"() <{global_name = @_QQclX5ae9cb004e963b794fb71cb493930af9}> : () -> !llvm.ptr
+//CHECK-NEXT:      %94 = "llvm.mlir.addressof"() <{global_name = @{{.*}}}> : () -> !llvm.ptr
 //CHECK-NEXT:      "memref.alloca_scope"() ({
 //CHECK-NEXT:        %95 = memref.load %0[] : memref<memref<?xf32>>
 //CHECK-NEXT:        %96 = arith.constant 0 : index
@@ -149,7 +149,7 @@
 //CHECK-NEXT:        %103 = arith.cmpi eq, %101, %102 : i32
 //CHECK-NEXT:        %104 = "memref.alloca"() <{operandSegmentSizes = array<i32: 0, 0>}> : () -> memref<i1>
 //CHECK-NEXT:        memref.store %103, %104[] : memref<i1>
-//CHECK-NEXT:        %105 = arith.constant 110 : index
+//CHECK-NEXT:        %105 = arith.constant {{.*}} : index
 //CHECK-NEXT:        %106 = arith.index_cast %105 : index to i64
 //CHECK-NEXT:        %107 = "llvm.mlir.undef"() : () -> !llvm.struct<(!llvm.ptr, i64)>
 //CHECK-NEXT:        %108 = "llvm.insertvalue"(%107, %94) <{position = array<i64: 0>}> : (!llvm.struct<(!llvm.ptr, i64)>, !llvm.ptr) -> !llvm.struct<(!llvm.ptr, i64)>
@@ -160,7 +160,7 @@
 //CHECK-NEXT:        func.call @_QPassert(%104, %109, %111) : (memref<i1>, !llvm.struct<(!llvm.ptr, i64)>, memref<i32>) -> ()
 //CHECK-NEXT:        "memref.alloca_scope.return"() : () -> ()
 //CHECK-NEXT:      }) : () -> ()
-//CHECK-NEXT:      %112 = "llvm.mlir.addressof"() <{global_name = @_QQclX5ae9cb004e963b794fb71cb493930af9}> : () -> !llvm.ptr
+//CHECK-NEXT:      %112 = "llvm.mlir.addressof"() <{global_name = @{{.*}}}> : () -> !llvm.ptr
 //CHECK-NEXT:      "memref.alloca_scope"() ({
 //CHECK-NEXT:        %113 = memref.load %3[] : memref<memref<?x?x?xi32>>
 //CHECK-NEXT:        %114 = arith.constant 0 : index
@@ -187,7 +187,7 @@
 //CHECK-NEXT:        %135 = arith.cmpi eq, %133, %134 : i32
 //CHECK-NEXT:        %136 = "memref.alloca"() <{operandSegmentSizes = array<i32: 0, 0>}> : () -> memref<i1>
 //CHECK-NEXT:        memref.store %135, %136[] : memref<i1>
-//CHECK-NEXT:        %137 = arith.constant 110 : index
+//CHECK-NEXT:        %137 = arith.constant {{.*}} : index
 //CHECK-NEXT:        %138 = arith.index_cast %137 : index to i64
 //CHECK-NEXT:        %139 = "llvm.mlir.undef"() : () -> !llvm.struct<(!llvm.ptr, i64)>
 //CHECK-NEXT:        %140 = "llvm.insertvalue"(%139, %112) <{position = array<i64: 0>}> : (!llvm.struct<(!llvm.ptr, i64)>, !llvm.ptr) -> !llvm.struct<(!llvm.ptr, i64)>
@@ -198,7 +198,7 @@
 //CHECK-NEXT:        func.call @_QPassert(%136, %141, %143) : (memref<i1>, !llvm.struct<(!llvm.ptr, i64)>, memref<i32>) -> ()
 //CHECK-NEXT:        "memref.alloca_scope.return"() : () -> ()
 //CHECK-NEXT:      }) : () -> ()
-//CHECK-NEXT:      %144 = "llvm.mlir.addressof"() <{global_name = @_QQclX5ae9cb004e963b794fb71cb493930af9}> : () -> !llvm.ptr
+//CHECK-NEXT:      %144 = "llvm.mlir.addressof"() <{global_name = @{{.*}}}> : () -> !llvm.ptr
 //CHECK-NEXT:      "memref.alloca_scope"() ({
 //CHECK-NEXT:        %145 = memref.load %3[] : memref<memref<?x?x?xi32>>
 //CHECK-NEXT:        %146 = arith.constant 1 : index
@@ -211,7 +211,7 @@
 //CHECK-NEXT:        %153 = arith.cmpi eq, %151, %152 : i32
 //CHECK-NEXT:        %154 = "memref.alloca"() <{operandSegmentSizes = array<i32: 0, 0>}> : () -> memref<i1>
 //CHECK-NEXT:        memref.store %153, %154[] : memref<i1>
-//CHECK-NEXT:        %155 = arith.constant 110 : index
+//CHECK-NEXT:        %155 = arith.constant {{.*}} : index
 //CHECK-NEXT:        %156 = arith.index_cast %155 : index to i64
 //CHECK-NEXT:        %157 = "llvm.mlir.undef"() : () -> !llvm.struct<(!llvm.ptr, i64)>
 //CHECK-NEXT:        %158 = "llvm.insertvalue"(%157, %144) <{position = array<i64: 0>}> : (!llvm.struct<(!llvm.ptr, i64)>, !llvm.ptr) -> !llvm.struct<(!llvm.ptr, i64)>
@@ -280,7 +280,7 @@
 //CHECK-NEXT:      %212 = arith.addi %208, %211 : index
 //CHECK-NEXT:      %213 = scf.for %214 = %206 to %212 step %209 iter_args(%215 = %210) -> (i32) {
 //CHECK-NEXT:        memref.store %215, %4[] : memref<i32>
-//CHECK-NEXT:        %216 = "llvm.mlir.addressof"() <{global_name = @_QQclX5ae9cb004e963b794fb71cb493930af9}> : () -> !llvm.ptr
+//CHECK-NEXT:        %216 = "llvm.mlir.addressof"() <{global_name = @{{.*}}}> : () -> !llvm.ptr
 //CHECK-NEXT:        "memref.alloca_scope"() ({
 //CHECK-NEXT:          %217 = memref.load %4[] : memref<i32>
 //CHECK-NEXT:          %218 = arith.extui %217 : i32 to i64
@@ -294,7 +294,7 @@
 //CHECK-NEXT:          %226 = arith.cmpf oeq, %223, %225 : f32
 //CHECK-NEXT:          %227 = "memref.alloca"() <{operandSegmentSizes = array<i32: 0, 0>}> : () -> memref<i1>
 //CHECK-NEXT:          memref.store %226, %227[] : memref<i1>
-//CHECK-NEXT:          %228 = arith.constant 110 : index
+//CHECK-NEXT:          %228 = arith.constant {{.*}} : index
 //CHECK-NEXT:          %229 = arith.index_cast %228 : index to i64
 //CHECK-NEXT:          %230 = "llvm.mlir.undef"() : () -> !llvm.struct<(!llvm.ptr, i64)>
 //CHECK-NEXT:          %231 = "llvm.insertvalue"(%230, %216) <{position = array<i64: 0>}> : (!llvm.struct<(!llvm.ptr, i64)>, !llvm.ptr) -> !llvm.struct<(!llvm.ptr, i64)>
@@ -305,7 +305,7 @@
 //CHECK-NEXT:          func.call @_QPassert(%227, %232, %234) : (memref<i1>, !llvm.struct<(!llvm.ptr, i64)>, memref<i32>) -> ()
 //CHECK-NEXT:          "memref.alloca_scope.return"() : () -> ()
 //CHECK-NEXT:        }) : () -> ()
-//CHECK-NEXT:        %235 = "llvm.mlir.addressof"() <{global_name = @_QQclX5ae9cb004e963b794fb71cb493930af9}> : () -> !llvm.ptr
+//CHECK-NEXT:        %235 = "llvm.mlir.addressof"() <{global_name = @{{.*}}}> : () -> !llvm.ptr
 //CHECK-NEXT:        "memref.alloca_scope"() ({
 //CHECK-NEXT:          %236 = memref.load %4[] : memref<i32>
 //CHECK-NEXT:          %237 = arith.extui %236 : i32 to i64
@@ -321,7 +321,7 @@
 //CHECK-NEXT:          %247 = arith.cmpf oeq, %242, %246 : f32
 //CHECK-NEXT:          %248 = "memref.alloca"() <{operandSegmentSizes = array<i32: 0, 0>}> : () -> memref<i1>
 //CHECK-NEXT:          memref.store %247, %248[] : memref<i1>
-//CHECK-NEXT:          %249 = arith.constant 110 : index
+//CHECK-NEXT:          %249 = arith.constant {{.*}} : index
 //CHECK-NEXT:          %250 = arith.index_cast %249 : index to i64
 //CHECK-NEXT:          %251 = "llvm.mlir.undef"() : () -> !llvm.struct<(!llvm.ptr, i64)>
 //CHECK-NEXT:          %252 = "llvm.insertvalue"(%251, %235) <{position = array<i64: 0>}> : (!llvm.struct<(!llvm.ptr, i64)>, !llvm.ptr) -> !llvm.struct<(!llvm.ptr, i64)>
@@ -332,7 +332,7 @@
 //CHECK-NEXT:          func.call @_QPassert(%248, %253, %255) : (memref<i1>, !llvm.struct<(!llvm.ptr, i64)>, memref<i32>) -> ()
 //CHECK-NEXT:          "memref.alloca_scope.return"() : () -> ()
 //CHECK-NEXT:        }) : () -> ()
-//CHECK-NEXT:        %256 = "llvm.mlir.addressof"() <{global_name = @_QQclX5ae9cb004e963b794fb71cb493930af9}> : () -> !llvm.ptr
+//CHECK-NEXT:        %256 = "llvm.mlir.addressof"() <{global_name = @{{.*}}}> : () -> !llvm.ptr
 //CHECK-NEXT:        "memref.alloca_scope"() ({
 //CHECK-NEXT:          %257 = memref.load %4[] : memref<i32>
 //CHECK-NEXT:          %258 = arith.extui %257 : i32 to i64
@@ -348,7 +348,7 @@
 //CHECK-NEXT:          %268 = arith.cmpf oeq, %263, %267 : f32
 //CHECK-NEXT:          %269 = "memref.alloca"() <{operandSegmentSizes = array<i32: 0, 0>}> : () -> memref<i1>
 //CHECK-NEXT:          memref.store %268, %269[] : memref<i1>
-//CHECK-NEXT:          %270 = arith.constant 110 : index
+//CHECK-NEXT:          %270 = arith.constant {{.*}} : index
 //CHECK-NEXT:          %271 = arith.index_cast %270 : index to i64
 //CHECK-NEXT:          %272 = "llvm.mlir.undef"() : () -> !llvm.struct<(!llvm.ptr, i64)>
 //CHECK-NEXT:          %273 = "llvm.insertvalue"(%272, %256) <{position = array<i64: 0>}> : (!llvm.struct<(!llvm.ptr, i64)>, !llvm.ptr) -> !llvm.struct<(!llvm.ptr, i64)>
@@ -384,7 +384,7 @@
 //CHECK-NEXT:      %294 = arith.subi %292, %293 : index
 //CHECK-NEXT:      %295 = memref.load %0[] : memref<memref<?xf32>>
 //CHECK-NEXT:      memref.store %291, %295[%294] : memref<?xf32>
-//CHECK-NEXT:      %296 = "llvm.mlir.addressof"() <{global_name = @_QQclX5ae9cb004e963b794fb71cb493930af9}> : () -> !llvm.ptr
+//CHECK-NEXT:      %296 = "llvm.mlir.addressof"() <{global_name = @{{.*}}}> : () -> !llvm.ptr
 //CHECK-NEXT:      "memref.alloca_scope"() ({
 //CHECK-NEXT:        %297 = arith.constant 20 : index
 //CHECK-NEXT:        %298 = arith.constant 1 : index
@@ -395,7 +395,7 @@
 //CHECK-NEXT:        %303 = arith.cmpf oeq, %301, %302 : f32
 //CHECK-NEXT:        %304 = "memref.alloca"() <{operandSegmentSizes = array<i32: 0, 0>}> : () -> memref<i1>
 //CHECK-NEXT:        memref.store %303, %304[] : memref<i1>
-//CHECK-NEXT:        %305 = arith.constant 110 : index
+//CHECK-NEXT:        %305 = arith.constant {{.*}} : index
 //CHECK-NEXT:        %306 = arith.index_cast %305 : index to i64
 //CHECK-NEXT:        %307 = "llvm.mlir.undef"() : () -> !llvm.struct<(!llvm.ptr, i64)>
 //CHECK-NEXT:        %308 = "llvm.insertvalue"(%307, %296) <{position = array<i64: 0>}> : (!llvm.struct<(!llvm.ptr, i64)>, !llvm.ptr) -> !llvm.struct<(!llvm.ptr, i64)>
@@ -406,7 +406,7 @@
 //CHECK-NEXT:        func.call @_QPassert(%304, %309, %311) : (memref<i1>, !llvm.struct<(!llvm.ptr, i64)>, memref<i32>) -> ()
 //CHECK-NEXT:        "memref.alloca_scope.return"() : () -> ()
 //CHECK-NEXT:      }) : () -> ()
-//CHECK-NEXT:      %312 = "llvm.mlir.addressof"() <{global_name = @_QQclX5ae9cb004e963b794fb71cb493930af9}> : () -> !llvm.ptr
+//CHECK-NEXT:      %312 = "llvm.mlir.addressof"() <{global_name = @{{.*}}}> : () -> !llvm.ptr
 //CHECK-NEXT:      "memref.alloca_scope"() ({
 //CHECK-NEXT:        %313 = arith.constant 50 : index
 //CHECK-NEXT:        %314 = arith.constant 1 : index
@@ -417,7 +417,7 @@
 //CHECK-NEXT:        %319 = arith.cmpf oeq, %317, %318 : f32
 //CHECK-NEXT:        %320 = "memref.alloca"() <{operandSegmentSizes = array<i32: 0, 0>}> : () -> memref<i1>
 //CHECK-NEXT:        memref.store %319, %320[] : memref<i1>
-//CHECK-NEXT:        %321 = arith.constant 110 : index
+//CHECK-NEXT:        %321 = arith.constant {{.*}} : index
 //CHECK-NEXT:        %322 = arith.index_cast %321 : index to i64
 //CHECK-NEXT:        %323 = "llvm.mlir.undef"() : () -> !llvm.struct<(!llvm.ptr, i64)>
 //CHECK-NEXT:        %324 = "llvm.insertvalue"(%323, %312) <{position = array<i64: 0>}> : (!llvm.struct<(!llvm.ptr, i64)>, !llvm.ptr) -> !llvm.struct<(!llvm.ptr, i64)>
@@ -428,7 +428,7 @@
 //CHECK-NEXT:        func.call @_QPassert(%320, %325, %327) : (memref<i1>, !llvm.struct<(!llvm.ptr, i64)>, memref<i32>) -> ()
 //CHECK-NEXT:        "memref.alloca_scope.return"() : () -> ()
 //CHECK-NEXT:      }) : () -> ()
-//CHECK-NEXT:      %328 = "llvm.mlir.addressof"() <{global_name = @_QQclX5ae9cb004e963b794fb71cb493930af9}> : () -> !llvm.ptr
+//CHECK-NEXT:      %328 = "llvm.mlir.addressof"() <{global_name = @{{.*}}}> : () -> !llvm.ptr
 //CHECK-NEXT:      "memref.alloca_scope"() ({
 //CHECK-NEXT:        %329 = arith.constant 70 : index
 //CHECK-NEXT:        %330 = arith.constant 1 : index
@@ -439,7 +439,7 @@
 //CHECK-NEXT:        %335 = arith.cmpf oeq, %333, %334 : f32
 //CHECK-NEXT:        %336 = "memref.alloca"() <{operandSegmentSizes = array<i32: 0, 0>}> : () -> memref<i1>
 //CHECK-NEXT:        memref.store %335, %336[] : memref<i1>
-//CHECK-NEXT:        %337 = arith.constant 110 : index
+//CHECK-NEXT:        %337 = arith.constant {{.*}} : index
 //CHECK-NEXT:        %338 = arith.index_cast %337 : index to i64
 //CHECK-NEXT:        %339 = "llvm.mlir.undef"() : () -> !llvm.struct<(!llvm.ptr, i64)>
 //CHECK-NEXT:        %340 = "llvm.insertvalue"(%339, %328) <{position = array<i64: 0>}> : (!llvm.struct<(!llvm.ptr, i64)>, !llvm.ptr) -> !llvm.struct<(!llvm.ptr, i64)>
@@ -495,7 +495,7 @@
 //CHECK-NEXT:      %368 = arith.addi %364, %367 : index
 //CHECK-NEXT:      %369 = scf.for %370 = %362 to %368 step %365 iter_args(%371 = %366) -> (i32) {
 //CHECK-NEXT:        memref.store %371, %4[] : memref<i32>
-//CHECK-NEXT:        %372 = "llvm.mlir.addressof"() <{global_name = @_QQclX5ae9cb004e963b794fb71cb493930af9}> : () -> !llvm.ptr
+//CHECK-NEXT:        %372 = "llvm.mlir.addressof"() <{global_name = @{{.*}}}> : () -> !llvm.ptr
 //CHECK-NEXT:        "memref.alloca_scope"() ({
 //CHECK-NEXT:          %373 = memref.load %4[] : memref<i32>
 //CHECK-NEXT:          %374 = arith.extui %373 : i32 to i64
@@ -509,7 +509,7 @@
 //CHECK-NEXT:          %382 = arith.cmpf oeq, %379, %381 : f32
 //CHECK-NEXT:          %383 = "memref.alloca"() <{operandSegmentSizes = array<i32: 0, 0>}> : () -> memref<i1>
 //CHECK-NEXT:          memref.store %382, %383[] : memref<i1>
-//CHECK-NEXT:          %384 = arith.constant 110 : index
+//CHECK-NEXT:          %384 = arith.constant {{.*}} : index
 //CHECK-NEXT:          %385 = arith.index_cast %384 : index to i64
 //CHECK-NEXT:          %386 = "llvm.mlir.undef"() : () -> !llvm.struct<(!llvm.ptr, i64)>
 //CHECK-NEXT:          %387 = "llvm.insertvalue"(%386, %372) <{position = array<i64: 0>}> : (!llvm.struct<(!llvm.ptr, i64)>, !llvm.ptr) -> !llvm.struct<(!llvm.ptr, i64)>
@@ -520,7 +520,7 @@
 //CHECK-NEXT:          func.call @_QPassert(%383, %388, %390) : (memref<i1>, !llvm.struct<(!llvm.ptr, i64)>, memref<i32>) -> ()
 //CHECK-NEXT:          "memref.alloca_scope.return"() : () -> ()
 //CHECK-NEXT:        }) : () -> ()
-//CHECK-NEXT:        %391 = "llvm.mlir.addressof"() <{global_name = @_QQclX5ae9cb004e963b794fb71cb493930af9}> : () -> !llvm.ptr
+//CHECK-NEXT:        %391 = "llvm.mlir.addressof"() <{global_name = @{{.*}}}> : () -> !llvm.ptr
 //CHECK-NEXT:        "memref.alloca_scope"() ({
 //CHECK-NEXT:          %392 = memref.load %4[] : memref<i32>
 //CHECK-NEXT:          %393 = arith.extui %392 : i32 to i64
@@ -536,7 +536,7 @@
 //CHECK-NEXT:          %403 = arith.cmpf oeq, %398, %402 : f32
 //CHECK-NEXT:          %404 = "memref.alloca"() <{operandSegmentSizes = array<i32: 0, 0>}> : () -> memref<i1>
 //CHECK-NEXT:          memref.store %403, %404[] : memref<i1>
-//CHECK-NEXT:          %405 = arith.constant 110 : index
+//CHECK-NEXT:          %405 = arith.constant {{.*}} : index
 //CHECK-NEXT:          %406 = arith.index_cast %405 : index to i64
 //CHECK-NEXT:          %407 = "llvm.mlir.undef"() : () -> !llvm.struct<(!llvm.ptr, i64)>
 //CHECK-NEXT:          %408 = "llvm.insertvalue"(%407, %391) <{position = array<i64: 0>}> : (!llvm.struct<(!llvm.ptr, i64)>, !llvm.ptr) -> !llvm.struct<(!llvm.ptr, i64)>
@@ -547,7 +547,7 @@
 //CHECK-NEXT:          func.call @_QPassert(%404, %409, %411) : (memref<i1>, !llvm.struct<(!llvm.ptr, i64)>, memref<i32>) -> ()
 //CHECK-NEXT:          "memref.alloca_scope.return"() : () -> ()
 //CHECK-NEXT:        }) : () -> ()
-//CHECK-NEXT:        %412 = "llvm.mlir.addressof"() <{global_name = @_QQclX5ae9cb004e963b794fb71cb493930af9}> : () -> !llvm.ptr
+//CHECK-NEXT:        %412 = "llvm.mlir.addressof"() <{global_name = @{{.*}}}> : () -> !llvm.ptr
 //CHECK-NEXT:        "memref.alloca_scope"() ({
 //CHECK-NEXT:          %413 = memref.load %4[] : memref<i32>
 //CHECK-NEXT:          %414 = arith.extui %413 : i32 to i64
@@ -563,7 +563,7 @@
 //CHECK-NEXT:          %424 = arith.cmpf oeq, %419, %423 : f32
 //CHECK-NEXT:          %425 = "memref.alloca"() <{operandSegmentSizes = array<i32: 0, 0>}> : () -> memref<i1>
 //CHECK-NEXT:          memref.store %424, %425[] : memref<i1>
-//CHECK-NEXT:          %426 = arith.constant 110 : index
+//CHECK-NEXT:          %426 = arith.constant {{.*}} : index
 //CHECK-NEXT:          %427 = arith.index_cast %426 : index to i64
 //CHECK-NEXT:          %428 = "llvm.mlir.undef"() : () -> !llvm.struct<(!llvm.ptr, i64)>
 //CHECK-NEXT:          %429 = "llvm.insertvalue"(%428, %412) <{position = array<i64: 0>}> : (!llvm.struct<(!llvm.ptr, i64)>, !llvm.ptr) -> !llvm.struct<(!llvm.ptr, i64)>
@@ -592,7 +592,7 @@
 //CHECK-NEXT:        func.call @_QMallocatables_testPmodify_array_one(%437, %439, %441) : (memref<?xf32>, memref<i32>, memref<f32>) -> ()
 //CHECK-NEXT:        "memref.alloca_scope.return"() : () -> ()
 //CHECK-NEXT:      }) : () -> ()
-//CHECK-NEXT:      %442 = "llvm.mlir.addressof"() <{global_name = @_QQclX5ae9cb004e963b794fb71cb493930af9}> : () -> !llvm.ptr
+//CHECK-NEXT:      %442 = "llvm.mlir.addressof"() <{global_name = @{{.*}}}> : () -> !llvm.ptr
 //CHECK-NEXT:      "memref.alloca_scope"() ({
 //CHECK-NEXT:        %443 = arith.constant 60 : index
 //CHECK-NEXT:        %444 = arith.constant 1 : index
@@ -603,7 +603,7 @@
 //CHECK-NEXT:        %449 = arith.cmpf oeq, %447, %448 : f32
 //CHECK-NEXT:        %450 = "memref.alloca"() <{operandSegmentSizes = array<i32: 0, 0>}> : () -> memref<i1>
 //CHECK-NEXT:        memref.store %449, %450[] : memref<i1>
-//CHECK-NEXT:        %451 = arith.constant 110 : index
+//CHECK-NEXT:        %451 = arith.constant {{.*}} : index
 //CHECK-NEXT:        %452 = arith.index_cast %451 : index to i64
 //CHECK-NEXT:        %453 = "llvm.mlir.undef"() : () -> !llvm.struct<(!llvm.ptr, i64)>
 //CHECK-NEXT:        %454 = "llvm.insertvalue"(%453, %442) <{position = array<i64: 0>}> : (!llvm.struct<(!llvm.ptr, i64)>, !llvm.ptr) -> !llvm.struct<(!llvm.ptr, i64)>
@@ -630,7 +630,7 @@
 //CHECK-NEXT:      %468 = arith.addi %464, %467 : index
 //CHECK-NEXT:      %469 = scf.for %470 = %462 to %468 step %465 iter_args(%471 = %466) -> (i32) {
 //CHECK-NEXT:        memref.store %471, %4[] : memref<i32>
-//CHECK-NEXT:        %472 = "llvm.mlir.addressof"() <{global_name = @_QQclX5ae9cb004e963b794fb71cb493930af9}> : () -> !llvm.ptr
+//CHECK-NEXT:        %472 = "llvm.mlir.addressof"() <{global_name = @{{.*}}}> : () -> !llvm.ptr
 //CHECK-NEXT:        "memref.alloca_scope"() ({
 //CHECK-NEXT:          %473 = memref.load %4[] : memref<i32>
 //CHECK-NEXT:          %474 = arith.extui %473 : i32 to i64
@@ -644,7 +644,7 @@
 //CHECK-NEXT:          %482 = arith.cmpf oeq, %479, %481 : f32
 //CHECK-NEXT:          %483 = "memref.alloca"() <{operandSegmentSizes = array<i32: 0, 0>}> : () -> memref<i1>
 //CHECK-NEXT:          memref.store %482, %483[] : memref<i1>
-//CHECK-NEXT:          %484 = arith.constant 110 : index
+//CHECK-NEXT:          %484 = arith.constant {{.*}} : index
 //CHECK-NEXT:          %485 = arith.index_cast %484 : index to i64
 //CHECK-NEXT:          %486 = "llvm.mlir.undef"() : () -> !llvm.struct<(!llvm.ptr, i64)>
 //CHECK-NEXT:          %487 = "llvm.insertvalue"(%486, %472) <{position = array<i64: 0>}> : (!llvm.struct<(!llvm.ptr, i64)>, !llvm.ptr) -> !llvm.struct<(!llvm.ptr, i64)>
@@ -655,7 +655,7 @@
 //CHECK-NEXT:          func.call @_QPassert(%483, %488, %490) : (memref<i1>, !llvm.struct<(!llvm.ptr, i64)>, memref<i32>) -> ()
 //CHECK-NEXT:          "memref.alloca_scope.return"() : () -> ()
 //CHECK-NEXT:        }) : () -> ()
-//CHECK-NEXT:        %491 = "llvm.mlir.addressof"() <{global_name = @_QQclX5ae9cb004e963b794fb71cb493930af9}> : () -> !llvm.ptr
+//CHECK-NEXT:        %491 = "llvm.mlir.addressof"() <{global_name = @{{.*}}}> : () -> !llvm.ptr
 //CHECK-NEXT:        "memref.alloca_scope"() ({
 //CHECK-NEXT:          %492 = memref.load %4[] : memref<i32>
 //CHECK-NEXT:          %493 = arith.extui %492 : i32 to i64
@@ -671,7 +671,7 @@
 //CHECK-NEXT:          %503 = arith.cmpf oeq, %498, %502 : f32
 //CHECK-NEXT:          %504 = "memref.alloca"() <{operandSegmentSizes = array<i32: 0, 0>}> : () -> memref<i1>
 //CHECK-NEXT:          memref.store %503, %504[] : memref<i1>
-//CHECK-NEXT:          %505 = arith.constant 110 : index
+//CHECK-NEXT:          %505 = arith.constant {{.*}} : index
 //CHECK-NEXT:          %506 = arith.index_cast %505 : index to i64
 //CHECK-NEXT:          %507 = "llvm.mlir.undef"() : () -> !llvm.struct<(!llvm.ptr, i64)>
 //CHECK-NEXT:          %508 = "llvm.insertvalue"(%507, %491) <{position = array<i64: 0>}> : (!llvm.struct<(!llvm.ptr, i64)>, !llvm.ptr) -> !llvm.struct<(!llvm.ptr, i64)>
@@ -766,7 +766,7 @@
 //CHECK-NEXT:        scf.yield %585 : i32
 //CHECK-NEXT:      }
 //CHECK-NEXT:      memref.store %524, %4[] : memref<i32>
-//CHECK-NEXT:      %586 = "llvm.mlir.addressof"() <{global_name = @_QQclX5ae9cb004e963b794fb71cb493930af9}> : () -> !llvm.ptr
+//CHECK-NEXT:      %586 = "llvm.mlir.addressof"() <{global_name = @{{.*}}}> : () -> !llvm.ptr
 //CHECK-NEXT:      "memref.alloca_scope"() ({
 //CHECK-NEXT:        %587 = arith.constant 3 : index
 //CHECK-NEXT:        %588 = arith.constant 1 : index
@@ -783,7 +783,7 @@
 //CHECK-NEXT:        %599 = arith.cmpi eq, %597, %598 : i32
 //CHECK-NEXT:        %600 = "memref.alloca"() <{operandSegmentSizes = array<i32: 0, 0>}> : () -> memref<i1>
 //CHECK-NEXT:        memref.store %599, %600[] : memref<i1>
-//CHECK-NEXT:        %601 = arith.constant 110 : index
+//CHECK-NEXT:        %601 = arith.constant {{.*}} : index
 //CHECK-NEXT:        %602 = arith.index_cast %601 : index to i64
 //CHECK-NEXT:        %603 = "llvm.mlir.undef"() : () -> !llvm.struct<(!llvm.ptr, i64)>
 //CHECK-NEXT:        %604 = "llvm.insertvalue"(%603, %586) <{position = array<i64: 0>}> : (!llvm.struct<(!llvm.ptr, i64)>, !llvm.ptr) -> !llvm.struct<(!llvm.ptr, i64)>
@@ -794,7 +794,7 @@
 //CHECK-NEXT:        func.call @_QPassert(%600, %605, %607) : (memref<i1>, !llvm.struct<(!llvm.ptr, i64)>, memref<i32>) -> ()
 //CHECK-NEXT:        "memref.alloca_scope.return"() : () -> ()
 //CHECK-NEXT:      }) : () -> ()
-//CHECK-NEXT:      %608 = "llvm.mlir.addressof"() <{global_name = @_QQclX5ae9cb004e963b794fb71cb493930af9}> : () -> !llvm.ptr
+//CHECK-NEXT:      %608 = "llvm.mlir.addressof"() <{global_name = @{{.*}}}> : () -> !llvm.ptr
 //CHECK-NEXT:      "memref.alloca_scope"() ({
 //CHECK-NEXT:        %609 = arith.constant 8 : index
 //CHECK-NEXT:        %610 = arith.constant 1 : index
@@ -811,7 +811,7 @@
 //CHECK-NEXT:        %621 = arith.cmpi eq, %619, %620 : i32
 //CHECK-NEXT:        %622 = "memref.alloca"() <{operandSegmentSizes = array<i32: 0, 0>}> : () -> memref<i1>
 //CHECK-NEXT:        memref.store %621, %622[] : memref<i1>
-//CHECK-NEXT:        %623 = arith.constant 110 : index
+//CHECK-NEXT:        %623 = arith.constant {{.*}} : index
 //CHECK-NEXT:        %624 = arith.index_cast %623 : index to i64
 //CHECK-NEXT:        %625 = "llvm.mlir.undef"() : () -> !llvm.struct<(!llvm.ptr, i64)>
 //CHECK-NEXT:        %626 = "llvm.insertvalue"(%625, %608) <{position = array<i64: 0>}> : (!llvm.struct<(!llvm.ptr, i64)>, !llvm.ptr) -> !llvm.struct<(!llvm.ptr, i64)>
@@ -856,10 +856,10 @@
 //CHECK-NEXT:      memref.store %4, %0[%9] : memref<100xf32>
 //CHECK-NEXT:      func.return
 //CHECK-NEXT:    }
-//CHECK-NEXT:    "llvm.mlir.global"() <{global_type = !llvm.array<110 x i8>, sym_name = "_QQclXc32113a2d05a7a137514c8f3d5da9059", linkage = #llvm.linkage<"internal">, addr_space = 0 : i32, constant, value = "/home/nick/projects/xdsl/ftn/tests/to_core/filecheck/fragments/../../../../examples/fragments/allocatables.F90", unnamed_addr = 0 : i64}> ({
+//CHECK-NEXT:    "llvm.mlir.global"() <{global_type = !llvm.array<{{[0-9]+}} x i8>, sym_name = "_{{.*}}", linkage = #llvm.linkage<"internal">, addr_space = 0 : i32, constant, value = "{{.*}}", unnamed_addr = 0 : i64}> ({
 //CHECK-NEXT:    }) : () -> ()
 //CHECK-NEXT:    func.func private @_QPassert(memref<i1>, !llvm.struct<(!llvm.ptr, i64)>, memref<i32>) -> () 
-//CHECK-NEXT:    "llvm.mlir.global"() <{global_type = !llvm.array<110 x i8>, sym_name = "_QQclX5ae9cb004e963b794fb71cb493930af9", linkage = #llvm.linkage<"internal">, addr_space = 0 : i32, constant, value = "/home/nick/projects/xdsl/ftn/tests/to_core/filecheck/fragments/../../../../examples/fragments/allocatables.F90", unnamed_addr = 0 : i64}> ({
+//CHECK-NEXT:    "llvm.mlir.global"() <{global_type = !llvm.array<{{[0-9]+}} x i8>, sym_name = "_{{.*}}", linkage = #llvm.linkage<"internal">, addr_space = 0 : i32, constant, value = "{{.*}}", unnamed_addr = 0 : i64}> ({
 //CHECK-NEXT:    }) : () -> ()
 //CHECK-NEXT:  }
 //CHECK-EMPTY:  
