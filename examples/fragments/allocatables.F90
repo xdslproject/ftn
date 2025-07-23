@@ -1,4 +1,4 @@
-module allocatable_test
+module allocatables_test
 #ifndef FRAGMENT_ONLY
   use assertion
 #endif
@@ -105,14 +105,14 @@ contains
 
     a(idx)=value
   end subroutine modify_array_two
-end module allocatable_test
+end module allocatables_test
 
 #ifndef FRAGMENT_ONLY
 program driver
-  use allocatable_test
+  use allocatables_test
   implicit none
 
-  call assert_init(.true.)
+  call assert_init(.false.)
   call calc()
   call assert_finalize(__FILE__)
 end program driver

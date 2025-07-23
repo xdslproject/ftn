@@ -1,5 +1,5 @@
 #ifndef FRAGMENT_ONLY
-module pointer_test
+module pointers_test
   use assertion
 #endif
   implicit none
@@ -111,11 +111,11 @@ contains
       swp1 => swp2
       swp2 => swp_tmp
   end subroutine swap
-end module pointer_test
+end module pointers_test
 
 #ifndef FRAGMENT_ONLY
 program driver
-  use pointer_test
+  use pointers_test
   implicit none
 
   call assert_init(.false.)

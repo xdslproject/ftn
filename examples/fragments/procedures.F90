@@ -1,4 +1,4 @@
-module proc_test
+module procedures_test
 #ifndef FRAGMENT_ONLY
   use assertion
 #endif
@@ -94,14 +94,14 @@ contains
     v1=99
     v2=66
   end subroutine mod_globals
-end module proc_test
+end module procedures_test
 
 #ifndef FRAGMENT_ONLY
 program driver
-  use proc_test
+  use procedures_test
   implicit none
 
-  call assert_init(.true.)
+  call assert_init(.false.)
   call calc()
   call assert_finalize(__FILE__)
 end program driver

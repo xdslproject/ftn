@@ -1,4 +1,4 @@
-module array_test
+module arrays_test
 #ifndef FRAGMENT_ONLY
   use assertion
 #endif
@@ -90,14 +90,14 @@ contains
 
     a(idx)=value
   end subroutine modify_array_two
-end module array_test
+end module arrays_test
 
 #ifndef FRAGMENT_ONLY
 program driver
-  use array_test
+  use arrays_test
   implicit none
 
-  call assert_init(.true.)
+  call assert_init(.false.)
   call calc()
   call assert_finalize(__FILE__)
 end program driver

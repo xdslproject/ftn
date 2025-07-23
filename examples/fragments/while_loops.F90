@@ -1,12 +1,12 @@
 #ifndef FRAGMENT_ONLY
-module mod_example
+module while_loops_test
   use assertion
   implicit none
 
 contains
 #endif
 
-  subroutine example(a)
+  subroutine calc(a)
     integer, intent(in) :: a
 
     integer :: n, c
@@ -66,17 +66,17 @@ contains
       c=c+(n-1)
     end do
     call assert(c==210, __FILE__, __LINE__)
-  end subroutine example
+  end subroutine calc
 
 #ifndef FRAGMENT_ONLY
-end module mod_example
+end module while_loops_test
 
 program driver
-  use mod_example
+  use while_loops_test
   implicit none
 
   call assert_init(.false.)
-  call example(100)
+  call calc(100)
   call assert_finalize(__FILE__)
 end program driver
 #endif

@@ -1,12 +1,12 @@
 #ifndef FRAGMENT_ONLY
-module mod_example
+module conditionals_test
   use assertion
   implicit none
 
 contains
 #endif
 
-  subroutine example(a, b)
+  subroutine calc(a, b)
     integer, intent(in) :: a, b
 
     integer :: c, d
@@ -43,17 +43,17 @@ contains
       call assert(.false., __FILE__, __LINE__)
     end if
 
-  end subroutine example
+  end subroutine calc
 
 #ifndef FRAGMENT_ONLY
-end module mod_example
+end module conditionals_test
 
 program driver
-  use mod_example
+  use conditionals_test
   implicit none
 
   call assert_init(.false.)
-  call example(100, 200)
+  call calc(100, 200)
   call assert_finalize(__FILE__)
 end program driver
 #endif
