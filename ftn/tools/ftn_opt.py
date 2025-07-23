@@ -118,10 +118,6 @@ def main():
     except SyntaxError as e:
         print(e.get_message())
         exit(0)
-    except Exception as e:
-        traceback.print_tb(e.__traceback__)
-        print("Error: %s" % str(e))
-        exit(0)
 
 
 if __name__ == "__main__":
