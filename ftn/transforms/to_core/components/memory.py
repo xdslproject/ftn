@@ -429,7 +429,14 @@ def translate_declare(
 
     # Passing an allocatable with annonymous dimension e.g. memref<?,i32> it doesn't know the size
 
-    if op.shape is None and not isa(op.results[0].type, fir.BoxType):
+    if (
+        op.shape is None
+        and not isa(op.results[0].type, fir.BoxType)
+        and (
+            isa(op.results[0].type, fir.ReferenceType)
+            and not isa(op.results[0].type.type, fir.BoxType)
+        )
+    ):
         # Ensure it doesn't have a shape, and there isn't a boxtype (which caries the shape)
         # this means that it is a scalar (TODO: could also check the inner type)
         return define_scalar_var(program_state, ctx, op)
@@ -475,19 +482,30 @@ def translate_declare(
         else:
             # There is no shape, we need to grab this from the memref using operations
             assert isa(op.memref, BlockArgument)
-            assert isa(op.results[0].type, fir.BoxType) and isa(
-                op.results[0].type.type, fir.SequenceType
+            assert isa(op.results[0].type, fir.BoxType) or isa(
+                op.results[0].type, fir.ReferenceType
             )
-            num_dims = len(op.results[0].type.type.shape)
+            sequence_type = ftn_types.get_type_from_chain(
+                op.results[0].type, fir.SequenceType
+            )
+            assert isa(sequence_type, fir.SequenceType)
+            num_dims = len(sequence_type.shape)
 
             one_op = create_index_constant(1)
             ops_list = [one_op]
             size_ssas = []
             end_ssas = []
+
+            dim_memref_ssa = ctx[op.memref]
+            if isa(dim_memref_ssa.type.element_type, builtin.MemRefType):
+                # If its an allocatable we need to load the memref that it contains
+                load_op = memref.LoadOp.get(dim_memref_ssa, [])
+                dim_memref_ssa = load_op.results[0]
+                ops_list.append(load_op)
             for dim in range(num_dims):
                 dim_idx_op = create_index_constant(dim)
                 get_dim_op = memref.DimOp.from_source_and_index(
-                    ctx[op.memref], dim_idx_op
+                    dim_memref_ssa, dim_idx_op
                 )
                 add_arith_op = arith.AddiOp(get_dim_op.results[0], one_op.results[0])
                 ops_list += [dim_idx_op, get_dim_op, add_arith_op]
