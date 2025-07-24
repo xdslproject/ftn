@@ -76,6 +76,9 @@ contains
         call assert(a(i)==real(100-i), __FILE__, __LINE__)
       end do
 
+      call modify_array_three(a, 80, 13.4)
+      call assert(a(80) == 13.4, __FILE__, __LINE__)
+
       ! Test multi-dimensional arrays
       do i=1, 10
         do j=1, 10
@@ -86,6 +89,13 @@ contains
       end do
       call assert(c(3,4,5)==543, __FILE__, __LINE__)
       call assert(c(8,9,1)==198, __FILE__, __LINE__)
+
+      call modify_3darray_one(c, 2, 3, 4, 100)
+      call assert(c(2,3,4)==100, __FILE__, __LINE__)
+      call modify_3darray_two(c, 6, 7, 8, 200)
+      call assert(c(6,7,8)==200, __FILE__, __LINE__)
+      call modify_3darray_three(c, 4, 5, 6, 300)
+      call assert(c(4,5,6)==300, __FILE__, __LINE__)
 
       deallocate(a,b,c)
   end subroutine calc
@@ -105,6 +115,35 @@ contains
 
     a(idx)=value
   end subroutine modify_array_two
+
+  subroutine modify_array_three(a, idx, value)
+    real, dimension(:), allocatable, intent(inout) :: a
+    integer, intent(in) :: idx
+    real, intent(in) :: value
+
+    a(idx)=value
+  end subroutine modify_array_three
+
+  subroutine modify_3darray_one(array, k, j, i, value)
+    integer, dimension(:,:,:), intent(inout) :: array
+    integer, intent(in) :: i, j, k, value
+
+    array(k, j, i)=value
+  end subroutine modify_3darray_one
+
+  subroutine modify_3darray_two(array, k, j, i, value)
+    integer, dimension(10,10,10), intent(inout) :: array
+    integer, intent(in) :: i, j, k, value
+
+    array(k, j, i)=value
+  end subroutine modify_3darray_two
+
+  subroutine modify_3darray_three(array, k, j, i, value)
+    integer, dimension(:,:,:), allocatable, intent(inout) :: array
+    integer, intent(in) :: i, j, k, value
+
+    array(k, j, i)=value
+  end subroutine modify_3darray_three
 end module allocatables_test
 
 #ifndef FRAGMENT_ONLY
