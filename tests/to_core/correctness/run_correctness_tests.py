@@ -29,21 +29,38 @@ def run_executable(exec_name):
     )
     output = result.stdout
     out_components = output.split("\n")
-    for prt_a, prt_b in zip(*[iter(out_components)] * 2):
-        # This formats properly as it will reduce the line width and add a newline
-        # but does assume there is one newline per line, which is not guaranteed
-        # The character after newline is always an additional space, therefore ignore it
-        pretty_out = prt_a + prt_b[1:]
-        if ":" in pretty_out:
-            pretty_out_components = pretty_out.split(":")
-            pretty_out = ""
-            for idx, comp in enumerate(pretty_out_components):
-                if idx > 0:
-                    pretty_out += ": "
-                pretty_out += comp.strip()
-        pretty_out = pretty_out.strip()
+    run_success = True
+    if len(out_components) > 1:
+        for prt_a, prt_b in zip(*[iter(out_components)] * 2):
+            # This formats properly as it will reduce the line width and add a newline
+            # but does assume there is one newline per line, which is not guaranteed
+            # The character after newline is always an additional space, therefore ignore it
+            pretty_out = prt_a + prt_b[1:]
+            if ":" in pretty_out:
+                pretty_out_components = pretty_out.split(":")
+                pretty_out = ""
+                for idx, comp in enumerate(pretty_out_components):
+                    if idx > 0:
+                        pretty_out += ": "
+                    pretty_out += comp.strip()
+            pretty_out = pretty_out.strip()
+            print(pretty_out)
+            if "FAIL" in pretty_out:
+                run_success = False
+    else:
+        pretty_out = output
         print(pretty_out)
-    return "FAIL" not in pretty_out
+        if "FAIL" in pretty_out:
+            run_success = False
+
+    if len(result.stderr.strip()) > 0:
+        print(result.stderr.strip())
+
+    if result.returncode != 0:
+        run_success = False
+        print(f"[ERROR] '{exec_name}' returned code {result.returncode}")
+
+    return run_success
 
 
 if not "XFTN_PATH" in environ:
