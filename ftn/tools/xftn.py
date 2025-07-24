@@ -26,6 +26,12 @@ def initialise_argument_parser():
     parser.add_argument("-omp", "--openmp", action="store_true", help="Enable OpenMP")
     parser.add_argument("-fomp", "--fopenmp", action="store_true", help="Enable OpenMP")
     parser.add_argument(
+        "-d",
+        "--debug",
+        action="store_true",
+        help="Debug ftn-opt, only run transform to core and no other passes",
+    )
+    parser.add_argument(
         "--cleanup",
         action="store_true",
         help="Remove temporary compilation files on successful build",
@@ -361,6 +367,9 @@ def lower_fir_to_core_dialects(
     output_tmp_dir, input_fn, output_fn, options_db, store_out_in_tmp
 ):
     transformation_passes = ["rewrite-fir-to-core", "merge-memref-deref"]
+
+    if not options_db["debug"]:
+        transformation_passes += ["canonicalize", "cse"]
     run_ftnopt_passes(
         output_tmp_dir,
         input_fn,
