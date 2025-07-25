@@ -177,10 +177,8 @@
 //CHECK-NEXT:      %103 = memref.load %2[] : memref<i32>
 //CHECK-NEXT:      %104 = arith.constant 10 : i32
 //CHECK-NEXT:      %105 = arith.cmpi sgt, %103, %104 : i32
-//CHECK-NEXT:      cf.cond_br %105, ^15, ^16
+//CHECK-NEXT:      cf.cond_br %105, ^14, ^15
 //CHECK-NEXT:    ^15:
-//CHECK-NEXT:      cf.br ^14
-//CHECK-NEXT:    ^16:
 //CHECK-NEXT:      %106 = memref.load %2[] : memref<i32>
 //CHECK-NEXT:      %107 = arith.constant 1 : i32
 //CHECK-NEXT:      %108 = arith.addi %106, %107 : i32
@@ -209,13 +207,13 @@
 //CHECK-NEXT:      memref.store %121, %1[] : memref<i32>
 //CHECK-NEXT:      %122 = arith.constant 1 : i32
 //CHECK-NEXT:      memref.store %122, %2[] : memref<i32>
-//CHECK-NEXT:      cf.br ^17
-//CHECK-NEXT:    ^17:
+//CHECK-NEXT:      cf.br ^16
+//CHECK-NEXT:    ^16:
 //CHECK-NEXT:      %123 = memref.load %2[] : memref<i32>
 //CHECK-NEXT:      %124 = memref.load %0[] : memref<i32>
 //CHECK-NEXT:      %125 = arith.cmpi sle, %123, %124 : i32
-//CHECK-NEXT:      cf.cond_br %125, ^18, ^19
-//CHECK-NEXT:    ^18:
+//CHECK-NEXT:      cf.cond_br %125, ^17, ^18
+//CHECK-NEXT:    ^17:
 //CHECK-NEXT:      %126 = memref.load %2[] : memref<i32>
 //CHECK-NEXT:      %127 = arith.constant 1 : i32
 //CHECK-NEXT:      %128 = arith.addi %126, %127 : i32
@@ -236,8 +234,8 @@
 //CHECK-NEXT:        memref.store %140, %1[] : memref<i32>
 //CHECK-NEXT:      } else {
 //CHECK-NEXT:      }
-//CHECK-NEXT:      cf.br ^17
-//CHECK-NEXT:    ^19:
+//CHECK-NEXT:      cf.br ^16
+//CHECK-NEXT:    ^18:
 //CHECK-NEXT:      %141 = "llvm.mlir.addressof"() <{global_name = @{{.*}}}> : () -> !llvm.ptr
 //CHECK-NEXT:      "memref.alloca_scope"() ({
 //CHECK-NEXT:        %142 = memref.load %1[] : memref<i32>

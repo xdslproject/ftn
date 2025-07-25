@@ -8,105 +8,64 @@
 //CHECK-NEXT:      %4 = arith.constant 100 : index
 //CHECK-NEXT:      %5 = memref.alloc(%4) : memref<?xf32>
 //CHECK-NEXT:      memref.store %5, %0[] : memref<memref<?xf32>>
-//CHECK-NEXT:      %6 = arith.constant 100 : index
-//CHECK-NEXT:      %7 = memref.alloc(%6) : memref<?xf32>
-//CHECK-NEXT:      memref.store %7, %1[] : memref<memref<?xf32>>
-//CHECK-NEXT:      %8 = arith.constant 100 : index
-//CHECK-NEXT:      %9 = memref.alloc(%8) : memref<?xf32>
-//CHECK-NEXT:      memref.store %9, %2[] : memref<memref<?xf32>>
-//CHECK-NEXT:      %10 = "omp.map.info"(%3) <{map_capture_type = #omp<variable_capture_kind (ByCopy)>, map_type = 512 : ui64, name = "i", partial_map = false, var_type = i32, operandSegmentSizes = array<i32: 1, 0, 0, 0>}> : (memref<i32>) -> memref<i32>
-//CHECK-NEXT:      %11 = "memref.extract_aligned_pointer_as_index"(%2) : (memref<memref<?xf32>>) -> index
-//CHECK-NEXT:      %12 = arith.index_cast %11 : index to i64
-//CHECK-NEXT:      %13 = "llvm.inttoptr"(%12) : (i64) -> !llvm.ptr
-//CHECK-NEXT:      %14 = arith.constant 0 : index
-//CHECK-NEXT:      %15 = memref.load %2[] : memref<memref<?xf32>>
-//CHECK-NEXT:      %16 = arith.constant 0 : index
-//CHECK-NEXT:      %17 = arith.constant 1 : index
-//CHECK-NEXT:      %18 = arith.constant 1 : index
-//CHECK-NEXT:      %19 = "memref.dim"(%15, %16) : (memref<?xf32>, index) -> index
-//CHECK-NEXT:      %20 = arith.constant 1 : index
-//CHECK-NEXT:      %21 = arith.subi %19, %20 : index
-//CHECK-NEXT:      %22 = memref.load %2[] : memref<memref<?xf32>>
-//CHECK-NEXT:      %23 = arith.constant 0 : index
-//CHECK-NEXT:      %24 = arith.constant 1 : index
-//CHECK-NEXT:      %25 = arith.constant 1 : index
-//CHECK-NEXT:      %26 = "memref.dim"(%22, %23) : (memref<?xf32>, index) -> index
-//CHECK-NEXT:      %27 = "omp.map.bounds"(%14, %21, %19, %18, %24) <{stride_in_bytes = true, operandSegmentSizes = array<i32: 1, 1, 1, 1, 1>}> : (index, index, index, index, index) -> !omp.map_bounds_ty
-//CHECK-NEXT:      %28 = "omp.map.info"(%2, %13, %27) <{map_capture_type = #omp<variable_capture_kind (ByRef)>, map_type = 515 : ui64, name = "", partial_map = false, var_type = f32, operandSegmentSizes = array<i32: 1, 1, 0, 1>}> : (memref<memref<?xf32>>, !llvm.ptr, !omp.map_bounds_ty) -> memref<memref<?xf32>>
-//CHECK-NEXT{LITERAL}:      %29 = "omp.map.info"(%2, %28) <{map_capture_type = #omp<variable_capture_kind (ByRef)>, map_type = 513 : ui64, members_index = [[0 : i64]], name = "c", partial_map = false, var_type = memref<?xf32>, operandSegmentSizes = array<i32: 1, 0, 1, 0>}> : (memref<memref<?xf32>>, memref<memref<?xf32>>) -> memref<memref<?xf32>>
-//CHECK-NEXT:      %30 = "memref.extract_aligned_pointer_as_index"(%0) : (memref<memref<?xf32>>) -> index
-//CHECK-NEXT:      %31 = arith.index_cast %30 : index to i64
-//CHECK-NEXT:      %32 = "llvm.inttoptr"(%31) : (i64) -> !llvm.ptr
-//CHECK-NEXT:      %33 = arith.constant 0 : index
-//CHECK-NEXT:      %34 = memref.load %0[] : memref<memref<?xf32>>
-//CHECK-NEXT:      %35 = arith.constant 0 : index
-//CHECK-NEXT:      %36 = arith.constant 1 : index
-//CHECK-NEXT:      %37 = arith.constant 1 : index
-//CHECK-NEXT:      %38 = "memref.dim"(%34, %35) : (memref<?xf32>, index) -> index
-//CHECK-NEXT:      %39 = arith.constant 1 : index
-//CHECK-NEXT:      %40 = arith.subi %38, %39 : index
-//CHECK-NEXT:      %41 = memref.load %0[] : memref<memref<?xf32>>
-//CHECK-NEXT:      %42 = arith.constant 0 : index
-//CHECK-NEXT:      %43 = arith.constant 1 : index
-//CHECK-NEXT:      %44 = arith.constant 1 : index
-//CHECK-NEXT:      %45 = "memref.dim"(%41, %42) : (memref<?xf32>, index) -> index
-//CHECK-NEXT:      %46 = "omp.map.bounds"(%33, %40, %38, %37, %43) <{stride_in_bytes = true, operandSegmentSizes = array<i32: 1, 1, 1, 1, 1>}> : (index, index, index, index, index) -> !omp.map_bounds_ty
-//CHECK-NEXT:      %47 = "omp.map.info"(%0, %32, %46) <{map_capture_type = #omp<variable_capture_kind (ByRef)>, map_type = 515 : ui64, name = "", partial_map = false, var_type = f32, operandSegmentSizes = array<i32: 1, 1, 0, 1>}> : (memref<memref<?xf32>>, !llvm.ptr, !omp.map_bounds_ty) -> memref<memref<?xf32>>
-//CHECK-NEXT{LITERAL}:      %48 = "omp.map.info"(%0, %47) <{map_capture_type = #omp<variable_capture_kind (ByRef)>, map_type = 513 : ui64, members_index = [[0 : i64]], name = "a", partial_map = false, var_type = memref<?xf32>, operandSegmentSizes = array<i32: 1, 0, 1, 0>}> : (memref<memref<?xf32>>, memref<memref<?xf32>>) -> memref<memref<?xf32>>
-//CHECK-NEXT:      %49 = "memref.extract_aligned_pointer_as_index"(%1) : (memref<memref<?xf32>>) -> index
-//CHECK-NEXT:      %50 = arith.index_cast %49 : index to i64
-//CHECK-NEXT:      %51 = "llvm.inttoptr"(%50) : (i64) -> !llvm.ptr
-//CHECK-NEXT:      %52 = arith.constant 0 : index
-//CHECK-NEXT:      %53 = memref.load %1[] : memref<memref<?xf32>>
-//CHECK-NEXT:      %54 = arith.constant 0 : index
-//CHECK-NEXT:      %55 = arith.constant 1 : index
-//CHECK-NEXT:      %56 = arith.constant 1 : index
-//CHECK-NEXT:      %57 = "memref.dim"(%53, %54) : (memref<?xf32>, index) -> index
-//CHECK-NEXT:      %58 = arith.constant 1 : index
-//CHECK-NEXT:      %59 = arith.subi %57, %58 : index
-//CHECK-NEXT:      %60 = memref.load %1[] : memref<memref<?xf32>>
-//CHECK-NEXT:      %61 = arith.constant 0 : index
-//CHECK-NEXT:      %62 = arith.constant 1 : index
-//CHECK-NEXT:      %63 = arith.constant 1 : index
-//CHECK-NEXT:      %64 = "memref.dim"(%60, %61) : (memref<?xf32>, index) -> index
-//CHECK-NEXT:      %65 = "omp.map.bounds"(%52, %59, %57, %56, %62) <{stride_in_bytes = true, operandSegmentSizes = array<i32: 1, 1, 1, 1, 1>}> : (index, index, index, index, index) -> !omp.map_bounds_ty
-//CHECK-NEXT:      %66 = "omp.map.info"(%1, %51, %65) <{map_capture_type = #omp<variable_capture_kind (ByRef)>, map_type = 515 : ui64, name = "", partial_map = false, var_type = f32, operandSegmentSizes = array<i32: 1, 1, 0, 1>}> : (memref<memref<?xf32>>, !llvm.ptr, !omp.map_bounds_ty) -> memref<memref<?xf32>>
-//CHECK-NEXT{LITERAL}:      %67 = "omp.map.info"(%1, %66) <{map_capture_type = #omp<variable_capture_kind (ByRef)>, map_type = 513 : ui64, members_index = [[0 : i64]], name = "b", partial_map = false, var_type = memref<?xf32>, operandSegmentSizes = array<i32: 1, 0, 1, 0>}> : (memref<memref<?xf32>>, memref<memref<?xf32>>) -> memref<memref<?xf32>>
-//CHECK-NEXT:      "omp.target"(%10, %29, %48, %67, %28, %47, %66) <{operandSegmentSizes = array<i32: 0, 0, 0, 0, 0, 0, 0, 0, 0, 7, 0, 0>}> ({
-//CHECK-NEXT:      ^0(%68 : memref<i32>, %69 : memref<memref<?xf32>>, %70 : memref<memref<?xf32>>, %71 : memref<memref<?xf32>>, %72 : memref<memref<?xf32>>, %73 : memref<memref<?xf32>>, %74 : memref<memref<?xf32>>):
-//CHECK-NEXT:        %75 = arith.constant 20 : i32
-//CHECK-NEXT:        "omp.parallel"(%75) <{operandSegmentSizes = array<i32: 0, 0, 0, 1, 0, 0>}> ({
-//CHECK-NEXT:        ^1(%76 : i32):
-//CHECK-NEXT:          %77 = "memref.alloca"() <{operandSegmentSizes = array<i32: 0, 0>}> : () -> memref<i32>
-//CHECK-NEXT:          %78 = arith.constant 1 : i32
-//CHECK-NEXT:          %79 = arith.constant 100 : i32
-//CHECK-NEXT:          %80 = arith.constant 1 : i32
+//CHECK-NEXT:      %6 = memref.alloc(%4) : memref<?xf32>
+//CHECK-NEXT:      memref.store %6, %1[] : memref<memref<?xf32>>
+//CHECK-NEXT:      %7 = memref.alloc(%4) : memref<?xf32>
+//CHECK-NEXT:      memref.store %7, %2[] : memref<memref<?xf32>>
+//CHECK-NEXT:      %8 = "omp.map.info"(%3) <{map_capture_type = #omp<variable_capture_kind (ByCopy)>, map_type = 512 : ui64, name = "i", partial_map = false, var_type = i32, operandSegmentSizes = array<i32: 1, 0, 0, 0>}> : (memref<i32>) -> memref<i32>
+//CHECK-NEXT:      %9 = "memref.extract_aligned_pointer_as_index"(%2) : (memref<memref<?xf32>>) -> index
+//CHECK-NEXT:      %10 = arith.index_cast %9 : index to i64
+//CHECK-NEXT:      %11 = "llvm.inttoptr"(%10) : (i64) -> !llvm.ptr
+//CHECK-NEXT:      %12 = arith.constant 0 : index
+//CHECK-NEXT:      %13 = memref.load %2[] : memref<memref<?xf32>>
+//CHECK-NEXT:      %14 = arith.constant 1 : index
+//CHECK-NEXT:      %15 = "memref.dim"(%13, %12) : (memref<?xf32>, index) -> index
+//CHECK-NEXT:      %16 = arith.subi %15, %14 : index
+//CHECK-NEXT:      %17 = "omp.map.bounds"(%12, %16, %15, %14, %14) <{stride_in_bytes = true, operandSegmentSizes = array<i32: 1, 1, 1, 1, 1>}> : (index, index, index, index, index) -> !omp.map_bounds_ty
+//CHECK-NEXT:      %18 = "omp.map.info"(%2, %11, %17) <{map_capture_type = #omp<variable_capture_kind (ByRef)>, map_type = 515 : ui64, name = "", partial_map = false, var_type = f32, operandSegmentSizes = array<i32: 1, 1, 0, 1>}> : (memref<memref<?xf32>>, !llvm.ptr, !omp.map_bounds_ty) -> memref<memref<?xf32>>
+//CHECK-NEXT{LITERAL}:      %19 = "omp.map.info"(%2, %18) <{map_capture_type = #omp<variable_capture_kind (ByRef)>, map_type = 513 : ui64, members_index = [[0 : i64]], name = "c", partial_map = false, var_type = memref<?xf32>, operandSegmentSizes = array<i32: 1, 0, 1, 0>}> : (memref<memref<?xf32>>, memref<memref<?xf32>>) -> memref<memref<?xf32>>
+//CHECK-NEXT:      %20 = "memref.extract_aligned_pointer_as_index"(%0) : (memref<memref<?xf32>>) -> index
+//CHECK-NEXT:      %21 = arith.index_cast %20 : index to i64
+//CHECK-NEXT:      %22 = "llvm.inttoptr"(%21) : (i64) -> !llvm.ptr
+//CHECK-NEXT:      %23 = memref.load %0[] : memref<memref<?xf32>>
+//CHECK-NEXT:      %24 = "memref.dim"(%23, %12) : (memref<?xf32>, index) -> index
+//CHECK-NEXT:      %25 = arith.subi %24, %14 : index
+//CHECK-NEXT:      %26 = "omp.map.bounds"(%12, %25, %24, %14, %14) <{stride_in_bytes = true, operandSegmentSizes = array<i32: 1, 1, 1, 1, 1>}> : (index, index, index, index, index) -> !omp.map_bounds_ty
+//CHECK-NEXT:      %27 = "omp.map.info"(%0, %22, %26) <{map_capture_type = #omp<variable_capture_kind (ByRef)>, map_type = 515 : ui64, name = "", partial_map = false, var_type = f32, operandSegmentSizes = array<i32: 1, 1, 0, 1>}> : (memref<memref<?xf32>>, !llvm.ptr, !omp.map_bounds_ty) -> memref<memref<?xf32>>
+//CHECK-NEXT{LITERAL}:      %28 = "omp.map.info"(%0, %27) <{map_capture_type = #omp<variable_capture_kind (ByRef)>, map_type = 513 : ui64, members_index = [[0 : i64]], name = "a", partial_map = false, var_type = memref<?xf32>, operandSegmentSizes = array<i32: 1, 0, 1, 0>}> : (memref<memref<?xf32>>, memref<memref<?xf32>>) -> memref<memref<?xf32>>
+//CHECK-NEXT:      %29 = "memref.extract_aligned_pointer_as_index"(%1) : (memref<memref<?xf32>>) -> index
+//CHECK-NEXT:      %30 = arith.index_cast %29 : index to i64
+//CHECK-NEXT:      %31 = "llvm.inttoptr"(%30) : (i64) -> !llvm.ptr
+//CHECK-NEXT:      %32 = memref.load %1[] : memref<memref<?xf32>>
+//CHECK-NEXT:      %33 = "memref.dim"(%32, %12) : (memref<?xf32>, index) -> index
+//CHECK-NEXT:      %34 = arith.subi %33, %14 : index
+//CHECK-NEXT:      %35 = "omp.map.bounds"(%12, %34, %33, %14, %14) <{stride_in_bytes = true, operandSegmentSizes = array<i32: 1, 1, 1, 1, 1>}> : (index, index, index, index, index) -> !omp.map_bounds_ty
+//CHECK-NEXT:      %36 = "omp.map.info"(%1, %31, %35) <{map_capture_type = #omp<variable_capture_kind (ByRef)>, map_type = 515 : ui64, name = "", partial_map = false, var_type = f32, operandSegmentSizes = array<i32: 1, 1, 0, 1>}> : (memref<memref<?xf32>>, !llvm.ptr, !omp.map_bounds_ty) -> memref<memref<?xf32>>
+//CHECK-NEXT{LITERAL}:      %37 = "omp.map.info"(%1, %36) <{map_capture_type = #omp<variable_capture_kind (ByRef)>, map_type = 513 : ui64, members_index = [[0 : i64]], name = "b", partial_map = false, var_type = memref<?xf32>, operandSegmentSizes = array<i32: 1, 0, 1, 0>}> : (memref<memref<?xf32>>, memref<memref<?xf32>>) -> memref<memref<?xf32>>
+//CHECK-NEXT:      "omp.target"(%8, %19, %28, %37, %18, %27, %36) <{operandSegmentSizes = array<i32: 0, 0, 0, 0, 0, 0, 0, 0, 0, 7, 0, 0>}> ({
+//CHECK-NEXT:      ^0(%38 : memref<i32>, %39 : memref<memref<?xf32>>, %40 : memref<memref<?xf32>>, %41 : memref<memref<?xf32>>, %42 : memref<memref<?xf32>>, %43 : memref<memref<?xf32>>, %44 : memref<memref<?xf32>>):
+//CHECK-NEXT:        %45 = arith.constant 20 : i32
+//CHECK-NEXT:        "omp.parallel"(%45) <{operandSegmentSizes = array<i32: 0, 0, 0, 1, 0, 0>}> ({
+//CHECK-NEXT:        ^1(%46 : i32):
+//CHECK-NEXT:          %47 = "memref.alloca"() <{operandSegmentSizes = array<i32: 0, 0>}> : () -> memref<i32>
+//CHECK-NEXT:          %48 = arith.constant 1 : i32
+//CHECK-NEXT:          %49 = arith.constant 100 : i32
 //CHECK-NEXT:          "omp.wsloop"() <{operandSegmentSizes = array<i32: 0, 0, 0, 0, 0, 0, 0>}> ({
-//CHECK-NEXT:            "omp.loop_nest"(%78, %79, %80) <{loop_inclusive}> ({
-//CHECK-NEXT:            ^2(%81 : i32):
-//CHECK-NEXT:              memref.store %81, %77[] : memref<i32>
-//CHECK-NEXT:              %82 = memref.load %77[] : memref<i32>
-//CHECK-NEXT:              %83 = arith.extui %82 : i32 to i64
-//CHECK-NEXT:              %84 = arith.index_cast %83 : i64 to index
-//CHECK-NEXT:              %85 = arith.constant 1 : index
-//CHECK-NEXT:              %86 = arith.subi %84, %85 : index
-//CHECK-NEXT:              %87 = memref.load %70[] : memref<memref<?xf32>>
-//CHECK-NEXT:              %88 = memref.load %87[%86] : memref<?xf32>
-//CHECK-NEXT:              %89 = memref.load %77[] : memref<i32>
-//CHECK-NEXT:              %90 = arith.extui %89 : i32 to i64
-//CHECK-NEXT:              %91 = arith.index_cast %90 : i64 to index
-//CHECK-NEXT:              %92 = arith.constant 1 : index
-//CHECK-NEXT:              %93 = arith.subi %91, %92 : index
-//CHECK-NEXT:              %94 = memref.load %71[] : memref<memref<?xf32>>
-//CHECK-NEXT:              %95 = memref.load %94[%93] : memref<?xf32>
-//CHECK-NEXT:              %96 = arith.addf %88, %95 fastmath<contract> : f32
-//CHECK-NEXT:              %97 = memref.load %77[] : memref<i32>
-//CHECK-NEXT:              %98 = arith.extui %97 : i32 to i64
-//CHECK-NEXT:              %99 = arith.index_cast %98 : i64 to index
-//CHECK-NEXT:              %100 = arith.constant 1 : index
-//CHECK-NEXT:              %101 = arith.subi %99, %100 : index
-//CHECK-NEXT:              %102 = memref.load %69[] : memref<memref<?xf32>>
-//CHECK-NEXT:              memref.store %96, %102[%101] : memref<?xf32>
+//CHECK-NEXT:            "omp.loop_nest"(%48, %49, %48) <{loop_inclusive}> ({
+//CHECK-NEXT:            ^2(%50 : i32):
+//CHECK-NEXT:              memref.store %50, %47[] : memref<i32>
+//CHECK-NEXT:              %51 = memref.load %47[] : memref<i32>
+//CHECK-NEXT:              %52 = arith.extui %51 : i32 to i64
+//CHECK-NEXT:              %53 = arith.index_cast %52 : i64 to index
+//CHECK-NEXT:              %54 = arith.constant 1 : index
+//CHECK-NEXT:              %55 = arith.subi %53, %54 : index
+//CHECK-NEXT:              %56 = memref.load %40[] : memref<memref<?xf32>>
+//CHECK-NEXT:              %57 = memref.load %56[%55] : memref<?xf32>
+//CHECK-NEXT:              %58 = memref.load %41[] : memref<memref<?xf32>>
+//CHECK-NEXT:              %59 = memref.load %58[%55] : memref<?xf32>
+//CHECK-NEXT:              %60 = arith.addf %57, %59 fastmath<contract> : f32
+//CHECK-NEXT:              %61 = memref.load %39[] : memref<memref<?xf32>>
+//CHECK-NEXT:              memref.store %60, %61[%55] : memref<?xf32>
 //CHECK-NEXT:              omp.yield
 //CHECK-NEXT:            }) : (i32, i32, i32) -> ()
 //CHECK-NEXT:          }) : () -> ()

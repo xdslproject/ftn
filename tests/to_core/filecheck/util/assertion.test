@@ -36,27 +36,25 @@
 //CHECK-NEXT:        %25 = func.call @_FortranAioOutputAscii(%18, %24, %10) : (!llvm.ptr, !llvm.ptr, i64) -> i1
 //CHECK-NEXT:        %26 = "llvm.mlir.addressof"() <{global_name = @{{.*}}}> : () -> !llvm.ptr
 //CHECK-NEXT:        %27 = "llvm.getelementptr"(%26) <{rawConstantIndices = array<i32: 0, 0>, elem_type = !llvm.array<1 x i8>}> : (!llvm.ptr) -> !llvm.ptr
-//CHECK-NEXT:        %28 = arith.constant 10 : index
-//CHECK-NEXT:        %29 = arith.index_cast %28 : index to i64
-//CHECK-NEXT:        %30 = func.call @_FortranAioOutputAscii(%18, %27, %29) : (!llvm.ptr, !llvm.ptr, i64) -> i1
-//CHECK-NEXT:        %31 = memref.load %5[] : memref<i32>
-//CHECK-NEXT:        %32 = func.call @_FortranAioOutputInteger32(%18, %31) : (!llvm.ptr, i32) -> i1
-//CHECK-NEXT:        %33 = func.call @_FortranAioEndIoStatement(%18) : (!llvm.ptr) -> i32
-//CHECK-NEXT:        %34 = "llvm.load"(%6) : (!llvm.ptr) -> i1
-//CHECK-NEXT:        scf.if %34 {
-//CHECK-NEXT:          %35 = arith.constant -1 : i32
-//CHECK-NEXT:          func.call @_FortranAExit(%35) : (i32) -> ()
+//CHECK-NEXT:        %28 = func.call @_FortranAioOutputAscii(%18, %27, %22) : (!llvm.ptr, !llvm.ptr, i64) -> i1
+//CHECK-NEXT:        %29 = memref.load %5[] : memref<i32>
+//CHECK-NEXT:        %30 = func.call @_FortranAioOutputInteger32(%18, %29) : (!llvm.ptr, i32) -> i1
+//CHECK-NEXT:        %31 = func.call @_FortranAioEndIoStatement(%18) : (!llvm.ptr) -> i32
+//CHECK-NEXT:        %32 = "llvm.load"(%6) : (!llvm.ptr) -> i1
+//CHECK-NEXT:        scf.if %32 {
+//CHECK-NEXT:          %33 = arith.constant -1 : i32
+//CHECK-NEXT:          func.call @_FortranAExit(%33) : (i32) -> ()
 //CHECK-NEXT:        } else {
-//CHECK-NEXT:          %36 = "llvm.load"(%7) : (!llvm.ptr) -> i32
-//CHECK-NEXT:          %37 = arith.constant 1 : i32
-//CHECK-NEXT:          %38 = arith.addi %36, %37 : i32
-//CHECK-NEXT:          "llvm.store"(%38, %7) <{ordering = 0 : i64}> : (i32, !llvm.ptr) -> ()
+//CHECK-NEXT:          %34 = "llvm.load"(%7) : (!llvm.ptr) -> i32
+//CHECK-NEXT:          %35 = arith.constant 1 : i32
+//CHECK-NEXT:          %36 = arith.addi %34, %35 : i32
+//CHECK-NEXT:          "llvm.store"(%36, %7) <{ordering = 0 : i64}> : (i32, !llvm.ptr) -> ()
 //CHECK-NEXT:        }
 //CHECK-NEXT:      } else {
-//CHECK-NEXT:        %39 = "llvm.load"(%8) : (!llvm.ptr) -> i32
-//CHECK-NEXT:        %40 = arith.constant 1 : i32
-//CHECK-NEXT:        %41 = arith.addi %39, %40 : i32
-//CHECK-NEXT:        "llvm.store"(%41, %8) <{ordering = 0 : i64}> : (i32, !llvm.ptr) -> ()
+//CHECK-NEXT:        %37 = "llvm.load"(%8) : (!llvm.ptr) -> i32
+//CHECK-NEXT:        %38 = arith.constant 1 : i32
+//CHECK-NEXT:        %39 = arith.addi %37, %38 : i32
+//CHECK-NEXT:        "llvm.store"(%39, %8) <{ordering = 0 : i64}> : (i32, !llvm.ptr) -> ()
 //CHECK-NEXT:      }
 //CHECK-NEXT:      func.return
 //CHECK-NEXT:    }

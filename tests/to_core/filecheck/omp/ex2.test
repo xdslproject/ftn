@@ -19,48 +19,45 @@
 //CHECK-NEXT:        %4 = "memref.alloca"() <{operandSegmentSizes = array<i32: 0, 0>}> : () -> memref<i32>
 //CHECK-NEXT:        %5 = arith.constant 1 : i32
 //CHECK-NEXT:        %6 = arith.constant 100 : i32
-//CHECK-NEXT:        %7 = arith.constant 1 : i32
 //CHECK-NEXT:        "omp.wsloop"() <{operandSegmentSizes = array<i32: 0, 0, 0, 0, 0, 0, 0>}> ({
-//CHECK-NEXT:          "omp.loop_nest"(%5, %6, %7) <{loop_inclusive}> ({
-//CHECK-NEXT:          ^0(%8 : i32):
-//CHECK-NEXT:            memref.store %8, %4[] : memref<i32>
-//CHECK-NEXT:            %9 = memref.load %4[] : memref<i32>
-//CHECK-NEXT:            %10 = arith.sitofp %9 : i32 to f32
-//CHECK-NEXT:            %11 = memref.load %4[] : memref<i32>
-//CHECK-NEXT:            %12 = arith.extui %11 : i32 to i64
-//CHECK-NEXT:            %13 = arith.index_cast %12 : i64 to index
-//CHECK-NEXT:            %14 = arith.constant 1 : index
-//CHECK-NEXT:            %15 = arith.subi %13, %14 : index
-//CHECK-NEXT:            %16 = memref.load %0[] : memref<memref<?xf32>>
-//CHECK-NEXT:            memref.store %10, %16[%15] : memref<?xf32>
+//CHECK-NEXT:          "omp.loop_nest"(%5, %6, %5) <{loop_inclusive}> ({
+//CHECK-NEXT:          ^0(%7 : i32):
+//CHECK-NEXT:            memref.store %7, %4[] : memref<i32>
+//CHECK-NEXT:            %8 = memref.load %4[] : memref<i32>
+//CHECK-NEXT:            %9 = arith.sitofp %8 : i32 to f32
+//CHECK-NEXT:            %10 = arith.extui %8 : i32 to i64
+//CHECK-NEXT:            %11 = arith.index_cast %10 : i64 to index
+//CHECK-NEXT:            %12 = arith.constant 1 : index
+//CHECK-NEXT:            %13 = arith.subi %11, %12 : index
+//CHECK-NEXT:            %14 = memref.load %0[] : memref<memref<?xf32>>
+//CHECK-NEXT:            memref.store %9, %14[%13] : memref<?xf32>
 //CHECK-NEXT:            omp.yield
 //CHECK-NEXT:          }) : (i32, i32, i32) -> ()
 //CHECK-NEXT:        }) : () -> ()
 //CHECK-NEXT:        "omp.terminator"() : () -> ()
 //CHECK-NEXT:      }) : () -> ()
 //CHECK-NEXT:      "omp.parallel"() <{operandSegmentSizes = array<i32: 0, 0, 0, 0, 0, 0>}> ({
-//CHECK-NEXT:        %17 = "memref.alloca"() <{operandSegmentSizes = array<i32: 0, 0>}> : () -> memref<i32>
-//CHECK-NEXT:        %18 = "memref.extract_aligned_pointer_as_index"(%1) : (memref<f32>) -> index
-//CHECK-NEXT:        %19 = arith.index_cast %18 : index to i64
-//CHECK-NEXT:        %20 = "llvm.inttoptr"(%19) : (i64) -> !llvm.ptr
-//CHECK-NEXT:        %21 = arith.constant 1 : i32
-//CHECK-NEXT:        %22 = arith.constant 100 : i32
-//CHECK-NEXT:        %23 = arith.constant 1 : i32
-//CHECK-NEXT:        "omp.wsloop"(%20) <{reduction_byref = array<i1: false>, reduction_syms = [@add_reduction_f32], operandSegmentSizes = array<i32: 0, 0, 0, 0, 0, 1, 0>}> ({
-//CHECK-NEXT:        ^1(%24 : !llvm.ptr):
-//CHECK-NEXT:          "omp.loop_nest"(%21, %22, %23) <{loop_inclusive}> ({
-//CHECK-NEXT:          ^2(%25 : i32):
-//CHECK-NEXT:            memref.store %25, %17[] : memref<i32>
-//CHECK-NEXT:            %26 = "llvm.load"(%24) : (!llvm.ptr) -> f32
-//CHECK-NEXT:            %27 = memref.load %17[] : memref<i32>
-//CHECK-NEXT:            %28 = arith.extui %27 : i32 to i64
-//CHECK-NEXT:            %29 = arith.index_cast %28 : i64 to index
-//CHECK-NEXT:            %30 = arith.constant 1 : index
-//CHECK-NEXT:            %31 = arith.subi %29, %30 : index
-//CHECK-NEXT:            %32 = memref.load %0[] : memref<memref<?xf32>>
-//CHECK-NEXT:            %33 = memref.load %32[%31] : memref<?xf32>
-//CHECK-NEXT:            %34 = arith.addf %26, %33 fastmath<contract> : f32
-//CHECK-NEXT:            "llvm.store"(%34, %24) <{ordering = 0 : i64}> : (f32, !llvm.ptr) -> ()
+//CHECK-NEXT:        %15 = "memref.alloca"() <{operandSegmentSizes = array<i32: 0, 0>}> : () -> memref<i32>
+//CHECK-NEXT:        %16 = "memref.extract_aligned_pointer_as_index"(%1) : (memref<f32>) -> index
+//CHECK-NEXT:        %17 = arith.index_cast %16 : index to i64
+//CHECK-NEXT:        %18 = "llvm.inttoptr"(%17) : (i64) -> !llvm.ptr
+//CHECK-NEXT:        %19 = arith.constant 1 : i32
+//CHECK-NEXT:        %20 = arith.constant 100 : i32
+//CHECK-NEXT:        "omp.wsloop"(%18) <{reduction_byref = array<i1: false>, reduction_syms = [@add_reduction_f32], operandSegmentSizes = array<i32: 0, 0, 0, 0, 0, 1, 0>}> ({
+//CHECK-NEXT:        ^1(%21 : !llvm.ptr):
+//CHECK-NEXT:          "omp.loop_nest"(%19, %20, %19) <{loop_inclusive}> ({
+//CHECK-NEXT:          ^2(%22 : i32):
+//CHECK-NEXT:            memref.store %22, %15[] : memref<i32>
+//CHECK-NEXT:            %23 = "llvm.load"(%21) : (!llvm.ptr) -> f32
+//CHECK-NEXT:            %24 = memref.load %15[] : memref<i32>
+//CHECK-NEXT:            %25 = arith.extui %24 : i32 to i64
+//CHECK-NEXT:            %26 = arith.index_cast %25 : i64 to index
+//CHECK-NEXT:            %27 = arith.constant 1 : index
+//CHECK-NEXT:            %28 = arith.subi %26, %27 : index
+//CHECK-NEXT:            %29 = memref.load %0[] : memref<memref<?xf32>>
+//CHECK-NEXT:            %30 = memref.load %29[%28] : memref<?xf32>
+//CHECK-NEXT:            %31 = arith.addf %23, %30 fastmath<contract> : f32
+//CHECK-NEXT:            "llvm.store"(%31, %21) <{ordering = 0 : i64}> : (f32, !llvm.ptr) -> ()
 //CHECK-NEXT:            omp.yield
 //CHECK-NEXT:          }) : (i32, i32, i32) -> ()
 //CHECK-NEXT:        }) : (!llvm.ptr) -> ()

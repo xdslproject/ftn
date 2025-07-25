@@ -7,43 +7,30 @@
 //CHECK-NEXT:      %3 = arith.constant 100 : index
 //CHECK-NEXT:      %4 = memref.alloc(%3) : memref<?xf32>
 //CHECK-NEXT:      memref.store %4, %0[] : memref<memref<?xf32>>
-//CHECK-NEXT:      %5 = arith.constant 100 : index
-//CHECK-NEXT:      %6 = memref.alloc(%5) : memref<?xf32>
-//CHECK-NEXT:      memref.store %6, %1[] : memref<memref<?xf32>>
-//CHECK-NEXT:      %7 = arith.constant 100 : index
-//CHECK-NEXT:      %8 = memref.alloc(%7) : memref<?xf32>
-//CHECK-NEXT:      memref.store %8, %2[] : memref<memref<?xf32>>
+//CHECK-NEXT:      %5 = memref.alloc(%3) : memref<?xf32>
+//CHECK-NEXT:      memref.store %5, %1[] : memref<memref<?xf32>>
+//CHECK-NEXT:      %6 = memref.alloc(%3) : memref<?xf32>
+//CHECK-NEXT:      memref.store %6, %2[] : memref<memref<?xf32>>
 //CHECK-NEXT:      "omp.parallel"() <{operandSegmentSizes = array<i32: 0, 0, 0, 0, 0, 0>}> ({
-//CHECK-NEXT:        %9 = "memref.alloca"() <{operandSegmentSizes = array<i32: 0, 0>}> : () -> memref<i32>
-//CHECK-NEXT:        %10 = arith.constant 1 : i32
-//CHECK-NEXT:        %11 = arith.constant 100 : i32
-//CHECK-NEXT:        %12 = arith.constant 1 : i32
+//CHECK-NEXT:        %7 = "memref.alloca"() <{operandSegmentSizes = array<i32: 0, 0>}> : () -> memref<i32>
+//CHECK-NEXT:        %8 = arith.constant 1 : i32
+//CHECK-NEXT:        %9 = arith.constant 100 : i32
 //CHECK-NEXT:        "omp.wsloop"() <{operandSegmentSizes = array<i32: 0, 0, 0, 0, 0, 0, 0>}> ({
-//CHECK-NEXT:          "omp.loop_nest"(%10, %11, %12) <{loop_inclusive}> ({
-//CHECK-NEXT:          ^0(%13 : i32):
-//CHECK-NEXT:            memref.store %13, %9[] : memref<i32>
-//CHECK-NEXT:            %14 = memref.load %9[] : memref<i32>
-//CHECK-NEXT:            %15 = arith.extui %14 : i32 to i64
-//CHECK-NEXT:            %16 = arith.index_cast %15 : i64 to index
-//CHECK-NEXT:            %17 = arith.constant 1 : index
-//CHECK-NEXT:            %18 = arith.subi %16, %17 : index
-//CHECK-NEXT:            %19 = memref.load %0[] : memref<memref<?xf32>>
-//CHECK-NEXT:            %20 = memref.load %19[%18] : memref<?xf32>
-//CHECK-NEXT:            %21 = memref.load %9[] : memref<i32>
-//CHECK-NEXT:            %22 = arith.extui %21 : i32 to i64
-//CHECK-NEXT:            %23 = arith.index_cast %22 : i64 to index
-//CHECK-NEXT:            %24 = arith.constant 1 : index
-//CHECK-NEXT:            %25 = arith.subi %23, %24 : index
-//CHECK-NEXT:            %26 = memref.load %1[] : memref<memref<?xf32>>
-//CHECK-NEXT:            %27 = memref.load %26[%25] : memref<?xf32>
-//CHECK-NEXT:            %28 = arith.addf %20, %27 fastmath<contract> : f32
-//CHECK-NEXT:            %29 = memref.load %9[] : memref<i32>
-//CHECK-NEXT:            %30 = arith.extui %29 : i32 to i64
-//CHECK-NEXT:            %31 = arith.index_cast %30 : i64 to index
-//CHECK-NEXT:            %32 = arith.constant 1 : index
-//CHECK-NEXT:            %33 = arith.subi %31, %32 : index
-//CHECK-NEXT:            %34 = memref.load %2[] : memref<memref<?xf32>>
-//CHECK-NEXT:            memref.store %28, %34[%33] : memref<?xf32>
+//CHECK-NEXT:          "omp.loop_nest"(%8, %9, %8) <{loop_inclusive}> ({
+//CHECK-NEXT:          ^0(%10 : i32):
+//CHECK-NEXT:            memref.store %10, %7[] : memref<i32>
+//CHECK-NEXT:            %11 = memref.load %7[] : memref<i32>
+//CHECK-NEXT:            %12 = arith.extui %11 : i32 to i64
+//CHECK-NEXT:            %13 = arith.index_cast %12 : i64 to index
+//CHECK-NEXT:            %14 = arith.constant 1 : index
+//CHECK-NEXT:            %15 = arith.subi %13, %14 : index
+//CHECK-NEXT:            %16 = memref.load %0[] : memref<memref<?xf32>>
+//CHECK-NEXT:            %17 = memref.load %16[%15] : memref<?xf32>
+//CHECK-NEXT:            %18 = memref.load %1[] : memref<memref<?xf32>>
+//CHECK-NEXT:            %19 = memref.load %18[%15] : memref<?xf32>
+//CHECK-NEXT:            %20 = arith.addf %17, %19 fastmath<contract> : f32
+//CHECK-NEXT:            %21 = memref.load %2[] : memref<memref<?xf32>>
+//CHECK-NEXT:            memref.store %20, %21[%15] : memref<?xf32>
 //CHECK-NEXT:            omp.yield
 //CHECK-NEXT:          }) : (i32, i32, i32) -> ()
 //CHECK-NEXT:        }) : () -> ()

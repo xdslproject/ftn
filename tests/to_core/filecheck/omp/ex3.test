@@ -3,39 +3,31 @@
 //CHECK-NEXT:    func.func @_QMex3_testPcalc() {
 //CHECK-NEXT:      %0 = "memref.alloca"() <{operandSegmentSizes = array<i32: 0, 0>}> : () -> memref<memref<?x?xf32>>
 //CHECK-NEXT:      %1 = arith.constant 100 : index
-//CHECK-NEXT:      %2 = arith.constant 100 : index
-//CHECK-NEXT:      %3 = memref.alloc(%2, %1) : memref<?x?xf32>
-//CHECK-NEXT:      memref.store %3, %0[] : memref<memref<?x?xf32>>
+//CHECK-NEXT:      %2 = memref.alloc(%1, %1) : memref<?x?xf32>
+//CHECK-NEXT:      memref.store %2, %0[] : memref<memref<?x?xf32>>
 //CHECK-NEXT:      "omp.parallel"() <{operandSegmentSizes = array<i32: 0, 0, 0, 0, 0, 0>}> ({
+//CHECK-NEXT:        %3 = "memref.alloca"() <{operandSegmentSizes = array<i32: 0, 0>}> : () -> memref<i32>
 //CHECK-NEXT:        %4 = "memref.alloca"() <{operandSegmentSizes = array<i32: 0, 0>}> : () -> memref<i32>
-//CHECK-NEXT:        %5 = "memref.alloca"() <{operandSegmentSizes = array<i32: 0, 0>}> : () -> memref<i32>
-//CHECK-NEXT:        %6 = arith.constant 1 : i32
-//CHECK-NEXT:        %7 = arith.constant 1 : i32
-//CHECK-NEXT:        %8 = arith.constant 100 : i32
-//CHECK-NEXT:        %9 = arith.constant 100 : i32
-//CHECK-NEXT:        %10 = arith.constant 1 : i32
-//CHECK-NEXT:        %11 = arith.constant 1 : i32
+//CHECK-NEXT:        %5 = arith.constant 1 : i32
+//CHECK-NEXT:        %6 = arith.constant 100 : i32
 //CHECK-NEXT:        "omp.wsloop"() <{operandSegmentSizes = array<i32: 0, 0, 0, 0, 0, 0, 0>}> ({
-//CHECK-NEXT:          "omp.loop_nest"(%6, %7, %8, %9, %10, %11) <{loop_inclusive}> ({
-//CHECK-NEXT:          ^0(%12 : i32, %13 : i32):
-//CHECK-NEXT:            memref.store %12, %4[] : memref<i32>
-//CHECK-NEXT:            memref.store %13, %5[] : memref<i32>
-//CHECK-NEXT:            %14 = memref.load %4[] : memref<i32>
-//CHECK-NEXT:            %15 = memref.load %5[] : memref<i32>
-//CHECK-NEXT:            %16 = arith.muli %14, %15 : i32
-//CHECK-NEXT:            %17 = arith.sitofp %16 : i32 to f32
-//CHECK-NEXT:            %18 = memref.load %5[] : memref<i32>
-//CHECK-NEXT:            %19 = arith.extui %18 : i32 to i64
-//CHECK-NEXT:            %20 = arith.index_cast %19 : i64 to index
-//CHECK-NEXT:            %21 = arith.constant 1 : index
-//CHECK-NEXT:            %22 = arith.subi %20, %21 : index
-//CHECK-NEXT:            %23 = memref.load %4[] : memref<i32>
-//CHECK-NEXT:            %24 = arith.extui %23 : i32 to i64
-//CHECK-NEXT:            %25 = arith.index_cast %24 : i64 to index
-//CHECK-NEXT:            %26 = arith.constant 1 : index
-//CHECK-NEXT:            %27 = arith.subi %25, %26 : index
-//CHECK-NEXT:            %28 = memref.load %0[] : memref<memref<?x?xf32>>
-//CHECK-NEXT:            memref.store %17, %28[%27, %22] : memref<?x?xf32>
+//CHECK-NEXT:          "omp.loop_nest"(%5, %5, %6, %6, %5, %5) <{loop_inclusive}> ({
+//CHECK-NEXT:          ^0(%7 : i32, %8 : i32):
+//CHECK-NEXT:            memref.store %7, %3[] : memref<i32>
+//CHECK-NEXT:            memref.store %8, %4[] : memref<i32>
+//CHECK-NEXT:            %9 = memref.load %3[] : memref<i32>
+//CHECK-NEXT:            %10 = memref.load %4[] : memref<i32>
+//CHECK-NEXT:            %11 = arith.muli %9, %10 : i32
+//CHECK-NEXT:            %12 = arith.sitofp %11 : i32 to f32
+//CHECK-NEXT:            %13 = arith.extui %10 : i32 to i64
+//CHECK-NEXT:            %14 = arith.index_cast %13 : i64 to index
+//CHECK-NEXT:            %15 = arith.constant 1 : index
+//CHECK-NEXT:            %16 = arith.subi %14, %15 : index
+//CHECK-NEXT:            %17 = arith.extui %9 : i32 to i64
+//CHECK-NEXT:            %18 = arith.index_cast %17 : i64 to index
+//CHECK-NEXT:            %19 = arith.subi %18, %15 : index
+//CHECK-NEXT:            %20 = memref.load %0[] : memref<memref<?x?xf32>>
+//CHECK-NEXT:            memref.store %12, %20[%19, %16] : memref<?x?xf32>
 //CHECK-NEXT:            omp.yield
 //CHECK-NEXT:          }) : (i32, i32, i32, i32, i32, i32) -> ()
 //CHECK-NEXT:        }) : () -> ()
