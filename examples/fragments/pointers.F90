@@ -89,6 +89,12 @@ contains
       call modify_array_ptr_one(ptr1, 20, 3.1)
       call assert(ptr1(20)==3.1, __FILE__, __LINE__)
 
+      call modify_array_one(ptr1, 19, 87.64)
+      call assert(ptr1(19)==87.64, __FILE__, __LINE__)
+
+      call modify_array_two(ptr1, 76, 992.32)
+      call assert(ptr1(76)==992.32, __FILE__, __LINE__)
+
       ! Test pointer to multi-dimensional array
       do i=1, 10
         do j=1, 10
@@ -106,6 +112,12 @@ contains
 
       call modify_3darray_ptr_one(ptr_md, 2, 3, 4, 100)
       call assert(ptr_md(2,3,4)==100, __FILE__, __LINE__)
+
+      call modify_3darray_one(ptr_md, 4, 4, 7, 87)
+      call assert(ptr_md(4,4,7)==87, __FILE__, __LINE__)
+
+      call modify_3darray_two(ptr_md, 7, 1, 3, 13)
+      call assert(ptr_md(7,1,3)==13, __FILE__, __LINE__)
   end subroutine calc
 
   subroutine swap(swp1, swp2)
@@ -132,6 +144,36 @@ contains
 
     array(k, j, i)=value
   end subroutine modify_3darray_ptr_one
+
+  subroutine modify_array_one(a, idx, value)
+    real, dimension(:), intent(inout) :: a
+    integer, intent(in) :: idx
+    real, intent(in) :: value
+
+    a(idx)=value
+  end subroutine modify_array_one
+
+ subroutine modify_array_two(a, idx, value)
+    real, dimension(100), intent(inout) :: a
+    integer, intent(in) :: idx
+    real, intent(in) :: value
+
+    a(idx)=value
+  end subroutine modify_array_two
+
+  subroutine modify_3darray_one(array, k, j, i, value)
+    integer, dimension(:,:,:), intent(inout) :: array
+    integer, intent(in) :: i, j, k, value
+
+    array(k, j, i)=value
+  end subroutine modify_3darray_one
+
+  subroutine modify_3darray_two(array, k, j, i, value)
+    integer, dimension(10,10,10), intent(inout) :: array
+    integer, intent(in) :: i, j, k, value
+
+    array(k, j, i)=value
+  end subroutine modify_3darray_two
 end module pointers_test
 
 #ifndef FRAGMENT_ONLY

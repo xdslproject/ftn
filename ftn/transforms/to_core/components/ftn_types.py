@@ -165,10 +165,14 @@ def translate_convert(program_state: ProgramState, ctx: SSAValueCtx, op: fir.Con
             # They are the same, ignore and use the input directly
             ctx[op.results[0]] = ctx[op.value]
             return value_ops
-    elif (isa(in_type, fir.ReferenceType) and isa(out_type, fir.ReferenceType)) or (
-        isa(in_type, fir.BoxType)
-        and isa(out_type, fir.BoxType)
-        or (isa(in_type, fir.HeapType) and isa(out_type, fir.ReferenceType))
+    elif (
+        (isa(in_type, fir.ReferenceType) and isa(out_type, fir.ReferenceType))
+        or (isa(in_type, fir.PointerType) and isa(out_type, fir.ReferenceType))
+        or (
+            isa(in_type, fir.BoxType)
+            and isa(out_type, fir.BoxType)
+            or (isa(in_type, fir.HeapType) and isa(out_type, fir.ReferenceType))
+        )
     ):
         if isa(out_type.type, builtin.IntegerType) and out_type.type.width.data == 8:
             # Converting to an LLVM pointer
