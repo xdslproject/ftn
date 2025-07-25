@@ -140,6 +140,48 @@ def handle_array_size_lu_bound(
     return bound_val, load_ssa, load_ops
 
 
+def handle_array_to_array_assignment(source_ssa, target_ssa, ctx):
+    # Handle array to array assignment, it might be actual arrays,
+    # or constant e.g. a = (/ 1, 2, 3 /), or the result of
+    # an intrinsic such as transpose or matmul
+    expr_lhs_ops = []
+    expr_rhs_ops = []
+
+    # If these are allocatables or pointers then need dereferencing to get
+    # the underlying memref
+    if isa(ctx[target_ssa].type.element_type, builtin.MemRefType):
+        load_op, lhs_load_ssa = generate_dereference_memref(ctx[target_ssa])
+        expr_lhs_ops.append(load_op)
+    else:
+        lhs_load_ssa = ctx[target_ssa]
+
+    if isa(ctx[source_ssa].type.element_type, builtin.MemRefType):
+        load_op, rhs_load_ssa = generate_dereference_memref(ctx[source_ssa])
+        expr_rhs_ops.append(load_op)
+    else:
+        rhs_load_ssa = ctx[source_ssa]
+
+    # Check the two memrefs are compatible, this means element type is
+    # the same and number of dimensions too
+    memref_comparison = ftn_types.compare_memrefs(lhs_load_ssa.type, rhs_load_ssa.type)
+    assert memref_comparison is not ftn_types.MemrefComparison.INCOMPATIBLE
+
+    if memref_comparison == ftn_types.MemrefComparison.CONVERTABLE:
+        # The two memrefs are largely compatible, but one has deferred size,
+        # therefore convert LHS type (source) into RHS type (target)
+        cast_op = memref.CastOp.get(
+            lhs_load_ssa,
+            rhs_load_ssa.type,
+        )
+        copy_op = memref.CopyOp(cast_op.results[0], rhs_load_ssa)
+        return expr_lhs_ops + expr_rhs_ops + [cast_op, copy_op]
+    elif memref_comparison == ftn_types.MemrefComparison.SAME:
+        copy_op = memref.CopyOp(lhs_load_ssa, rhs_load_ssa)
+        return expr_lhs_ops + expr_rhs_ops + [copy_op]
+    else:
+        assert False
+
+
 def translate_assign(program_state: ProgramState, ctx: SSAValueCtx, op: hlfir.AssignOp):
     expr_lhs_ops = expressions.translate_expr(program_state, ctx, op.lhs)
     if isa(op.rhs.owner, hlfir.DeclareOp):
@@ -151,91 +193,12 @@ def translate_assign(program_state: ProgramState, ctx: SSAValueCtx, op: hlfir.As
                 and (isa(op.rhs.owner.results[0].type.type, fir.BoxType))
                 or isa(op.rhs.owner.results[0].type.type, fir.SequenceType)
             ):
-                # This is an array, we must be assigning one array to another, the type will
-                # be fir.ref<fir.box<fir.heap<fir.array<..>>>> or fir.box<fir.array<...>>
-                if isa(op.rhs.owner.results[0].type, fir.ReferenceType):
-                    # Of the form fir.ref<fir.box<fir.heap<fir.array<..>>>>
-                    if isa(op.rhs.owner.results[0].type.type, fir.BoxType):
-                        assert isa(op.rhs.owner.results[0].type.type.type, fir.HeapType)
-                        assert isa(
-                            op.rhs.owner.results[0].type.type.type.type,
-                            fir.SequenceType,
-                        )
-                        rhs_array_op = op.rhs.owner.results[0].type.type.type.type
-                    elif isa(op.rhs.owner.results[0].type.type, fir.SequenceType):
-                        rhs_array_op = op.rhs.owner.results[0].type.type
-                    else:
-                        assert False
-
-                    if isa(op.lhs.owner, fir.LoadOp):
-                        assert isa(op.lhs.owner.results[0].type, fir.BoxType)
-                        assert isa(op.lhs.owner.results[0].type.type, fir.HeapType)
-                        assert isa(
-                            op.lhs.owner.results[0].type.type.type, fir.SequenceType
-                        )
-                        lhs_array_op = op.lhs.owner.results[0].type.type.type
-                    elif isa(op.lhs.owner, hlfir.DeclareOp):
-                        # This is assignment with an entire array on the LHS
-                        assert op.lhs.owner.fortran_attrs is not None
-                        ftn_attrs = list(op.lhs.owner.fortran_attrs.data)
-                        # Ensure this is a parameter, e.g. a = (/ 1, 2, 3 /)
-                        assert ftn_attrs[0] == fir.FortranVariableFlags.PARAMETER
-                        lhs_array_op = op.lhs.owner.results[0].type.type
-                    elif isa(op.lhs.owner.results[0].type, hlfir.ExprType):
-                        # This is the result of an intrinsic such as transpose or matmul
-                        lhs_array_op = op.lhs.owner.results[0].type
-                    else:
-                        assert False
-
-                else:
-                    # Of the form fir.box<fir.array<...>>
-                    assert isa(op.rhs.owner.results[0].type.type, fir.SequenceType)
-                    assert isa(op.lhs.owner.results[0].type.type, fir.SequenceType)
-                    lhs_array_op = op.rhs.owner.results[0].type.type
-                    rhs_array_op = op.rhs.owner.results[0].type.type
-
-                # Check number of dimensions is the same
-                lhs_dims = lhs_array_op.shape
-                rhs_dims = rhs_array_op.shape
-                assert len(lhs_dims) == len(rhs_dims)
-
-                # Check the base type is the same
-                lhs_element_type = (
-                    lhs_array_op.elementType
-                    if isa(lhs_array_op, hlfir.ExprType)
-                    else lhs_array_op.type
+                # Assigning an array to an array, this will result in a memref.copy operation
+                return (
+                    expr_lhs_ops
+                    + expr_rhs_ops
+                    + handle_array_to_array_assignment(op.rhs, op.lhs, ctx)
                 )
-                assert lhs_element_type == rhs_array_op.type
-                # We don't check the array sizes are the same, probably should but might need to be dynamic
-                if isa(ctx[op.lhs].type.element_type, builtin.MemRefType):
-                    load_op, lhs_load_ssa = generate_dereference_memref(ctx[op.lhs])
-                    expr_lhs_ops.append(load_op)
-                else:
-                    lhs_load_ssa = ctx[op.lhs]
-
-                if isa(ctx[op.rhs].type.element_type, builtin.MemRefType):
-                    load_op, rhs_load_ssa = generate_dereference_memref(ctx[op.rhs])
-                    expr_rhs_ops.append(load_op)
-                else:
-                    rhs_load_ssa = ctx[op.rhs]
-
-                memref_comparison = ftn_types.compare_memrefs(
-                    lhs_load_ssa.type, rhs_load_ssa.type
-                )
-                assert memref_comparison is not ftn_types.MemrefComparison.INCOMPATIBLE
-                if memref_comparison == ftn_types.MemrefComparison.CONVERTABLE:
-                    # Convert LHS type (source) into RHS type (target)
-                    cast_op = memref.CastOp.get(
-                        lhs_load_ssa,
-                        rhs_load_ssa.type,
-                    )
-                    copy_op = memref.CopyOp(cast_op.results[0], rhs_load_ssa)
-                    return expr_lhs_ops + expr_rhs_ops + [cast_op, copy_op]
-                elif memref_comparison == ftn_types.MemrefComparison.SAME:
-                    copy_op = memref.CopyOp(lhs_load_ssa, rhs_load_ssa)
-                    return expr_lhs_ops + expr_rhs_ops + [copy_op]
-                else:
-                    assert False
             else:
                 assert isa(op.rhs.owner.results[0].type, fir.ReferenceType)
 
@@ -285,9 +248,20 @@ def translate_assign(program_state: ProgramState, ctx: SSAValueCtx, op: hlfir.As
             fir.FortranVariableFlags.POINTER
             in op.rhs.owner.memref.owner.fortran_attrs.flags
         )
-        load_op, load_ssa = generate_dereference_memref(ctx[op.rhs.owner.memref])
-        storage_op = memref.StoreOp.get(load_ssa, ctx[op.lhs.owner.memref], [])
-        return [load_op, storage_op]
+        expr_rhs_ops = expressions.translate_expr(program_state, ctx, op.rhs)
+        return (
+            expr_lhs_ops
+            + expr_rhs_ops
+            + handle_array_to_array_assignment(op.rhs, op.lhs, ctx)
+        )
+    elif isa(op.lhs.owner, hlfir.DeclareOp) and isa(op.rhs.owner, fir.LoadOp):
+        # Assigning an array to a pointer
+        expr_rhs_ops = expressions.translate_expr(program_state, ctx, op.rhs)
+        return (
+            expr_lhs_ops
+            + expr_rhs_ops
+            + handle_array_to_array_assignment(op.rhs, op.lhs, ctx)
+        )
     else:
         assert False
 

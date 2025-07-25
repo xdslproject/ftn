@@ -9,7 +9,7 @@ module pointers_test
 contains
 
   subroutine calc()
-      real, dimension(:), allocatable, target :: a, b
+      real, dimension(:), allocatable, target :: a, b, z, x
       integer, dimension(:,:,:), allocatable, target :: c
       real, dimension(:), pointer :: ptr1=>NULL(), ptr2=>NULL()
       integer, dimension(:,:,:), pointer :: ptr_md=>NULL()
@@ -17,7 +17,29 @@ contains
 
       integer :: i, j, k
 
-      allocate(a(100), b(100), c(10,10,10))
+      allocate(a(100), b(100), c(10,10,10), z(10), x(10))
+
+      ptr1 => z
+      ptr2 => x
+
+      ptr1=(/ 1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0 /)
+      ptr2=(/ (real(i), i = 11, 20) /)
+
+      do i=1, 10
+        call assert(ptr1(i)==real(i), __FILE__, __LINE__)
+        call assert(z(i)==real(i), __FILE__, __LINE__)
+        call assert(ptr2(i)==real(i+10), __FILE__, __LINE__)
+        call assert(x(i)==real(i+10), __FILE__, __LINE__)
+      end do
+
+      ! Test assignment of underlying allocatable pointed to, as equals
+      ! and not =>, therefore the array x should now hold values of z
+      ptr2=ptr1
+      do i=1, 10
+        call assert(ptr2(i)==real(i), __FILE__, __LINE__)
+        call assert(x(i)==real(i), __FILE__, __LINE__)
+      end do
+
 
       do i=1, 100
         a(i)=i
@@ -118,6 +140,8 @@ contains
 
       call modify_3darray_two(ptr_md, 7, 1, 3, 13)
       call assert(ptr_md(7,1,3)==13, __FILE__, __LINE__)
+
+      deallocate(a, b, c, z, x)
   end subroutine calc
 
   subroutine swap(swp1, swp2)

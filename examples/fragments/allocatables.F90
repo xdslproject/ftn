@@ -9,12 +9,20 @@ module allocatables_test
 contains
 
   subroutine calc()
-      real, dimension(:), allocatable :: a, b, tmp
+      real, dimension(:), allocatable :: a, b, tmp, z, x
       integer, dimension(:,:,:), allocatable :: c
 
       integer :: i, j, k
 
-      allocate(a(100), b(100), global_array(100), c(10,10,10))
+      allocate(a(100), b(100), global_array(100), c(10,10,10), z(10), x(10))
+
+      z=(/ 1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0 /)
+      x=(/ (real(i), i = 11, 20) /)
+
+      do i=1, 10
+        call assert(z(i)==real(i), __FILE__, __LINE__)
+        call assert(x(i)==real(i+10), __FILE__, __LINE__)
+      end do
 
       ! Test that the rank is correctly returned (number of dimensions)
       call assert(rank(a)==1, __FILE__, __LINE__)
@@ -76,6 +84,17 @@ contains
         call assert(a(i)==real(100-i), __FILE__, __LINE__)
       end do
 
+      ! Revert global array location 60 back as we are going to use this again
+      global_array(60)=600.0
+
+      ! Test entire array copying via an assignment
+      a=b
+      b=global_array
+      do i=1, 100
+        call assert(a(i)==real(i), __FILE__, __LINE__)
+        call assert(b(i)==real(i*10), __FILE__, __LINE__)
+      end do
+
       call modify_array_three(a, 80, 13.4)
       call assert(a(80) == 13.4, __FILE__, __LINE__)
 
@@ -97,7 +116,7 @@ contains
       call modify_3darray_three(c, 4, 5, 6, 300)
       call assert(c(4,5,6)==300, __FILE__, __LINE__)
 
-      deallocate(a,b,c)
+      deallocate(a,b,c,z,x)
   end subroutine calc
 
   subroutine modify_array_one(a, idx, value)

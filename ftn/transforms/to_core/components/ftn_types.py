@@ -47,7 +47,12 @@ def get_type_from_chain(type_chain, type_to_match):
         or isa(type_chain, fir.PointerType)
         or isa(type_chain, fir.LLVMPointerType)
     ):
-        return get_type_from_chain(type_chain.type, type_to_match)
+        if hasattr(type_chain, "type"):
+            return get_type_from_chain(type_chain.type, type_to_match)
+        elif hasattr(type_chain, "elementType"):
+            return get_type_from_chain(type_chain.elementType, type_to_match)
+        else:
+            assert False
     else:
         return None
 
