@@ -1,5 +1,6 @@
 from xdsl.dialects.experimental import fir
 from typing import Dict, Optional
+from enum import Enum
 from xdsl.utils.hints import isa
 from xdsl.dialects import builtin, llvm, arith, memref
 
@@ -7,6 +8,28 @@ from ftn.transforms.to_core.misc.fortran_code_description import ProgramState
 from ftn.transforms.to_core.misc.ssa_context import SSAValueCtx
 
 import ftn.transforms.to_core.expressions as expressions
+
+
+class MemrefComparison(Enum):
+    SAME = 1
+    CONVERTABLE = 2
+    INCOMPATIBLE = 3
+
+
+def compare_memrefs(memref_a, memref_b):
+    # Compares two memrefs, either they are incompatible, the same or a conversion can be done,
+    # the conversion rules are quite strict - not the element_type or explicit dimension sizes,
+    # but this does allow from a deferred size to be converted to a known size or vica versa
+    if memref_a.element_type != memref_b.element_type:
+        return MemrefComparison.INCOMPATIBLE
+    if len(memref_a.shape) != len(memref_b.shape):
+        return MemrefComparison.INCOMPATIBLE
+    for dim_size_a, dim_size_b in zip(memref_a.shape, memref_b.shape):
+        if dim_size_a.data != dim_size_b.data and (
+            dim_size_a.data == -1 or dim_size_b.data == -1
+        ):
+            return MemrefComparison.CONVERTABLE
+    return MemrefComparison.SAME
 
 
 def contains_type(type_chain, type_to_match):

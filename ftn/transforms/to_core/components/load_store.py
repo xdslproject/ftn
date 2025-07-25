@@ -219,8 +219,23 @@ def translate_assign(program_state: ProgramState, ctx: SSAValueCtx, op: hlfir.As
                 else:
                     rhs_load_ssa = ctx[op.rhs]
 
-                copy_op = memref.CopyOp(lhs_load_ssa, rhs_load_ssa)
-                return expr_lhs_ops + expr_rhs_ops + [copy_op]
+                memref_comparison = ftn_types.compare_memrefs(
+                    lhs_load_ssa.type, rhs_load_ssa.type
+                )
+                assert memref_comparison is not ftn_types.MemrefComparison.INCOMPATIBLE
+                if memref_comparison == ftn_types.MemrefComparison.CONVERTABLE:
+                    # Convert LHS type (source) into RHS type (target)
+                    cast_op = memref.CastOp.get(
+                        lhs_load_ssa,
+                        rhs_load_ssa.type,
+                    )
+                    copy_op = memref.CopyOp(cast_op.results[0], rhs_load_ssa)
+                    return expr_lhs_ops + expr_rhs_ops + [cast_op, copy_op]
+                elif memref_comparison == ftn_types.MemrefComparison.SAME:
+                    copy_op = memref.CopyOp(lhs_load_ssa, rhs_load_ssa)
+                    return expr_lhs_ops + expr_rhs_ops + [copy_op]
+                else:
+                    assert False
             else:
                 assert isa(op.rhs.owner.results[0].type, fir.ReferenceType)
 
