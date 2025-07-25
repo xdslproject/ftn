@@ -37,7 +37,10 @@ from ftn.transforms.to_core.misc.fortran_code_description import (
 )
 from ftn.transforms.to_core.misc.ssa_context import SSAValueCtx
 
-from ftn.transforms.to_core.utils import clean_func_name
+from ftn.transforms.to_core.utils import (
+    clean_func_name,
+    convert_fir_global_linkname_to_memref_visibility,
+)
 from ftn.transforms.to_core.components.intrinsics import (
     FortranIntrinsicsHandleExplicitly,
 )
@@ -294,6 +297,17 @@ def translate_global(program_state, global_ctx, global_op: fir.GlobalOp):
             raise Exception(
                 f"Could not translate global region of type `{global_op.type}'"
             )
+    elif global_op.constant:
+        memref_visibility = convert_fir_global_linkname_to_memref_visibility(
+            global_op.linkName.data
+        )
+        return memref.GlobalOp.get(
+            global_op.sym_name,
+            ftn_types.convert_fir_type_to_standard(global_op.type),
+            global_op.initVal,
+            builtin.StringAttr(memref_visibility),
+            builtin.UnitAttr(),
+        )
     else:
         # No body here, this is likely a variable declaration in another module
         if (

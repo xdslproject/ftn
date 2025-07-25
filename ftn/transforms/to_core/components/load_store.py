@@ -174,6 +174,13 @@ def translate_assign(program_state: ProgramState, ctx: SSAValueCtx, op: hlfir.As
                             op.lhs.owner.results[0].type.type.type, fir.SequenceType
                         )
                         lhs_array_op = op.lhs.owner.results[0].type.type.type
+                    elif isa(op.lhs.owner, hlfir.DeclareOp):
+                        # This is assignment with an entire array on the LHS
+                        assert op.lhs.owner.fortran_attrs is not None
+                        ftn_attrs = list(op.lhs.owner.fortran_attrs.data)
+                        # Ensure this is a parameter, e.g. a = (/ 1, 2, 3 /)
+                        assert ftn_attrs[0] == fir.FortranVariableFlags.PARAMETER
+                        lhs_array_op = op.lhs.owner.results[0].type.type
                     elif isa(op.lhs.owner.results[0].type, hlfir.ExprType):
                         # This is the result of an intrinsic such as transpose or matmul
                         lhs_array_op = op.lhs.owner.results[0].type

@@ -26,6 +26,15 @@ from xdsl.passes import ModulePass
 from xdsl.dialects import builtin, func, llvm, arith, memref, scf, cf, linalg, omp, math
 
 
+def convert_fir_global_linkname_to_memref_visibility(linkname):
+    if linkname == "external":
+        return "public"
+    elif linkname == "internal":
+        return "private"
+    else:
+        assert False
+
+
 def create_index_constant(val: int):
     return arith.ConstantOp.create(
         properties={"value": builtin.IntegerAttr.from_index_int_value(val)},
