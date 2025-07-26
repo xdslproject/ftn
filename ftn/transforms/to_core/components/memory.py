@@ -4,7 +4,7 @@ from xdsl.ir import BlockArgument
 from xdsl.irdl import Operand
 from xdsl.utils.hints import isa
 from xdsl.ir import OpResult, Block
-from xdsl.dialects import builtin, llvm, arith, memref
+from xdsl.dialects import builtin, llvm, arith, memref, scf
 
 from ftn.transforms.to_core.misc.fortran_code_description import (
     ProgramState,
@@ -22,6 +22,7 @@ from ftn.transforms.to_core.utils import (
 
 import ftn.transforms.to_core.components.ftn_types as ftn_types
 import ftn.transforms.to_core.expressions as expressions
+import ftn.transforms.to_core.statements as statements
 
 
 def generate_memref_from_llvm_ptr(llvm_ptr_in_ssa, dim_sizes, target_type):
@@ -692,3 +693,69 @@ def translate_unboxchar(program_state, ctx, op: fir.UnboxcharOp):
     ctx[op.results[1]] = extract_char_len.results[0]
 
     return boxchar_ops_list + [extract_char_ptr, extract_char_len]
+
+
+def translate_elemental(program_state, ctx, op: hlfir.ElementalOp):
+    if ctx.contains(op.results[0]):
+        return []
+
+    assert isa(op.shape.owner, fir.ShapeOp)
+    sizes = op.shape.owner.extents
+    # For now just support one dimension
+    assert len(sizes) == 1
+
+    size_ops = expressions.translate_expr(program_state, ctx, sizes[0])
+
+    memref_shape = [
+        -1 if isa(f, fir.DeferredAttr) else f.value.data
+        for f in op.results[0].type.shape
+    ]
+
+    # Just one dimension supported for now
+    assert len(memref_shape) == 1
+
+    dynamic_sizes = [ctx[sizes[0]]] if memref_shape[0] == -1 else []
+    memref_alloca_op = memref.AllocOp(
+        dynamic_sizes, [], ftn_types.convert_fir_type_to_standard(op.results[0].type)
+    )
+
+    new_block = Block(arg_types=[builtin.IndexType()])
+
+    # Need to add one to the index as hlfir elemental loops start
+    # from index 1, whereas scf starts from zero
+    one_const = create_index_constant(1)
+    add_one_to_idx = arith.AddiOp(new_block.args[0], one_const)
+    ctx[op.regions[0].blocks[0].args[0]] = add_one_to_idx.results[0]
+
+    loop_body_ops = [one_const, add_one_to_idx]
+    for loop_op in op.regions[0].blocks[0].ops:
+        if isa(loop_op, hlfir.YieldElementOp):
+            expr_lhs_ops = expressions.translate_expr(
+                program_state, ctx, loop_op.element_value
+            )
+            storage_op = memref.StoreOp.get(
+                ctx[loop_op.element_value],
+                memref_alloca_op.results[0],
+                new_block.args[0],
+            )
+            loop_body_ops += expr_lhs_ops + [storage_op]
+        else:
+            loop_body_ops += statements.translate_stmt(program_state, ctx, loop_op)
+
+    new_block.add_ops(loop_body_ops + [scf.YieldOp()])
+
+    lower_bound = create_index_constant(0)
+    # upper_bound = create_index_constant(sizes[0].owner.value.value.data)
+    step = create_index_constant(1)
+    scf_for_loop = scf.ForOp(lower_bound, ctx[sizes[0]], step, [], new_block)
+
+    ctx[op.results[0]] = memref_alloca_op.results[0]
+
+    return size_ops + [memref_alloca_op, lower_bound, step, scf_for_loop]
+
+
+def translate_destroy(program_state, ctx, op: hlfir.DestroyOp):
+    expr_lhs_ops = expressions.translate_expr(program_state, ctx, op.expr)
+    dealloc_op = memref.DeallocOp.get(ctx[op.expr])
+
+    return expr_lhs_ops + [dealloc_op]

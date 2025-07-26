@@ -1,5 +1,4 @@
-from xdsl.dialects.experimental import fir
-from typing import Dict, Optional
+from xdsl.dialects.experimental import fir, hlfir
 from enum import Enum
 from xdsl.utils.hints import isa
 from xdsl.dialects import builtin, llvm, arith, memref
@@ -33,7 +32,7 @@ def compare_memrefs(memref_a, memref_b):
 
 
 def contains_type(type_chain, type_to_match):
-    return get_type_from_chain(type_chain, type_to_match) != None
+    return get_type_from_chain(type_chain, type_to_match) is not None
 
 
 def get_type_from_chain(type_chain, type_to_match):
@@ -99,8 +98,14 @@ def convert_fir_type_to_standard(fir_type, ref_as_mem_ref=True):
         return convert_fir_type_to_standard(fir_type.type, ref_as_mem_ref)
     elif isa(fir_type, fir.HeapType):
         return convert_fir_type_to_standard(fir_type.type, ref_as_mem_ref)
-    elif isa(fir_type, fir.SequenceType):
-        base_t = convert_fir_type_to_standard(fir_type.type)
+    elif isa(fir_type, fir.SequenceType) or isa(fir_type, hlfir.ExprType):
+        if isa(fir_type, fir.SequenceType):
+            base_t = convert_fir_type_to_standard(fir_type.type)
+        elif isa(fir_type, hlfir.ExprType):
+            base_t = convert_fir_type_to_standard(fir_type.elementType)
+        else:
+            assert False
+
         dim_sizes = []
         for shape_el in fir_type.shape:
             if isa(shape_el, builtin.IntegerAttr):

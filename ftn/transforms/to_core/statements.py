@@ -121,5 +121,7 @@ def try_translate_stmt(program_state: ProgramState, ctx: SSAValueCtx, op: Operat
         return ftn_ctrl_flow.translate_conditional_branch(program_state, ctx, op)
     elif isa(op, fir.UnreachableOp):
         return [llvm.UnreachableOp()]
+    elif isa(op, hlfir.DestroyOp):
+        return ftn_memory.translate_destroy(program_state, ctx, op)
     else:
         return None
