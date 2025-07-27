@@ -7,8 +7,35 @@ module intrinsics_test
 contains
 
   subroutine calc()
+    call test_transpose()
     call test_matmul()
   end subroutine calc
+
+  subroutine test_transpose()
+    integer :: a(10,10), b(10,10)
+    integer, dimension(:,:), allocatable :: c, d
+
+    integer :: i, j
+
+    allocate(c(10, 10), d(10, 10))
+
+    do i=1, 10
+      do j=1, 10
+        a(j,i)=j
+        c(j,i)=j
+      end do
+    end do
+
+    b=transpose(a)
+    d=transpose(c)
+
+    do i=1, 10
+      do j=1, 10
+        call assert(b(j,i)==i, __FILE__, __LINE__)
+        call assert(d(j,i)==i, __FILE__, __LINE__)
+      end do
+    end do
+  end subroutine test_transpose
 
   subroutine test_matmul()
     real :: a(10,10), b(10,10), c(10,10)
@@ -17,11 +44,11 @@ contains
     integer :: i, j
 
     do i=1, 10
-			do j=1, 10
-				a(j,i)=real(j)
-				b(i,j)=real(i)
-			end do
-		end do
+      do j=1, 10
+        a(j,i)=real(j)
+        b(i,j)=real(i)
+      end do
+    end do
 
     c=matmul(a, b)
 
@@ -30,11 +57,11 @@ contains
     allocate(d(10,10), e(10,10), f(10,10))
 
     do i=1, 10
-			do j=1, 10
-				d(j,i)=real(j)
-				e(i,j)=real(i)
-			end do
-		end do
+      do j=1, 10
+        d(j,i)=real(j)
+        e(i,j)=real(i)
+      end do
+    end do
 
     f=matmul(a, b)
 

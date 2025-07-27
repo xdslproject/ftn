@@ -14,6 +14,34 @@ from ftn.transforms.to_core.utils import (
 import ftn.transforms.to_core.expressions as expressions
 
 
+def handle_create_temporary_linalg_output_memref(
+    result_type, element_type, input_ssas, input_dims_to_read
+):
+    output_shape = [
+        -1 if isa(s, fir.DeferredAttr) else s.value for s in result_type.shape
+    ]
+
+    ops_list = []
+    dynamic_sizes = []
+    if -1 in output_shape:
+        # If we have deferred sizes then grab the output sizes from the input array sizes
+        # Ensure all elements are -1
+        assert len(set(output_shape)) == 1
+        for input_ssa, input_dim_to_read in zip(input_ssas, input_dims_to_read):
+            dim_idx = create_index_constant(input_dim_to_read)
+            dim_load_size = memref.DimOp.from_source_and_index(input_ssa, dim_idx)
+            dynamic_sizes.append(dim_load_size.results[0])
+            ops_list += [dim_idx, dim_load_size]
+
+    output_memref_op = memref.AllocOp.get(
+        element_type,
+        shape=output_shape,
+        dynamic_sizes=dynamic_sizes,
+    )
+
+    return output_memref_op.results[0], ops_list + [output_memref_op]
+
+
 def translate_matmul(program_state: ProgramState, ctx: SSAValueCtx, op: hlfir.MatmulOp):
     if ctx.contains(op.results[0]):
         return []
@@ -35,40 +63,21 @@ def translate_matmul(program_state: ProgramState, ctx: SSAValueCtx, op: hlfir.Ma
     else:
         rhs_load_ssa = ctx[op.rhs]
 
-    output_shape = [
-        -1 if isa(s, fir.DeferredAttr) else s.value for s in op.results[0].type.shape
-    ]
-
-    if -1 in output_shape:
-        # If we have deferred sizes then grab the output sizes from the input array sizes
-        # Ensure all elements are -1
-        assert len(set(output_shape)) == 1
-        dim_zero = create_index_constant(0)
-        dim_zero_size = memref.DimOp.from_source_and_index(lhs_load_ssa, dim_zero)
-        lhs_ops_list += [dim_zero, dim_zero_size]
-        dim_one = create_index_constant(1)
-        dim_one_size = memref.DimOp.from_source_and_index(rhs_load_ssa, dim_one)
-        rhs_ops_list += [dim_one, dim_one_size]
-        dynamic_sizes = [dim_zero_size, dim_one_size]
-    else:
-        dynamic_sizes = []
-
-    output_memref_op = memref.AllocOp.get(
+    memref_ssa, allocation_ops = handle_create_temporary_linalg_output_memref(
+        op.results[0].type,
         lhs_load_ssa.type.element_type,
-        shape=output_shape,
-        dynamic_sizes=dynamic_sizes,
+        [lhs_load_ssa, rhs_load_ssa],
+        [0, 1],
     )
 
     assert isa(lhs_load_ssa.type, builtin.MemRefType)
     assert isa(rhs_load_ssa.type, builtin.MemRefType)
 
-    matmul_op = linalg.MatmulOp(
-        (lhs_load_ssa, rhs_load_ssa), [output_memref_op.results[0]]
-    )
+    matmul_op = linalg.MatmulOp((lhs_load_ssa, rhs_load_ssa), [memref_ssa])
 
-    ctx[op.results[0]] = output_memref_op.results[0]
+    ctx[op.results[0]] = memref_ssa
 
-    return lhs_ops_list + rhs_ops_list + [output_memref_op, matmul_op]
+    return lhs_ops_list + rhs_ops_list + allocation_ops + [matmul_op]
 
 
 def translate_dotproduct(
@@ -108,26 +117,28 @@ def translate_transpose(
 
     array_ops_list = expressions.translate_expr(program_state, ctx, op.array)
 
-    ops_list = []
     if isa(ctx[op.array].type.element_type, builtin.MemRefType):
         load_op, array_load_ssa = generate_dereference_memref(ctx[op.array])
-        ops_list.append(load_op)
+        array_ops_list.append(load_op)
     else:
         array_load_ssa = ctx[op.array]
 
-    output_memref_op = memref.AllocaOp.get(
-        array_load_ssa.type.element_type, shape=array_load_ssa.type.shape
+    memref_ssa, allocation_ops = handle_create_temporary_linalg_output_memref(
+        op.results[0].type,
+        array_load_ssa.type.element_type,
+        [array_load_ssa, array_load_ssa],
+        [0, 1],
     )
 
     transpose_op = linalg.TransposeOp(
         array_load_ssa,
-        output_memref_op,
-        builtin.DenseArrayBase.create_dense_int_or_index(builtin.i32, [1, 0]),
+        memref_ssa,
+        builtin.DenseArrayBase.from_list(builtin.i64, [1, 0]),
     )
 
-    ctx[op.results[0]] = output_memref_op.results[0]
+    ctx[op.results[0]] = memref_ssa
 
-    return ops_list + [output_memref_op, transpose_op]
+    return array_ops_list + allocation_ops + [transpose_op]
 
 
 def translate_sum(program_state: ProgramState, ctx: SSAValueCtx, op: hlfir.SumOp):
