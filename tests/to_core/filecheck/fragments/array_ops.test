@@ -1,0 +1,517 @@
+// RUN: xftn %S/../../../../examples/fragments/array_ops.F90 -DFRAGMENT_ONLY --stdout -t %S/tmp --cleanup --stages=flang,pre,ftn -v0 | FileCheck %s 
+//CHECK:       builtin.module attributes {llvm.data_layout = "e-m:e-p270:32:32-p271:32:32-p272:64:64-i64:64-i128:128-f80:128-n8:16:32:64-S128", llvm.ident = "flang version 20.1.7 (https://github.com/llvm/llvm-project 6146a88f60492b520a36f8f8f3231e15f3cc6082)", llvm.target_triple = "x86_64-unknown-linux-gnu"} {
+//CHECK-NEXT:    "memref.global"() <{sym_name = "_QMarray_ops_testEglobal_array", type = memref<6x10xf32>, initial_value, sym_visibility = "private"}> : () -> ()
+//CHECK-NEXT:    func.func @_QMarray_ops_testPcalc(%0 : memref<i32> {fir.bindc_name = "j"}) {
+//CHECK-NEXT:      %1 = memref.get_global @_QMarray_ops_testEglobal_array : memref<6x10xf32>
+//CHECK-NEXT:      %2 = "memref.alloca"() <{operandSegmentSizes = array<i32: 0, 0>}> : () -> memref<100xf32>
+//CHECK-NEXT:      %3 = "memref.alloca"() <{operandSegmentSizes = array<i32: 0, 0>}> : () -> memref<100xf32>
+//CHECK-NEXT:      %4 = "memref.alloca"() <{operandSegmentSizes = array<i32: 0, 0>}> : () -> memref<100xf32>
+//CHECK-NEXT:      %5 = "memref.alloca"() <{operandSegmentSizes = array<i32: 0, 0>}> : () -> memref<i32>
+//CHECK-NEXT:      %6 = "memref.alloca"() <{operandSegmentSizes = array<i32: 0, 0>}> : () -> memref<i32>
+//CHECK-NEXT:      %7 = "memref.alloca"() <{operandSegmentSizes = array<i32: 0, 0>}> : () -> memref<memref<?x?xf32>>
+//CHECK-NEXT:      %8 = "memref.alloca"() <{operandSegmentSizes = array<i32: 0, 0>}> : () -> memref<memref<?x?xf32>>
+//CHECK-NEXT:      %9 = "memref.alloca"() <{operandSegmentSizes = array<i32: 0, 0>}> : () -> memref<6x10xf32>
+//CHECK-NEXT:      %10 = "memref.alloca"() <{operandSegmentSizes = array<i32: 0, 0>}> : () -> memref<6x10xf32>
+//CHECK-NEXT:      %11 = arith.constant 10 : index
+//CHECK-NEXT:      %12 = arith.constant 6 : index
+//CHECK-NEXT:      %13 = memref.alloc(%12, %11) : memref<?x?xf32>
+//CHECK-NEXT:      memref.store %13, %8[] : memref<memref<?x?xf32>>
+//CHECK-NEXT:      %14 = memref.alloc(%12, %11) : memref<?x?xf32>
+//CHECK-NEXT:      memref.store %14, %7[] : memref<memref<?x?xf32>>
+//CHECK-NEXT:      %15 = arith.constant 100 : index
+//CHECK-NEXT:      %16 = memref.alloc() : memref<100xf32>
+//CHECK-NEXT:      %17 = arith.constant 0 : index
+//CHECK-NEXT:      %18 = arith.constant 1 : index
+//CHECK-NEXT:      %19 = arith.constant 1 : i64
+//CHECK-NEXT:      scf.for %20 = %17 to %15 step %18 {
+//CHECK-NEXT:        %21 = arith.addi %20, %18 : index
+//CHECK-NEXT:        %22 = arith.index_cast %19 : i64 to index
+//CHECK-NEXT:        %23 = arith.subi %21, %18 : index
+//CHECK-NEXT:        %24 = arith.muli %23, %22 : index
+//CHECK-NEXT:        %25 = arith.addi %22, %24 : index
+//CHECK-NEXT:        %26 = arith.index_cast %25 : index to i64
+//CHECK-NEXT:        %27 = arith.trunci %26 : i64 to i32
+//CHECK-NEXT:        %28 = memref.load %0[] : memref<i32>
+//CHECK-NEXT:        %29 = arith.addi %27, %28 : i32
+//CHECK-NEXT:        %30 = arith.sitofp %29 : i32 to f32
+//CHECK-NEXT:        memref.store %30, %16[%20] : memref<100xf32>
+//CHECK-NEXT:      }
+//CHECK-NEXT:      "memref.copy"(%16, %2) : (memref<100xf32>, memref<100xf32>) -> ()
+//CHECK-NEXT:      memref.dealloc %16 : memref<100xf32>
+//CHECK-NEXT:      %31 = arith.constant 2.000000e+01 : f32
+//CHECK-NEXT:      %32 = "memref.alloca"() <{operandSegmentSizes = array<i32: 0, 0>}> : () -> memref<f32>
+//CHECK-NEXT:      memref.store %31, %32[] : memref<f32>
+//CHECK-NEXT:      linalg.broadcast ins(%32:memref<f32>) outs(%3:memref<100xf32>) dimensions = [0]
+//CHECK-NEXT:      %33 = memref.alloc() : memref<100xf32>
+//CHECK-NEXT:      scf.for %34 = %17 to %15 step %18 {
+//CHECK-NEXT:        %35 = arith.addi %34, %18 : index
+//CHECK-NEXT:        %36 = arith.subi %35, %18 : index
+//CHECK-NEXT:        %37 = memref.load %2[%36] : memref<100xf32>
+//CHECK-NEXT:        %38 = memref.load %3[%36] : memref<100xf32>
+//CHECK-NEXT:        %39 = arith.addf %37, %38 fastmath<contract> : f32
+//CHECK-NEXT:        memref.store %39, %33[%34] : memref<100xf32>
+//CHECK-NEXT:      }
+//CHECK-NEXT:      "memref.copy"(%33, %4) : (memref<100xf32>, memref<100xf32>) -> ()
+//CHECK-NEXT:      memref.dealloc %33 : memref<100xf32>
+//CHECK-NEXT:      %40 = arith.constant 1 : i32
+//CHECK-NEXT:      %41 = arith.index_cast %40 : i32 to index
+//CHECK-NEXT:      %42 = arith.constant 100 : i32
+//CHECK-NEXT:      %43 = arith.index_cast %42 : i32 to index
+//CHECK-NEXT:      %44 = arith.index_cast %41 : index to i32
+//CHECK-NEXT:      %45 = arith.addi %43, %18 : index
+//CHECK-NEXT:      %46 = scf.for %47 = %41 to %45 step %18 iter_args(%48 = %44) -> (i32) {
+//CHECK-NEXT:        memref.store %48, %5[] : memref<i32>
+//CHECK-NEXT:        %49 = "llvm.mlir.addressof"() <{global_name = @{{.*}}}> : () -> !llvm.ptr
+//CHECK-NEXT:        "memref.alloca_scope"() ({
+//CHECK-NEXT:          %50 = memref.load %5[] : memref<i32>
+//CHECK-NEXT:          %51 = arith.extui %50 : i32 to i64
+//CHECK-NEXT:          %52 = arith.index_cast %51 : i64 to index
+//CHECK-NEXT:          %53 = arith.subi %52, %18 : index
+//CHECK-NEXT:          %54 = memref.load %2[%53] : memref<100xf32>
+//CHECK-NEXT:          %55 = memref.load %0[] : memref<i32>
+//CHECK-NEXT:          %56 = arith.addi %50, %55 : i32
+//CHECK-NEXT:          %57 = arith.sitofp %56 : i32 to f32
+//CHECK-NEXT:          %58 = arith.cmpf oeq, %54, %57 : f32
+//CHECK-NEXT:          %59 = "memref.alloca"() <{operandSegmentSizes = array<i32: 0, 0>}> : () -> memref<i1>
+//CHECK-NEXT:          memref.store %58, %59[] : memref<i1>
+//CHECK-NEXT:          %60 = arith.constant {{.*}} : index
+//CHECK-NEXT:          %61 = arith.index_cast %60 : index to i64
+//CHECK-NEXT:          %62 = "llvm.mlir.undef"() : () -> !llvm.struct<(!llvm.ptr, i64)>
+//CHECK-NEXT:          %63 = "llvm.insertvalue"(%62, %49) <{position = array<i64: 0>}> : (!llvm.struct<(!llvm.ptr, i64)>, !llvm.ptr) -> !llvm.struct<(!llvm.ptr, i64)>
+//CHECK-NEXT:          %64 = "llvm.insertvalue"(%63, %61) <{position = array<i64: 1>}> : (!llvm.struct<(!llvm.ptr, i64)>, i64) -> !llvm.struct<(!llvm.ptr, i64)>
+//CHECK-NEXT:          %65 = arith.constant 28 : i32
+//CHECK-NEXT:          %66 = "memref.alloca"() <{operandSegmentSizes = array<i32: 0, 0>}> : () -> memref<i32>
+//CHECK-NEXT:          memref.store %65, %66[] : memref<i32>
+//CHECK-NEXT:          func.call @_QPassert(%59, %64, %66) : (memref<i1>, !llvm.struct<(!llvm.ptr, i64)>, memref<i32>) -> ()
+//CHECK-NEXT:          "memref.alloca_scope.return"() : () -> ()
+//CHECK-NEXT:        }) : () -> ()
+//CHECK-NEXT:        "memref.alloca_scope"() ({
+//CHECK-NEXT:          %67 = memref.load %5[] : memref<i32>
+//CHECK-NEXT:          %68 = arith.extui %67 : i32 to i64
+//CHECK-NEXT:          %69 = arith.index_cast %68 : i64 to index
+//CHECK-NEXT:          %70 = arith.subi %69, %18 : index
+//CHECK-NEXT:          %71 = memref.load %3[%70] : memref<100xf32>
+//CHECK-NEXT:          %72 = arith.cmpf oeq, %71, %31 : f32
+//CHECK-NEXT:          %73 = "memref.alloca"() <{operandSegmentSizes = array<i32: 0, 0>}> : () -> memref<i1>
+//CHECK-NEXT:          memref.store %72, %73[] : memref<i1>
+//CHECK-NEXT:          %74 = arith.constant {{.*}} : index
+//CHECK-NEXT:          %75 = arith.index_cast %74 : index to i64
+//CHECK-NEXT:          %76 = "llvm.mlir.undef"() : () -> !llvm.struct<(!llvm.ptr, i64)>
+//CHECK-NEXT:          %77 = "llvm.insertvalue"(%76, %49) <{position = array<i64: 0>}> : (!llvm.struct<(!llvm.ptr, i64)>, !llvm.ptr) -> !llvm.struct<(!llvm.ptr, i64)>
+//CHECK-NEXT:          %78 = "llvm.insertvalue"(%77, %75) <{position = array<i64: 1>}> : (!llvm.struct<(!llvm.ptr, i64)>, i64) -> !llvm.struct<(!llvm.ptr, i64)>
+//CHECK-NEXT:          %79 = arith.constant 29 : i32
+//CHECK-NEXT:          %80 = "memref.alloca"() <{operandSegmentSizes = array<i32: 0, 0>}> : () -> memref<i32>
+//CHECK-NEXT:          memref.store %79, %80[] : memref<i32>
+//CHECK-NEXT:          func.call @_QPassert(%73, %78, %80) : (memref<i1>, !llvm.struct<(!llvm.ptr, i64)>, memref<i32>) -> ()
+//CHECK-NEXT:          "memref.alloca_scope.return"() : () -> ()
+//CHECK-NEXT:        }) : () -> ()
+//CHECK-NEXT:        "memref.alloca_scope"() ({
+//CHECK-NEXT:          %81 = memref.load %5[] : memref<i32>
+//CHECK-NEXT:          %82 = arith.extui %81 : i32 to i64
+//CHECK-NEXT:          %83 = arith.index_cast %82 : i64 to index
+//CHECK-NEXT:          %84 = arith.subi %83, %18 : index
+//CHECK-NEXT:          %85 = memref.load %4[%84] : memref<100xf32>
+//CHECK-NEXT:          %86 = memref.load %2[%84] : memref<100xf32>
+//CHECK-NEXT:          %87 = memref.load %3[%84] : memref<100xf32>
+//CHECK-NEXT:          %88 = arith.addf %86, %87 fastmath<contract> : f32
+//CHECK-NEXT:          %89 = arith.cmpf oeq, %85, %88 : f32
+//CHECK-NEXT:          %90 = "memref.alloca"() <{operandSegmentSizes = array<i32: 0, 0>}> : () -> memref<i1>
+//CHECK-NEXT:          memref.store %89, %90[] : memref<i1>
+//CHECK-NEXT:          %91 = arith.constant {{.*}} : index
+//CHECK-NEXT:          %92 = arith.index_cast %91 : index to i64
+//CHECK-NEXT:          %93 = "llvm.mlir.undef"() : () -> !llvm.struct<(!llvm.ptr, i64)>
+//CHECK-NEXT:          %94 = "llvm.insertvalue"(%93, %49) <{position = array<i64: 0>}> : (!llvm.struct<(!llvm.ptr, i64)>, !llvm.ptr) -> !llvm.struct<(!llvm.ptr, i64)>
+//CHECK-NEXT:          %95 = "llvm.insertvalue"(%94, %92) <{position = array<i64: 1>}> : (!llvm.struct<(!llvm.ptr, i64)>, i64) -> !llvm.struct<(!llvm.ptr, i64)>
+//CHECK-NEXT:          %96 = arith.constant 30 : i32
+//CHECK-NEXT:          %97 = "memref.alloca"() <{operandSegmentSizes = array<i32: 0, 0>}> : () -> memref<i32>
+//CHECK-NEXT:          memref.store %96, %97[] : memref<i32>
+//CHECK-NEXT:          func.call @_QPassert(%90, %95, %97) : (memref<i1>, !llvm.struct<(!llvm.ptr, i64)>, memref<i32>) -> ()
+//CHECK-NEXT:          "memref.alloca_scope.return"() : () -> ()
+//CHECK-NEXT:        }) : () -> ()
+//CHECK-NEXT:        %98 = memref.load %5[] : memref<i32>
+//CHECK-NEXT:        %99 = arith.index_cast %18 : index to i32
+//CHECK-NEXT:        %100 = arith.addi %98, %99 : i32
+//CHECK-NEXT:        scf.yield %100 : i32
+//CHECK-NEXT:      }
+//CHECK-NEXT:      memref.store %46, %5[] : memref<i32>
+//CHECK-NEXT:      %101 = memref.alloc() : memref<100xf32>
+//CHECK-NEXT:      scf.for %102 = %17 to %15 step %18 {
+//CHECK-NEXT:        %103 = arith.addi %102, %18 : index
+//CHECK-NEXT:        %104 = arith.subi %103, %18 : index
+//CHECK-NEXT:        %105 = memref.load %2[%104] : memref<100xf32>
+//CHECK-NEXT:        %106 = memref.load %3[%104] : memref<100xf32>
+//CHECK-NEXT:        %107 = arith.addf %105, %106 fastmath<contract> : f32
+//CHECK-NEXT:        memref.store %107, %101[%102] : memref<100xf32>
+//CHECK-NEXT:      }
+//CHECK-NEXT:      %108 = memref.alloc() : memref<100xf32>
+//CHECK-NEXT:      %109 = arith.constant 1.000000e+02 : f32
+//CHECK-NEXT:      scf.for %110 = %17 to %15 step %18 {
+//CHECK-NEXT:        %111 = memref.load %101[%110] : memref<100xf32>
+//CHECK-NEXT:        %112 = arith.addf %111, %109 fastmath<contract> : f32
+//CHECK-NEXT:        memref.store %112, %108[%110] : memref<100xf32>
+//CHECK-NEXT:      }
+//CHECK-NEXT:      "memref.copy"(%108, %4) : (memref<100xf32>, memref<100xf32>) -> ()
+//CHECK-NEXT:      memref.dealloc %108 : memref<100xf32>
+//CHECK-NEXT:      memref.dealloc %101 : memref<100xf32>
+//CHECK-NEXT:      %113 = scf.for %114 = %41 to %45 step %18 iter_args(%115 = %44) -> (i32) {
+//CHECK-NEXT:        memref.store %115, %5[] : memref<i32>
+//CHECK-NEXT:        %116 = "llvm.mlir.addressof"() <{global_name = @{{.*}}}> : () -> !llvm.ptr
+//CHECK-NEXT:        "memref.alloca_scope"() ({
+//CHECK-NEXT:          %117 = memref.load %5[] : memref<i32>
+//CHECK-NEXT:          %118 = arith.extui %117 : i32 to i64
+//CHECK-NEXT:          %119 = arith.index_cast %118 : i64 to index
+//CHECK-NEXT:          %120 = arith.subi %119, %18 : index
+//CHECK-NEXT:          %121 = memref.load %4[%120] : memref<100xf32>
+//CHECK-NEXT:          %122 = memref.load %2[%120] : memref<100xf32>
+//CHECK-NEXT:          %123 = memref.load %3[%120] : memref<100xf32>
+//CHECK-NEXT:          %124 = arith.addf %122, %123 fastmath<contract> : f32
+//CHECK-NEXT:          %125 = arith.addf %124, %109 fastmath<contract> : f32
+//CHECK-NEXT:          %126 = arith.cmpf oeq, %121, %125 : f32
+//CHECK-NEXT:          %127 = "memref.alloca"() <{operandSegmentSizes = array<i32: 0, 0>}> : () -> memref<i1>
+//CHECK-NEXT:          memref.store %126, %127[] : memref<i1>
+//CHECK-NEXT:          %128 = arith.constant {{.*}} : index
+//CHECK-NEXT:          %129 = arith.index_cast %128 : index to i64
+//CHECK-NEXT:          %130 = "llvm.mlir.undef"() : () -> !llvm.struct<(!llvm.ptr, i64)>
+//CHECK-NEXT:          %131 = "llvm.insertvalue"(%130, %116) <{position = array<i64: 0>}> : (!llvm.struct<(!llvm.ptr, i64)>, !llvm.ptr) -> !llvm.struct<(!llvm.ptr, i64)>
+//CHECK-NEXT:          %132 = "llvm.insertvalue"(%131, %129) <{position = array<i64: 1>}> : (!llvm.struct<(!llvm.ptr, i64)>, i64) -> !llvm.struct<(!llvm.ptr, i64)>
+//CHECK-NEXT:          %133 = arith.constant 36 : i32
+//CHECK-NEXT:          %134 = "memref.alloca"() <{operandSegmentSizes = array<i32: 0, 0>}> : () -> memref<i32>
+//CHECK-NEXT:          memref.store %133, %134[] : memref<i32>
+//CHECK-NEXT:          func.call @_QPassert(%127, %132, %134) : (memref<i1>, !llvm.struct<(!llvm.ptr, i64)>, memref<i32>) -> ()
+//CHECK-NEXT:          "memref.alloca_scope.return"() : () -> ()
+//CHECK-NEXT:        }) : () -> ()
+//CHECK-NEXT:        %135 = memref.load %5[] : memref<i32>
+//CHECK-NEXT:        %136 = arith.index_cast %18 : index to i32
+//CHECK-NEXT:        %137 = arith.addi %135, %136 : i32
+//CHECK-NEXT:        scf.yield %137 : i32
+//CHECK-NEXT:      }
+//CHECK-NEXT:      memref.store %113, %5[] : memref<i32>
+//CHECK-NEXT:      %138 = memref.load %8[] : memref<memref<?x?xf32>>
+//CHECK-NEXT:      %139 = "memref.alloca"() <{operandSegmentSizes = array<i32: 0, 0>}> : () -> memref<f32>
+//CHECK-NEXT:      memref.store %109, %139[] : memref<f32>
+//CHECK-NEXT:      linalg.broadcast ins(%139:memref<f32>) outs(%138:memref<?x?xf32>) dimensions = [0, 1]
+//CHECK-NEXT:      %140 = "memref.alloca"() <{operandSegmentSizes = array<i32: 0, 0>}> : () -> memref<f32>
+//CHECK-NEXT:      memref.store %109, %140[] : memref<f32>
+//CHECK-NEXT:      linalg.broadcast ins(%140:memref<f32>) outs(%9:memref<6x10xf32>) dimensions = [0, 1]
+//CHECK-NEXT:      %141 = memref.load %8[] : memref<memref<?x?xf32>>
+//CHECK-NEXT:      %142 = "memref.dim"(%141, %17) : (memref<?x?xf32>, index) -> index
+//CHECK-NEXT:      %143 = "memref.dim"(%141, %18) : (memref<?x?xf32>, index) -> index
+//CHECK-NEXT:      %144 = memref.alloc(%142, %143) : memref<?x?xf32>
+//CHECK-NEXT:      scf.for %145 = %17 to %142 step %18 {
+//CHECK-NEXT:        %146 = arith.addi %145, %18 : index
+//CHECK-NEXT:        scf.for %147 = %17 to %143 step %18 {
+//CHECK-NEXT:          %148 = arith.addi %147, %18 : index
+//CHECK-NEXT:          %149 = arith.subi %146, %18 : index
+//CHECK-NEXT:          %150 = arith.subi %148, %18 : index
+//CHECK-NEXT:          %151 = memref.load %8[] : memref<memref<?x?xf32>>
+//CHECK-NEXT:          %152 = memref.load %151[%149, %150] : memref<?x?xf32>
+//CHECK-NEXT:          %153 = memref.load %9[%149, %150] : memref<6x10xf32>
+//CHECK-NEXT:          %154 = arith.subf %152, %153 fastmath<contract> : f32
+//CHECK-NEXT:          memref.store %154, %144[%145, %147] : memref<?x?xf32>
+//CHECK-NEXT:        }
+//CHECK-NEXT:      }
+//CHECK-NEXT:      %155 = memref.load %7[] : memref<memref<?x?xf32>>
+//CHECK-NEXT:      "memref.copy"(%144, %155) : (memref<?x?xf32>, memref<?x?xf32>) -> ()
+//CHECK-NEXT:      memref.dealloc %144 : memref<?x?xf32>
+//CHECK-NEXT:      %156 = arith.constant 10 : i32
+//CHECK-NEXT:      %157 = arith.index_cast %156 : i32 to index
+//CHECK-NEXT:      %158 = arith.addi %157, %18 : index
+//CHECK-NEXT:      %159 = arith.constant 6 : i32
+//CHECK-NEXT:      %160 = scf.for %161 = %41 to %158 step %18 iter_args(%162 = %44) -> (i32) {
+//CHECK-NEXT:        memref.store %162, %5[] : memref<i32>
+//CHECK-NEXT:        %163 = arith.index_cast %159 : i32 to index
+//CHECK-NEXT:        %164 = arith.addi %163, %18 : index
+//CHECK-NEXT:        %165 = scf.for %166 = %41 to %164 step %18 iter_args(%167 = %44) -> (i32) {
+//CHECK-NEXT:          memref.store %167, %6[] : memref<i32>
+//CHECK-NEXT:          %168 = "llvm.mlir.addressof"() <{global_name = @{{.*}}}> : () -> !llvm.ptr
+//CHECK-NEXT:          "memref.alloca_scope"() ({
+//CHECK-NEXT:            %169 = memref.load %5[] : memref<i32>
+//CHECK-NEXT:            %170 = arith.extui %169 : i32 to i64
+//CHECK-NEXT:            %171 = arith.index_cast %170 : i64 to index
+//CHECK-NEXT:            %172 = arith.subi %171, %18 : index
+//CHECK-NEXT:            %173 = memref.load %6[] : memref<i32>
+//CHECK-NEXT:            %174 = arith.extui %173 : i32 to i64
+//CHECK-NEXT:            %175 = arith.index_cast %174 : i64 to index
+//CHECK-NEXT:            %176 = arith.subi %175, %18 : index
+//CHECK-NEXT:            %177 = memref.load %7[] : memref<memref<?x?xf32>>
+//CHECK-NEXT:            %178 = memref.load %177[%176, %172] : memref<?x?xf32>
+//CHECK-NEXT:            %179 = arith.constant 0.000000e+00 : f32
+//CHECK-NEXT:            %180 = arith.cmpf oeq, %178, %179 : f32
+//CHECK-NEXT:            %181 = "memref.alloca"() <{operandSegmentSizes = array<i32: 0, 0>}> : () -> memref<i1>
+//CHECK-NEXT:            memref.store %180, %181[] : memref<i1>
+//CHECK-NEXT:            %182 = arith.constant {{.*}} : index
+//CHECK-NEXT:            %183 = arith.index_cast %182 : index to i64
+//CHECK-NEXT:            %184 = "llvm.mlir.undef"() : () -> !llvm.struct<(!llvm.ptr, i64)>
+//CHECK-NEXT:            %185 = "llvm.insertvalue"(%184, %168) <{position = array<i64: 0>}> : (!llvm.struct<(!llvm.ptr, i64)>, !llvm.ptr) -> !llvm.struct<(!llvm.ptr, i64)>
+//CHECK-NEXT:            %186 = "llvm.insertvalue"(%185, %183) <{position = array<i64: 1>}> : (!llvm.struct<(!llvm.ptr, i64)>, i64) -> !llvm.struct<(!llvm.ptr, i64)>
+//CHECK-NEXT:            %187 = arith.constant 46 : i32
+//CHECK-NEXT:            %188 = "memref.alloca"() <{operandSegmentSizes = array<i32: 0, 0>}> : () -> memref<i32>
+//CHECK-NEXT:            memref.store %187, %188[] : memref<i32>
+//CHECK-NEXT:            func.call @_QPassert(%181, %186, %188) : (memref<i1>, !llvm.struct<(!llvm.ptr, i64)>, memref<i32>) -> ()
+//CHECK-NEXT:            "memref.alloca_scope.return"() : () -> ()
+//CHECK-NEXT:          }) : () -> ()
+//CHECK-NEXT:          %189 = memref.load %6[] : memref<i32>
+//CHECK-NEXT:          %190 = arith.index_cast %18 : index to i32
+//CHECK-NEXT:          %191 = arith.addi %189, %190 : i32
+//CHECK-NEXT:          scf.yield %191 : i32
+//CHECK-NEXT:        }
+//CHECK-NEXT:        memref.store %165, %6[] : memref<i32>
+//CHECK-NEXT:        %192 = memref.load %5[] : memref<i32>
+//CHECK-NEXT:        %193 = arith.index_cast %18 : index to i32
+//CHECK-NEXT:        %194 = arith.addi %192, %193 : i32
+//CHECK-NEXT:        scf.yield %194 : i32
+//CHECK-NEXT:      }
+//CHECK-NEXT:      memref.store %160, %5[] : memref<i32>
+//CHECK-NEXT:      %195 = scf.for %196 = %41 to %158 step %18 iter_args(%197 = %44) -> (i32) {
+//CHECK-NEXT:        memref.store %197, %5[] : memref<i32>
+//CHECK-NEXT:        %198 = arith.index_cast %159 : i32 to index
+//CHECK-NEXT:        %199 = arith.addi %198, %18 : index
+//CHECK-NEXT:        %200 = scf.for %201 = %41 to %199 step %18 iter_args(%202 = %44) -> (i32) {
+//CHECK-NEXT:          memref.store %202, %6[] : memref<i32>
+//CHECK-NEXT:          %203 = memref.load %5[] : memref<i32>
+//CHECK-NEXT:          %204 = arith.sitofp %203 : i32 to f32
+//CHECK-NEXT:          %205 = arith.extui %203 : i32 to i64
+//CHECK-NEXT:          %206 = arith.index_cast %205 : i64 to index
+//CHECK-NEXT:          %207 = arith.subi %206, %18 : index
+//CHECK-NEXT:          %208 = memref.load %6[] : memref<i32>
+//CHECK-NEXT:          %209 = arith.extui %208 : i32 to i64
+//CHECK-NEXT:          %210 = arith.index_cast %209 : i64 to index
+//CHECK-NEXT:          %211 = arith.subi %210, %18 : index
+//CHECK-NEXT:          %212 = memref.load %7[] : memref<memref<?x?xf32>>
+//CHECK-NEXT:          memref.store %204, %212[%211, %207] : memref<?x?xf32>
+//CHECK-NEXT:          %213 = memref.load %6[] : memref<i32>
+//CHECK-NEXT:          %214 = arith.sitofp %213 : i32 to f32
+//CHECK-NEXT:          %215 = memref.load %5[] : memref<i32>
+//CHECK-NEXT:          %216 = arith.extui %215 : i32 to i64
+//CHECK-NEXT:          %217 = arith.index_cast %216 : i64 to index
+//CHECK-NEXT:          %218 = arith.subi %217, %18 : index
+//CHECK-NEXT:          %219 = arith.extui %213 : i32 to i64
+//CHECK-NEXT:          %220 = arith.index_cast %219 : i64 to index
+//CHECK-NEXT:          %221 = arith.subi %220, %18 : index
+//CHECK-NEXT:          memref.store %214, %9[%221, %218] : memref<6x10xf32>
+//CHECK-NEXT:          %222 = memref.load %6[] : memref<i32>
+//CHECK-NEXT:          %223 = arith.index_cast %18 : index to i32
+//CHECK-NEXT:          %224 = arith.addi %222, %223 : i32
+//CHECK-NEXT:          scf.yield %224 : i32
+//CHECK-NEXT:        }
+//CHECK-NEXT:        memref.store %200, %6[] : memref<i32>
+//CHECK-NEXT:        %225 = memref.load %5[] : memref<i32>
+//CHECK-NEXT:        %226 = arith.index_cast %18 : index to i32
+//CHECK-NEXT:        %227 = arith.addi %225, %226 : i32
+//CHECK-NEXT:        scf.yield %227 : i32
+//CHECK-NEXT:      }
+//CHECK-NEXT:      memref.store %195, %5[] : memref<i32>
+//CHECK-NEXT:      %228 = memref.load %7[] : memref<memref<?x?xf32>>
+//CHECK-NEXT:      %229 = "memref.dim"(%228, %17) : (memref<?x?xf32>, index) -> index
+//CHECK-NEXT:      %230 = "memref.dim"(%228, %18) : (memref<?x?xf32>, index) -> index
+//CHECK-NEXT:      %231 = memref.alloc(%229, %230) : memref<?x?xf32>
+//CHECK-NEXT:      scf.for %232 = %17 to %229 step %18 {
+//CHECK-NEXT:        %233 = arith.addi %232, %18 : index
+//CHECK-NEXT:        scf.for %234 = %17 to %230 step %18 {
+//CHECK-NEXT:          %235 = arith.addi %234, %18 : index
+//CHECK-NEXT:          %236 = arith.subi %233, %18 : index
+//CHECK-NEXT:          %237 = arith.subi %235, %18 : index
+//CHECK-NEXT:          %238 = memref.load %7[] : memref<memref<?x?xf32>>
+//CHECK-NEXT:          %239 = memref.load %238[%236, %237] : memref<?x?xf32>
+//CHECK-NEXT:          %240 = memref.load %9[%236, %237] : memref<6x10xf32>
+//CHECK-NEXT:          %241 = arith.mulf %239, %240 fastmath<contract> : f32
+//CHECK-NEXT:          memref.store %241, %231[%232, %234] : memref<?x?xf32>
+//CHECK-NEXT:        }
+//CHECK-NEXT:      }
+//CHECK-NEXT:      %242 = "memref.cast"(%231) : (memref<?x?xf32>) -> memref<6x10xf32>
+//CHECK-NEXT:      "memref.copy"(%242, %10) : (memref<6x10xf32>, memref<6x10xf32>) -> ()
+//CHECK-NEXT:      memref.dealloc %231 : memref<?x?xf32>
+//CHECK-NEXT:      %243 = memref.load %7[] : memref<memref<?x?xf32>>
+//CHECK-NEXT:      %244 = "memref.dim"(%243, %17) : (memref<?x?xf32>, index) -> index
+//CHECK-NEXT:      %245 = "memref.dim"(%243, %18) : (memref<?x?xf32>, index) -> index
+//CHECK-NEXT:      %246 = memref.alloc(%244, %245) : memref<?x?xf32>
+//CHECK-NEXT:      scf.for %247 = %17 to %244 step %18 {
+//CHECK-NEXT:        %248 = arith.addi %247, %18 : index
+//CHECK-NEXT:        scf.for %249 = %17 to %245 step %18 {
+//CHECK-NEXT:          %250 = arith.addi %249, %18 : index
+//CHECK-NEXT:          %251 = arith.subi %248, %18 : index
+//CHECK-NEXT:          %252 = arith.subi %250, %18 : index
+//CHECK-NEXT:          %253 = memref.load %7[] : memref<memref<?x?xf32>>
+//CHECK-NEXT:          %254 = memref.load %253[%251, %252] : memref<?x?xf32>
+//CHECK-NEXT:          %255 = memref.load %9[%251, %252] : memref<6x10xf32>
+//CHECK-NEXT:          %256 = arith.subf %254, %255 fastmath<contract> : f32
+//CHECK-NEXT:          memref.store %256, %246[%247, %249] : memref<?x?xf32>
+//CHECK-NEXT:        }
+//CHECK-NEXT:      }
+//CHECK-NEXT:      %257 = memref.load %8[] : memref<memref<?x?xf32>>
+//CHECK-NEXT:      "memref.copy"(%246, %257) : (memref<?x?xf32>, memref<?x?xf32>) -> ()
+//CHECK-NEXT:      memref.dealloc %246 : memref<?x?xf32>
+//CHECK-NEXT:      %258 = scf.for %259 = %41 to %158 step %18 iter_args(%260 = %44) -> (i32) {
+//CHECK-NEXT:        memref.store %260, %5[] : memref<i32>
+//CHECK-NEXT:        %261 = arith.index_cast %159 : i32 to index
+//CHECK-NEXT:        %262 = arith.addi %261, %18 : index
+//CHECK-NEXT:        %263 = scf.for %264 = %41 to %262 step %18 iter_args(%265 = %44) -> (i32) {
+//CHECK-NEXT:          memref.store %265, %6[] : memref<i32>
+//CHECK-NEXT:          %266 = "llvm.mlir.addressof"() <{global_name = @{{.*}}}> : () -> !llvm.ptr
+//CHECK-NEXT:          "memref.alloca_scope"() ({
+//CHECK-NEXT:            %267 = memref.load %5[] : memref<i32>
+//CHECK-NEXT:            %268 = arith.extui %267 : i32 to i64
+//CHECK-NEXT:            %269 = arith.index_cast %268 : i64 to index
+//CHECK-NEXT:            %270 = arith.subi %269, %18 : index
+//CHECK-NEXT:            %271 = memref.load %6[] : memref<i32>
+//CHECK-NEXT:            %272 = arith.extui %271 : i32 to i64
+//CHECK-NEXT:            %273 = arith.index_cast %272 : i64 to index
+//CHECK-NEXT:            %274 = arith.subi %273, %18 : index
+//CHECK-NEXT:            %275 = memref.load %10[%274, %270] : memref<6x10xf32>
+//CHECK-NEXT:            %276 = arith.muli %267, %271 : i32
+//CHECK-NEXT:            %277 = arith.sitofp %276 : i32 to f32
+//CHECK-NEXT:            %278 = arith.cmpf oeq, %275, %277 : f32
+//CHECK-NEXT:            %279 = "memref.alloca"() <{operandSegmentSizes = array<i32: 0, 0>}> : () -> memref<i1>
+//CHECK-NEXT:            memref.store %278, %279[] : memref<i1>
+//CHECK-NEXT:            %280 = arith.constant {{.*}} : index
+//CHECK-NEXT:            %281 = arith.index_cast %280 : index to i64
+//CHECK-NEXT:            %282 = "llvm.mlir.undef"() : () -> !llvm.struct<(!llvm.ptr, i64)>
+//CHECK-NEXT:            %283 = "llvm.insertvalue"(%282, %266) <{position = array<i64: 0>}> : (!llvm.struct<(!llvm.ptr, i64)>, !llvm.ptr) -> !llvm.struct<(!llvm.ptr, i64)>
+//CHECK-NEXT:            %284 = "llvm.insertvalue"(%283, %281) <{position = array<i64: 1>}> : (!llvm.struct<(!llvm.ptr, i64)>, i64) -> !llvm.struct<(!llvm.ptr, i64)>
+//CHECK-NEXT:            %285 = arith.constant 63 : i32
+//CHECK-NEXT:            %286 = "memref.alloca"() <{operandSegmentSizes = array<i32: 0, 0>}> : () -> memref<i32>
+//CHECK-NEXT:            memref.store %285, %286[] : memref<i32>
+//CHECK-NEXT:            func.call @_QPassert(%279, %284, %286) : (memref<i1>, !llvm.struct<(!llvm.ptr, i64)>, memref<i32>) -> ()
+//CHECK-NEXT:            "memref.alloca_scope.return"() : () -> ()
+//CHECK-NEXT:          }) : () -> ()
+//CHECK-NEXT:          "memref.alloca_scope"() ({
+//CHECK-NEXT:            %287 = memref.load %5[] : memref<i32>
+//CHECK-NEXT:            %288 = arith.extui %287 : i32 to i64
+//CHECK-NEXT:            %289 = arith.index_cast %288 : i64 to index
+//CHECK-NEXT:            %290 = arith.subi %289, %18 : index
+//CHECK-NEXT:            %291 = memref.load %6[] : memref<i32>
+//CHECK-NEXT:            %292 = arith.extui %291 : i32 to i64
+//CHECK-NEXT:            %293 = arith.index_cast %292 : i64 to index
+//CHECK-NEXT:            %294 = arith.subi %293, %18 : index
+//CHECK-NEXT:            %295 = memref.load %8[] : memref<memref<?x?xf32>>
+//CHECK-NEXT:            %296 = memref.load %295[%294, %290] : memref<?x?xf32>
+//CHECK-NEXT:            %297 = arith.subi %287, %291 : i32
+//CHECK-NEXT:            %298 = arith.sitofp %297 : i32 to f32
+//CHECK-NEXT:            %299 = arith.cmpf oeq, %296, %298 : f32
+//CHECK-NEXT:            %300 = "memref.alloca"() <{operandSegmentSizes = array<i32: 0, 0>}> : () -> memref<i1>
+//CHECK-NEXT:            memref.store %299, %300[] : memref<i1>
+//CHECK-NEXT:            %301 = arith.constant {{.*}} : index
+//CHECK-NEXT:            %302 = arith.index_cast %301 : index to i64
+//CHECK-NEXT:            %303 = "llvm.mlir.undef"() : () -> !llvm.struct<(!llvm.ptr, i64)>
+//CHECK-NEXT:            %304 = "llvm.insertvalue"(%303, %266) <{position = array<i64: 0>}> : (!llvm.struct<(!llvm.ptr, i64)>, !llvm.ptr) -> !llvm.struct<(!llvm.ptr, i64)>
+//CHECK-NEXT:            %305 = "llvm.insertvalue"(%304, %302) <{position = array<i64: 1>}> : (!llvm.struct<(!llvm.ptr, i64)>, i64) -> !llvm.struct<(!llvm.ptr, i64)>
+//CHECK-NEXT:            %306 = arith.constant 64 : i32
+//CHECK-NEXT:            %307 = "memref.alloca"() <{operandSegmentSizes = array<i32: 0, 0>}> : () -> memref<i32>
+//CHECK-NEXT:            memref.store %306, %307[] : memref<i32>
+//CHECK-NEXT:            func.call @_QPassert(%300, %305, %307) : (memref<i1>, !llvm.struct<(!llvm.ptr, i64)>, memref<i32>) -> ()
+//CHECK-NEXT:            "memref.alloca_scope.return"() : () -> ()
+//CHECK-NEXT:          }) : () -> ()
+//CHECK-NEXT:          %308 = memref.load %6[] : memref<i32>
+//CHECK-NEXT:          %309 = arith.index_cast %18 : index to i32
+//CHECK-NEXT:          %310 = arith.addi %308, %309 : i32
+//CHECK-NEXT:          scf.yield %310 : i32
+//CHECK-NEXT:        }
+//CHECK-NEXT:        memref.store %263, %6[] : memref<i32>
+//CHECK-NEXT:        %311 = memref.load %5[] : memref<i32>
+//CHECK-NEXT:        %312 = arith.index_cast %18 : index to i32
+//CHECK-NEXT:        %313 = arith.addi %311, %312 : i32
+//CHECK-NEXT:        scf.yield %313 : i32
+//CHECK-NEXT:      }
+//CHECK-NEXT:      memref.store %258, %5[] : memref<i32>
+//CHECK-NEXT:      %314 = memref.load %7[] : memref<memref<?x?xf32>>
+//CHECK-NEXT:      %315 = "memref.dim"(%314, %17) : (memref<?x?xf32>, index) -> index
+//CHECK-NEXT:      %316 = "memref.dim"(%314, %18) : (memref<?x?xf32>, index) -> index
+//CHECK-NEXT:      %317 = memref.alloc(%315, %316) : memref<?x?xf32>
+//CHECK-NEXT:      scf.for %318 = %17 to %315 step %18 {
+//CHECK-NEXT:        %319 = arith.addi %318, %18 : index
+//CHECK-NEXT:        scf.for %320 = %17 to %316 step %18 {
+//CHECK-NEXT:          %321 = arith.addi %320, %18 : index
+//CHECK-NEXT:          %322 = arith.subi %319, %18 : index
+//CHECK-NEXT:          %323 = arith.subi %321, %18 : index
+//CHECK-NEXT:          %324 = memref.load %7[] : memref<memref<?x?xf32>>
+//CHECK-NEXT:          %325 = memref.load %324[%322, %323] : memref<?x?xf32>
+//CHECK-NEXT:          %326 = memref.load %9[%322, %323] : memref<6x10xf32>
+//CHECK-NEXT:          %327 = arith.mulf %325, %326 fastmath<contract> : f32
+//CHECK-NEXT:          memref.store %327, %317[%318, %320] : memref<?x?xf32>
+//CHECK-NEXT:        }
+//CHECK-NEXT:      }
+//CHECK-NEXT:      %328 = memref.alloc(%315, %316) : memref<?x?xf32>
+//CHECK-NEXT:      %329 = arith.constant 1.000000e+01 : f32
+//CHECK-NEXT:      scf.for %330 = %17 to %315 step %18 {
+//CHECK-NEXT:        scf.for %331 = %17 to %316 step %18 {
+//CHECK-NEXT:          %332 = memref.load %317[%330, %331] : memref<?x?xf32>
+//CHECK-NEXT:          %333 = arith.mulf %332, %329 fastmath<contract> : f32
+//CHECK-NEXT:          memref.store %333, %328[%330, %331] : memref<?x?xf32>
+//CHECK-NEXT:        }
+//CHECK-NEXT:      }
+//CHECK-NEXT:      %334 = memref.alloc(%315, %316) : memref<?x?xf32>
+//CHECK-NEXT:      scf.for %335 = %17 to %315 step %18 {
+//CHECK-NEXT:        %336 = arith.addi %335, %18 : index
+//CHECK-NEXT:        scf.for %337 = %17 to %316 step %18 {
+//CHECK-NEXT:          %338 = arith.addi %337, %18 : index
+//CHECK-NEXT:          %339 = memref.load %328[%335, %337] : memref<?x?xf32>
+//CHECK-NEXT:          %340 = arith.subi %336, %18 : index
+//CHECK-NEXT:          %341 = arith.subi %338, %18 : index
+//CHECK-NEXT:          %342 = memref.load %8[] : memref<memref<?x?xf32>>
+//CHECK-NEXT:          %343 = memref.load %342[%340, %341] : memref<?x?xf32>
+//CHECK-NEXT:          %344 = arith.addf %339, %343 fastmath<contract> : f32
+//CHECK-NEXT:          memref.store %344, %334[%335, %337] : memref<?x?xf32>
+//CHECK-NEXT:        }
+//CHECK-NEXT:      }
+//CHECK-NEXT:      %345 = "memref.cast"(%334) : (memref<?x?xf32>) -> memref<6x10xf32>
+//CHECK-NEXT:      "memref.copy"(%345, %1) : (memref<6x10xf32>, memref<6x10xf32>) -> ()
+//CHECK-NEXT:      memref.dealloc %334 : memref<?x?xf32>
+//CHECK-NEXT:      memref.dealloc %328 : memref<?x?xf32>
+//CHECK-NEXT:      memref.dealloc %317 : memref<?x?xf32>
+//CHECK-NEXT:      %346 = scf.for %347 = %41 to %158 step %18 iter_args(%348 = %44) -> (i32) {
+//CHECK-NEXT:        memref.store %348, %5[] : memref<i32>
+//CHECK-NEXT:        %349 = arith.index_cast %159 : i32 to index
+//CHECK-NEXT:        %350 = arith.addi %349, %18 : index
+//CHECK-NEXT:        %351 = scf.for %352 = %41 to %350 step %18 iter_args(%353 = %44) -> (i32) {
+//CHECK-NEXT:          memref.store %353, %6[] : memref<i32>
+//CHECK-NEXT:          %354 = "llvm.mlir.addressof"() <{global_name = @{{.*}}}> : () -> !llvm.ptr
+//CHECK-NEXT:          "memref.alloca_scope"() ({
+//CHECK-NEXT:            %355 = memref.load %5[] : memref<i32>
+//CHECK-NEXT:            %356 = arith.extui %355 : i32 to i64
+//CHECK-NEXT:            %357 = arith.index_cast %356 : i64 to index
+//CHECK-NEXT:            %358 = arith.subi %357, %18 : index
+//CHECK-NEXT:            %359 = memref.load %6[] : memref<i32>
+//CHECK-NEXT:            %360 = arith.extui %359 : i32 to i64
+//CHECK-NEXT:            %361 = arith.index_cast %360 : i64 to index
+//CHECK-NEXT:            %362 = arith.subi %361, %18 : index
+//CHECK-NEXT:            %363 = memref.load %1[%362, %358] : memref<6x10xf32>
+//CHECK-NEXT:            %364 = arith.muli %355, %359 : i32
+//CHECK-NEXT:            %365 = arith.muli %364, %156 : i32
+//CHECK-NEXT:            %366 = arith.subi %355, %359 : i32
+//CHECK-NEXT:            %367 = arith.addi %365, %366 : i32
+//CHECK-NEXT:            %368 = arith.sitofp %367 : i32 to f32
+//CHECK-NEXT:            %369 = arith.cmpf oeq, %363, %368 : f32
+//CHECK-NEXT:            %370 = "memref.alloca"() <{operandSegmentSizes = array<i32: 0, 0>}> : () -> memref<i1>
+//CHECK-NEXT:            memref.store %369, %370[] : memref<i1>
+//CHECK-NEXT:            %371 = arith.constant {{.*}} : index
+//CHECK-NEXT:            %372 = arith.index_cast %371 : index to i64
+//CHECK-NEXT:            %373 = "llvm.mlir.undef"() : () -> !llvm.struct<(!llvm.ptr, i64)>
+//CHECK-NEXT:            %374 = "llvm.insertvalue"(%373, %354) <{position = array<i64: 0>}> : (!llvm.struct<(!llvm.ptr, i64)>, !llvm.ptr) -> !llvm.struct<(!llvm.ptr, i64)>
+//CHECK-NEXT:            %375 = "llvm.insertvalue"(%374, %372) <{position = array<i64: 1>}> : (!llvm.struct<(!llvm.ptr, i64)>, i64) -> !llvm.struct<(!llvm.ptr, i64)>
+//CHECK-NEXT:            %376 = arith.constant 72 : i32
+//CHECK-NEXT:            %377 = "memref.alloca"() <{operandSegmentSizes = array<i32: 0, 0>}> : () -> memref<i32>
+//CHECK-NEXT:            memref.store %376, %377[] : memref<i32>
+//CHECK-NEXT:            func.call @_QPassert(%370, %375, %377) : (memref<i1>, !llvm.struct<(!llvm.ptr, i64)>, memref<i32>) -> ()
+//CHECK-NEXT:            "memref.alloca_scope.return"() : () -> ()
+//CHECK-NEXT:          }) : () -> ()
+//CHECK-NEXT:          %378 = memref.load %6[] : memref<i32>
+//CHECK-NEXT:          %379 = arith.index_cast %18 : index to i32
+//CHECK-NEXT:          %380 = arith.addi %378, %379 : i32
+//CHECK-NEXT:          scf.yield %380 : i32
+//CHECK-NEXT:        }
+//CHECK-NEXT:        memref.store %351, %6[] : memref<i32>
+//CHECK-NEXT:        %381 = memref.load %5[] : memref<i32>
+//CHECK-NEXT:        %382 = arith.index_cast %18 : index to i32
+//CHECK-NEXT:        %383 = arith.addi %381, %382 : i32
+//CHECK-NEXT:        scf.yield %383 : i32
+//CHECK-NEXT:      }
+//CHECK-NEXT:      memref.store %346, %5[] : memref<i32>
+//CHECK-NEXT:      func.return
+//CHECK-NEXT:    }
+//CHECK-NEXT:    "llvm.mlir.global"() <{global_type = !llvm.array<{{[0-9]+}} x i8>, sym_name = "_{{.*}}", linkage = #llvm.linkage<"internal">, addr_space = 0 : i32, constant, value = "{{.*}}", unnamed_addr = 0 : i64}> ({
+//CHECK-NEXT:    }) : () -> ()
+//CHECK-NEXT:    func.func private @_QPassert(memref<i1>, !llvm.struct<(!llvm.ptr, i64)>, memref<i32>) -> () 
+//CHECK-NEXT:    "llvm.mlir.global"() <{global_type = !llvm.array<{{[0-9]+}} x i8>, sym_name = "_{{.*}}", linkage = #llvm.linkage<"internal">, addr_space = 0 : i32, constant, value = "{{.*}}", unnamed_addr = 0 : i64}> ({
+//CHECK-NEXT:    }) : () -> ()
+//CHECK-NEXT:  }
+//CHECK-EMPTY:  
