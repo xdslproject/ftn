@@ -17,7 +17,7 @@ contains
 
       integer :: i, j, k
 
-      allocate(a(100), b(100), c(10,10,10), z(10), x(10))
+      allocate(a(100), b(100), c(10,5,15), z(10), x(10))
 
       ptr1 => z
       ptr2 => x
@@ -118,8 +118,8 @@ contains
       call assert(ptr1(76)==992.32, __FILE__, __LINE__)
 
       ! Test pointer to multi-dimensional array
-      do i=1, 10
-        do j=1, 10
+      do i=1, 15
+        do j=1, 5
           do k=1, 10
             c(k, j, i) = k+(j*10)+(i*100)
           end do
@@ -127,10 +127,13 @@ contains
       end do
       ptr_md=>c
       call assert(rank(ptr_md)==3, __FILE__, __LINE__)
-      call assert(size(ptr_md)==1000, __FILE__, __LINE__)
-      call assert(size(ptr_md, 2)==10, __FILE__, __LINE__)
+      call assert(size(ptr_md)==750, __FILE__, __LINE__)
+      call assert(size(ptr_md, 1)==10, __FILE__, __LINE__)
+      call assert(size(ptr_md, 2)==5, __FILE__, __LINE__)
+      call assert(size(ptr_md, 3)==15, __FILE__, __LINE__)
+
       call assert(ptr_md(3,4,5)==543, __FILE__, __LINE__)
-      call assert(ptr_md(8,9,1)==198, __FILE__, __LINE__)
+      call assert(ptr_md(8,5,15)==1558, __FILE__, __LINE__)
 
       call modify_3darray_ptr_one(ptr_md, 2, 3, 4, 100)
       call assert(ptr_md(2,3,4)==100, __FILE__, __LINE__)
@@ -193,7 +196,7 @@ contains
   end subroutine modify_3darray_one
 
   subroutine modify_3darray_two(array, k, j, i, value)
-    integer, dimension(10,10,10), intent(inout) :: array
+    integer, dimension(10,5,15), intent(inout) :: array
     integer, intent(in) :: i, j, k, value
 
     array(k, j, i)=value
