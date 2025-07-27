@@ -123,5 +123,7 @@ def try_translate_stmt(program_state: ProgramState, ctx: SSAValueCtx, op: Operat
         return [llvm.UnreachableOp()]
     elif isa(op, hlfir.DestroyOp):
         return ftn_memory.translate_destroy(program_state, ctx, op)
+    elif isa(op, hlfir.ElementalOp):
+        return ftn_memory.translate_elemental(program_state, ctx, op)
     else:
         return None
