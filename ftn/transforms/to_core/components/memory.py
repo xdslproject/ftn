@@ -701,57 +701,127 @@ def translate_elemental(program_state, ctx, op: hlfir.ElementalOp):
 
     assert isa(op.shape.owner, fir.ShapeOp)
     sizes = op.shape.owner.extents
-    # For now just support one dimension
-    assert len(sizes) == 1
 
-    size_ops = expressions.translate_expr(program_state, ctx, sizes[0])
+    size_ops = []
+    for size_specific in sizes:
+        size_ops += expressions.translate_expr(program_state, ctx, size_specific)
 
     memref_shape = [
         -1 if isa(f, fir.DeferredAttr) else f.value.data
         for f in op.results[0].type.shape
     ]
 
-    # Just one dimension supported for now
-    assert len(memref_shape) == 1
+    dynamic_sizes = []
 
-    dynamic_sizes = [ctx[sizes[0]]] if memref_shape[0] == -1 else []
+    for idx, s in enumerate(memref_shape):
+        if s == -1:
+            dynamic_sizes.append(ctx[sizes[idx]])
+
     memref_alloca_op = memref.AllocOp(
         dynamic_sizes, [], ftn_types.convert_fir_type_to_standard(op.results[0].type)
     )
 
-    new_block = Block(arg_types=[builtin.IndexType()])
+    loop_ops = generate_scf_loop_for_elemental_dimension(
+        program_state,
+        ctx,
+        sizes,
+        [],
+        op.regions[0].blocks[0].args,
+        op.regions[0].blocks[0].ops,
+        memref_alloca_op,
+        0,
+        len(sizes),
+    )
+    ctx[op.results[0]] = memref_alloca_op.results[0]
 
+    return size_ops + [memref_alloca_op] + loop_ops
+
+
+def generate_scf_loop_for_elemental_dimension(
+    program_state,
+    ctx,
+    sizes,
+    loop_index_args,
+    elemental_block_args,
+    elemental_ops,
+    memref_alloca_op,
+    loop_idx,
+    total_loops,
+):
+    new_block = Block(arg_types=[builtin.IndexType()])
     # Need to add one to the index as hlfir elemental loops start
     # from index 1, whereas scf starts from zero
     one_const = create_index_constant(1)
     add_one_to_idx = arith.AddiOp(new_block.args[0], one_const)
-    ctx[op.regions[0].blocks[0].args[0]] = add_one_to_idx.results[0]
+    ctx[elemental_block_args[loop_idx]] = add_one_to_idx.results[0]
+
+    loop_index_args.append(new_block.args[0])
 
     loop_body_ops = [one_const, add_one_to_idx]
-    for loop_op in op.regions[0].blocks[0].ops:
-        if isa(loop_op, hlfir.YieldElementOp):
-            expr_lhs_ops = expressions.translate_expr(
-                program_state, ctx, loop_op.element_value
-            )
-            storage_op = memref.StoreOp.get(
-                ctx[loop_op.element_value],
-                memref_alloca_op.results[0],
-                new_block.args[0],
-            )
-            loop_body_ops += expr_lhs_ops + [storage_op]
-        else:
-            loop_body_ops += statements.translate_stmt(program_state, ctx, loop_op)
+
+    if loop_idx == len(sizes) - 1:
+        # Insert in the actual compute loop
+        for loop_op in elemental_ops:
+            if isa(loop_op, hlfir.YieldElementOp):
+                expr_lhs_ops = expressions.translate_expr(
+                    program_state, ctx, loop_op.element_value
+                )
+                # The elemental load orders input load indicies in C rather than F
+                # order, these are already reversed in the loading of them elsewhere
+                # in this transformtion, therefore need to do another reverse to
+                # convert back into C form. We do this here and also for the
+                # statements translated in the else block too
+                invert_load_indexes(expr_lhs_ops, total_loops)
+                storage_op = memref.StoreOp.get(
+                    ctx[loop_op.element_value],
+                    memref_alloca_op.results[0],
+                    loop_index_args,
+                )
+                loop_body_ops += expr_lhs_ops + [storage_op]
+            else:
+                specific_loop_body_ops = statements.translate_stmt(
+                    program_state, ctx, loop_op
+                )
+                invert_load_indexes(specific_loop_body_ops, total_loops)
+                loop_body_ops += specific_loop_body_ops
+    else:
+        loop_body_ops += generate_scf_loop_for_elemental_dimension(
+            program_state,
+            ctx,
+            sizes,
+            loop_index_args,
+            elemental_block_args,
+            elemental_ops,
+            memref_alloca_op,
+            loop_idx + 1,
+            total_loops,
+        )
 
     new_block.add_ops(loop_body_ops + [scf.YieldOp()])
 
     lower_bound = create_index_constant(0)
-    # upper_bound = create_index_constant(sizes[0].owner.value.value.data)
     step = create_index_constant(1)
-    scf_for_loop = scf.ForOp(lower_bound, ctx[sizes[0]], step, [], new_block)
+    scf_for_loop = scf.ForOp(lower_bound, ctx[sizes[loop_idx]], step, [], new_block)
 
-    ctx[op.results[0]] = memref_alloca_op.results[0]
+    return [lower_bound, step, scf_for_loop]
 
-    return size_ops + [memref_alloca_op, lower_bound, step, scf_for_loop]
+
+def invert_load_indexes(ops, num_dims):
+    # Invert load indexes, this is needed if they are in the wrong order, the
+    # elemental has these in C order so it is correct but elsewhere our transform
+    # assumes F order and-so reverses them. Therefore this will re-reverse them
+    idx_to_invert = []
+    for idx, op in enumerate(ops):
+        if isa(op, memref.LoadOp):
+            if len(op.indices) == num_dims:
+                idx_to_invert.append(idx)
+
+    for idx in idx_to_invert:
+        index_ssa = list(ops[idx].indices)
+        index_ssa.reverse()
+        new_load_op = memref.LoadOp.get(ops[idx].memref, index_ssa)
+        ops[idx].results[0].replace_by(new_load_op.results[0])
+        ops[idx] = new_load_op
 
 
 def translate_destroy(program_state, ctx, op: hlfir.DestroyOp):
