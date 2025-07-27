@@ -647,6 +647,47 @@ def translate_load(program_state: ProgramState, ctx: SSAValueCtx, op: fir.LoadOp
         assert False
 
 
+def translate_apply(program_state, ctx, op: hlfir.ApplyOp):
+    # A bit of a confusing name, the apply operation will load values, based
+    # on provided index(es) from an hlfir.ExprType. Effectively, this is
+    # loading values from a temporary created by an elemental.
+    if ctx.contains(op.results[0]):
+        return []
+
+    ops_list = []
+
+    ops_list += expressions.translate_expr(program_state, ctx, op.expr)
+
+    assert isa(op.expr.type, hlfir.ExprType)
+    assert isa(ctx[op.expr].type, builtin.MemRefType)
+
+    load_index_ssa = []
+    for idx in op.indices:
+        ops_list += expressions.translate_expr(program_state, ctx, idx)
+        # Our handling of the elemental operation increments scf loop index by one
+        # so it starts from 1 as per Fortran. This works fine generally, as for memory
+        # loads Fortran applies the subi to minus one, however for the apply operator
+        # it assumes indexes start at 1. Therefore if the index has had this increment
+        # applied to it, then just point directly to the scf loop index so that we are
+        # starting counting from zero
+        if (
+            isa(ctx[idx].owner, arith.AddiOp)
+            and isa(ctx[idx].owner.lhs, BlockArgument)
+            and isa(ctx[idx].owner.rhs.owner, arith.ConstantOp)
+            and isa(ctx[idx].owner.rhs.owner.value.type, builtin.IndexType)
+            and ctx[idx].owner.rhs.owner.value.value.data == 1
+        ):
+            load_index_ssa.append(ctx[idx].owner.lhs)
+        else:
+            load_index_ssa.append(ctx[idx])
+    load_index_ssa.reverse()
+    load_op = memref.LoadOp.get(ctx[op.expr], load_index_ssa)
+    ops_list.append(load_op)
+
+    ctx[op.results[0]] = load_op.results[0]
+    return ops_list
+
+
 def translate_designate_op(program_state, ctx, op: hlfir.DesignateOp):
     """
     We ignore this for now, it tends to be used to extract part of an array or a reference to a value,

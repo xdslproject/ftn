@@ -150,6 +150,8 @@ def try_translate_expr(
         return ftn_intrinsics.translate_matmul(program_state, ctx, op)
     elif isa(op, hlfir.ElementalOp):
         return ftn_memory.translate_elemental(program_state, ctx, op)
+    elif isa(op, hlfir.ApplyOp):
+        return ftn_load_store.translate_apply(program_state, ctx, op)
     elif isa(op, omp.MapBoundsOp):
         return ftn_openmp.translate_omp_bounds(program_state, ctx, op)
     elif isa(op, omp.MapInfoOp):
