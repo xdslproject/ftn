@@ -301,14 +301,24 @@ def translate_boxdims(program_state: ProgramState, ctx: SSAValueCtx, op: fir.Box
     idx_ops = expressions.translate_expr(program_state, ctx, op.dim)
     idx_ssa = idx_ops[-1].results[0]
 
+    get_rank = memref.RankOp.from_memref(var_ssa)
     lb_op = create_index_constant(1)
-    ub_op = memref.DimOp.from_source_and_index(var_ssa, idx_ssa)
+
+    # sub_idx=arith.SubiOp(idx_ssa, lb_op)
+    sub_zero_idx = arith.SubiOp(get_rank.results[0], lb_op)
+    sub_rank = arith.SubiOp(sub_zero_idx, idx_ssa)
+
+    ub_op = memref.DimOp.from_source_and_index(var_ssa, sub_rank)
     extent_op = create_index_constant(1)
 
     ctx[op.results[0]] = lb_op.results[0]
     ctx[op.results[1]] = ub_op.results[0]
     ctx[op.results[2]] = extent_op.results[0]
-    return val_load_ops + idx_ops + [lb_op, extent_op, ub_op]
+    return (
+        val_load_ops
+        + idx_ops
+        + [lb_op, get_rank, sub_zero_idx, sub_rank, extent_op, ub_op]
+    )
 
 
 def translate_boxoffset(
@@ -702,25 +712,12 @@ def translate_elemental(program_state, ctx, op: hlfir.ElementalOp):
     assert isa(op.shape.owner, fir.ShapeOp)
     sizes = list(op.shape.owner.extents)
 
-    # We might need to reverse extents to get index ordering correct
-    # from Fortran to C style, if it is a static array then the constants
-    # are provided, and we need to reverse the order. But if it is
-    # allocatable then we grab sizes from the dimop and this is the correct order.
-    # Regardless this should be consistent for every index
-
-    sizes_needs_reverse = False
     size_ops = []
-    for idx, size_specific in enumerate(sizes):
+    for size_specific in sizes:
         size_ops += expressions.translate_expr(program_state, ctx, size_specific)
-        if isa(ctx[size_specific].owner, arith.ConstantOp):
-            if not sizes_needs_reverse:
-                assert idx == 0
-            sizes_needs_reverse = True
-        else:
-            assert not sizes_needs_reverse
 
-    if sizes_needs_reverse:
-        sizes.reverse()
+    # We need to reverse the size to get the ordering correct, from Fortran to C style
+    sizes.reverse()
 
     memref_shape = [
         -1 if isa(f, fir.DeferredAttr) else f.value.data
