@@ -6,7 +6,10 @@ from xdsl.dialects import builtin, arith, memref, linalg
 from ftn.transforms.to_core.misc.fortran_code_description import ProgramState
 from ftn.transforms.to_core.misc.ssa_context import SSAValueCtx
 
-from ftn.transforms.to_core.utils import generate_dereference_memref
+from ftn.transforms.to_core.utils import (
+    generate_dereference_memref,
+    create_index_constant,
+)
 
 import ftn.transforms.to_core.expressions as expressions
 
@@ -14,6 +17,9 @@ import ftn.transforms.to_core.expressions as expressions
 def translate_matmul(program_state: ProgramState, ctx: SSAValueCtx, op: hlfir.MatmulOp):
     if ctx.contains(op.results[0]):
         return []
+
+    assert isa(op.results[0].type, hlfir.ExprType)
+
     lhs_ops_list = expressions.translate_expr(program_state, ctx, op.lhs)
     rhs_ops_list = expressions.translate_expr(program_state, ctx, op.rhs)
 
@@ -29,9 +35,33 @@ def translate_matmul(program_state: ProgramState, ctx: SSAValueCtx, op: hlfir.Ma
     else:
         rhs_load_ssa = ctx[op.rhs]
 
-    output_memref_op = memref.AllocaOp.get(
-        lhs_load_ssa.type.element_type, shape=lhs_load_ssa.type.shape
+    output_shape = [
+        -1 if isa(s, fir.DeferredAttr) else s.value for s in op.results[0].type.shape
+    ]
+
+    if -1 in output_shape:
+        # If we have deferred sizes then grab the output sizes from the input array sizes
+        # Ensure all elements are -1
+        assert len(set(output_shape)) == 1
+        dim_zero = create_index_constant(0)
+        dim_zero_size = memref.DimOp.from_source_and_index(lhs_load_ssa, dim_zero)
+        lhs_ops_list += [dim_zero, dim_zero_size]
+        dim_one = create_index_constant(1)
+        dim_one_size = memref.DimOp.from_source_and_index(rhs_load_ssa, dim_one)
+        rhs_ops_list += [dim_one, dim_one_size]
+        dynamic_sizes = [dim_zero_size, dim_one_size]
+    else:
+        dynamic_sizes = []
+
+    output_memref_op = memref.AllocOp.get(
+        lhs_load_ssa.type.element_type,
+        shape=output_shape,
+        dynamic_sizes=dynamic_sizes,
     )
+
+    assert isa(lhs_load_ssa.type, builtin.MemRefType)
+    assert isa(rhs_load_ssa.type, builtin.MemRefType)
+
     matmul_op = linalg.MatmulOp(
         (lhs_load_ssa, rhs_load_ssa), [output_memref_op.results[0]]
     )
