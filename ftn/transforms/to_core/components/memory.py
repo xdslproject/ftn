@@ -700,11 +700,27 @@ def translate_elemental(program_state, ctx, op: hlfir.ElementalOp):
         return []
 
     assert isa(op.shape.owner, fir.ShapeOp)
-    sizes = op.shape.owner.extents
+    sizes = list(op.shape.owner.extents)
 
+    # We might need to reverse extents to get index ordering correct
+    # from Fortran to C style, if it is a static array then the constants
+    # are provided, and we need to reverse the order. But if it is
+    # allocatable then we grab sizes from the dimop and this is the correct order.
+    # Regardless this should be consistent for every index
+
+    sizes_needs_reverse = False
     size_ops = []
-    for size_specific in sizes:
+    for idx, size_specific in enumerate(sizes):
         size_ops += expressions.translate_expr(program_state, ctx, size_specific)
+        if isa(ctx[size_specific].owner, arith.ConstantOp):
+            if not sizes_needs_reverse:
+                assert idx == 0
+            sizes_needs_reverse = True
+        else:
+            assert not sizes_needs_reverse
+
+    if sizes_needs_reverse:
+        sizes.reverse()
 
     memref_shape = [
         -1 if isa(f, fir.DeferredAttr) else f.value.data
