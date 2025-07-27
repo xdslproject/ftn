@@ -2,7 +2,7 @@ from xdsl.ir import BlockArgument
 from xdsl.utils.hints import isa
 from xdsl.dialects.experimental import fir, hlfir
 from xdsl.ir import Operation, OpResult
-from xdsl.dialects import builtin, llvm, arith, memref
+from xdsl.dialects import builtin, llvm, arith, memref, linalg
 
 from ftn.transforms.to_core.misc.fortran_code_description import (
     ProgramState,
@@ -147,6 +147,9 @@ def handle_array_to_array_assignment(source_ssa, target_ssa, ctx):
     expr_lhs_ops = []
     expr_rhs_ops = []
 
+    assert isa(ctx[source_ssa].type, builtin.MemRefType)
+    assert isa(ctx[target_ssa].type, builtin.MemRefType)
+
     # If these are allocatables or pointers then need dereferencing to get
     # the underlying memref
     if isa(ctx[target_ssa].type.element_type, builtin.MemRefType):
@@ -194,11 +197,39 @@ def translate_assign(program_state: ProgramState, ctx: SSAValueCtx, op: hlfir.As
                 or isa(op.rhs.owner.results[0].type.type, fir.SequenceType)
             ):
                 # Assigning an array to an array, this will result in a memref.copy operation
-                return (
-                    expr_lhs_ops
-                    + expr_rhs_ops
-                    + handle_array_to_array_assignment(op.rhs, op.lhs, ctx)
-                )
+                if isa(ctx[op.lhs].type, builtin.MemRefType):
+                    return (
+                        expr_lhs_ops
+                        + expr_rhs_ops
+                        + handle_array_to_array_assignment(op.rhs, op.lhs, ctx)
+                    )
+                else:
+                    # Assign a scalar across the array, requiring a broadcast
+                    if isa(ctx[op.rhs].type.element_type, builtin.MemRefType):
+                        load_op, lhs_load_ssa = generate_dereference_memref(ctx[op.rhs])
+                        expr_lhs_ops.append(load_op)
+                    else:
+                        lhs_load_ssa = ctx[op.rhs]
+                    memref_alloca_op = memref.AllocaOp.get(ctx[op.lhs].type, shape=[])
+                    memref_store = memref.StoreOp.get(
+                        ctx[op.lhs], memref_alloca_op.results[0], []
+                    )
+
+                    result_type = builtin.TensorType(
+                        lhs_load_ssa.type.element_type, lhs_load_ssa.type.shape
+                    )
+                    linalg_bcast = linalg.BroadcastOp(
+                        memref_alloca_op.results[0],
+                        lhs_load_ssa,
+                        builtin.DenseArrayBase.from_list(
+                            builtin.i64, list(range(len(lhs_load_ssa.type.shape)))
+                        ),
+                    )
+                    return (
+                        expr_lhs_ops
+                        + expr_rhs_ops
+                        + [memref_alloca_op, memref_store, linalg_bcast]
+                    )
             else:
                 assert isa(op.rhs.owner.results[0].type, fir.ReferenceType)
 
