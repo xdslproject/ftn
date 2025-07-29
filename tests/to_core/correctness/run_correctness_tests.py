@@ -5,6 +5,7 @@ from os.path import isfile, join, exists
 import shutil
 import subprocess
 import glob
+import concurrent.futures
 
 
 def build_executable(src, exec_name, object_files, include_dir):
@@ -14,9 +15,7 @@ def build_executable(src, exec_name, object_files, include_dir):
     for inc in include_dir:
         cmd_args += f" -I{inc}"
     system(f"xftn {src} -o {exec_name} {cmd_args} -v0")
-    if not exists(exec_name):
-        print(f"Build failed for '{src}' with arguments '{cmd_args}'")
-        exit(-1)
+    return exists(exec_name)
 
 
 def build_objectfile(src, obj_name):
@@ -91,12 +90,28 @@ print("\n-------------------------------")
 print("Building tests")
 print("-------------------------------")
 
-for src_file in src_files:
-    source_fn_no_ext = src_file.split(".")[-2]
-    build_executable(
-        join(fragments_dir, src_file), source_fn_no_ext, link_obj_files, include_dir
-    )
-    print(f"Built source file '{src_file}'")
+with concurrent.futures.ThreadPoolExecutor(max_workers=10) as executor:
+    futures = {}
+    for src_file in src_files:
+        source_fn_no_ext = src_file.split(".")[-2]
+        absolute_src_file = join(fragments_dir, src_file)
+        future = executor.submit(
+            build_executable,
+            absolute_src_file,
+            source_fn_no_ext,
+            link_obj_files,
+            include_dir,
+        )
+        futures[future] = absolute_src_file
+
+    for future in concurrent.futures.as_completed(futures):
+        built_executable = future.result()
+        if built_executable:
+            print(f"Built source file '{futures[future]}'")
+        else:
+            print(f"Build failed for '{futures[future]}'")
+            exit(-1)
+
 
 print("\n-------------------------------")
 print("Running tests")
