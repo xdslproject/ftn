@@ -112,7 +112,7 @@
 //CHECK-NEXT:          ^1(%79 : i32, %80 : i32):
 //CHECK-NEXT:            memref.store %79, %67[] : memref<i32>
 //CHECK-NEXT:            memref.store %80, %68[] : memref<i32>
-//CHECK-NEXT:            %81 = "llvm.load"(%78) : (!llvm.ptr) -> f64
+//CHECK-NEXT:            %81 = "llvm.load"(%78) <{ordering = 0 : i64}> : (!llvm.ptr) -> f64
 //CHECK-NEXT:            %82 = memref.load %68[] : memref<i32>
 //CHECK-NEXT:            %83 = arith.extui %82 : i32 to i64
 //CHECK-NEXT:            %84 = arith.index_cast %83 : i64 to index
@@ -210,7 +210,7 @@
 //CHECK-NEXT:          ^6(%159 : i32, %160 : i32):
 //CHECK-NEXT:            memref.store %159, %147[] : memref<i32>
 //CHECK-NEXT:            memref.store %160, %148[] : memref<i32>
-//CHECK-NEXT:            %161 = "llvm.load"(%158) : (!llvm.ptr) -> f64
+//CHECK-NEXT:            %161 = "llvm.load"(%158) <{ordering = 0 : i64}> : (!llvm.ptr) -> f64
 //CHECK-NEXT:            %162 = memref.load %148[] : memref<i32>
 //CHECK-NEXT:            %163 = arith.extui %162 : i32 to i64
 //CHECK-NEXT:            %164 = arith.index_cast %163 : i64 to index

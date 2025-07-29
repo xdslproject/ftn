@@ -48,7 +48,7 @@
 //CHECK-NEXT:          "omp.loop_nest"(%19, %20, %19) <{loop_inclusive}> ({
 //CHECK-NEXT:          ^2(%22 : i32):
 //CHECK-NEXT:            memref.store %22, %15[] : memref<i32>
-//CHECK-NEXT:            %23 = "llvm.load"(%21) : (!llvm.ptr) -> f32
+//CHECK-NEXT:            %23 = "llvm.load"(%21) <{ordering = 0 : i64}> : (!llvm.ptr) -> f32
 //CHECK-NEXT:            %24 = memref.load %15[] : memref<i32>
 //CHECK-NEXT:            %25 = arith.extui %24 : i32 to i64
 //CHECK-NEXT:            %26 = arith.index_cast %25 : i64 to index

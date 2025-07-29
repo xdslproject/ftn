@@ -40,18 +40,18 @@
 //CHECK-NEXT:        %29 = memref.load %5[] : memref<i32>
 //CHECK-NEXT:        %30 = func.call @_FortranAioOutputInteger32(%18, %29) : (!llvm.ptr, i32) -> i1
 //CHECK-NEXT:        %31 = func.call @_FortranAioEndIoStatement(%18) : (!llvm.ptr) -> i32
-//CHECK-NEXT:        %32 = "llvm.load"(%6) : (!llvm.ptr) -> i1
+//CHECK-NEXT:        %32 = "llvm.load"(%6) <{ordering = 0 : i64}> : (!llvm.ptr) -> i1
 //CHECK-NEXT:        scf.if %32 {
 //CHECK-NEXT:          %33 = arith.constant -1 : i32
 //CHECK-NEXT:          func.call @_FortranAExit(%33) : (i32) -> ()
 //CHECK-NEXT:        } else {
-//CHECK-NEXT:          %34 = "llvm.load"(%7) : (!llvm.ptr) -> i32
+//CHECK-NEXT:          %34 = "llvm.load"(%7) <{ordering = 0 : i64}> : (!llvm.ptr) -> i32
 //CHECK-NEXT:          %35 = arith.constant 1 : i32
 //CHECK-NEXT:          %36 = arith.addi %34, %35 : i32
 //CHECK-NEXT:          "llvm.store"(%36, %7) <{ordering = 0 : i64}> : (i32, !llvm.ptr) -> ()
 //CHECK-NEXT:        }
 //CHECK-NEXT:      } else {
-//CHECK-NEXT:        %37 = "llvm.load"(%8) : (!llvm.ptr) -> i32
+//CHECK-NEXT:        %37 = "llvm.load"(%8) <{ordering = 0 : i64}> : (!llvm.ptr) -> i32
 //CHECK-NEXT:        %38 = arith.constant 1 : i32
 //CHECK-NEXT:        %39 = arith.addi %37, %38 : i32
 //CHECK-NEXT:        "llvm.store"(%39, %8) <{ordering = 0 : i64}> : (i32, !llvm.ptr) -> ()
@@ -69,7 +69,7 @@
 //CHECK-NEXT:      %5 = "llvm.mlir.addressof"() <{global_name = @{{.*}}}> : () -> !llvm.ptr
 //CHECK-NEXT:      %6 = "llvm.extractvalue"(%3) <{position = array<i64: 0>}> : (!llvm.struct<(!llvm.ptr, i64)>) -> !llvm.ptr
 //CHECK-NEXT:      %7 = "llvm.extractvalue"(%3) <{position = array<i64: 1>}> : (!llvm.struct<(!llvm.ptr, i64)>) -> i64
-//CHECK-NEXT:      %8 = "llvm.load"(%4) : (!llvm.ptr) -> i32
+//CHECK-NEXT:      %8 = "llvm.load"(%4) <{ordering = 0 : i64}> : (!llvm.ptr) -> i32
 //CHECK-NEXT:      %9 = arith.constant 0 : i32
 //CHECK-NEXT:      %10 = arith.cmpi sgt, %8, %9 : i32
 //CHECK-NEXT:      scf.if %10 {
@@ -90,14 +90,14 @@
 //CHECK-NEXT:        %25 = arith.constant 10 : index
 //CHECK-NEXT:        %26 = arith.index_cast %25 : index to i64
 //CHECK-NEXT:        %27 = func.call @_FortranAioOutputAscii(%15, %24, %26) : (!llvm.ptr, !llvm.ptr, i64) -> i1
-//CHECK-NEXT:        %28 = "llvm.load"(%5) : (!llvm.ptr) -> i32
+//CHECK-NEXT:        %28 = "llvm.load"(%5) <{ordering = 0 : i64}> : (!llvm.ptr) -> i32
 //CHECK-NEXT:        %29 = func.call @_FortranAioOutputInteger32(%15, %28) : (!llvm.ptr, i32) -> i1
 //CHECK-NEXT:        %30 = "llvm.mlir.addressof"() <{global_name = @{{.*}}}> : () -> !llvm.ptr
 //CHECK-NEXT:        %31 = "llvm.getelementptr"(%30) <{rawConstantIndices = array<i32: 0, 0>, elem_type = !llvm.array<1 x i8>}> : (!llvm.ptr) -> !llvm.ptr
 //CHECK-NEXT:        %32 = arith.constant 7 : index
 //CHECK-NEXT:        %33 = arith.index_cast %32 : index to i64
 //CHECK-NEXT:        %34 = func.call @_FortranAioOutputAscii(%15, %31, %33) : (!llvm.ptr, !llvm.ptr, i64) -> i1
-//CHECK-NEXT:        %35 = "llvm.load"(%4) : (!llvm.ptr) -> i32
+//CHECK-NEXT:        %35 = "llvm.load"(%4) <{ordering = 0 : i64}> : (!llvm.ptr) -> i32
 //CHECK-NEXT:        %36 = func.call @_FortranAioOutputInteger32(%15, %35) : (!llvm.ptr, i32) -> i1
 //CHECK-NEXT:        %37 = func.call @_FortranAioEndIoStatement(%15) : (!llvm.ptr) -> i32
 //CHECK-NEXT:      } else {
@@ -118,7 +118,7 @@
 //CHECK-NEXT:        %52 = arith.constant 10 : index
 //CHECK-NEXT:        %53 = arith.index_cast %52 : index to i64
 //CHECK-NEXT:        %54 = func.call @_FortranAioOutputAscii(%42, %51, %53) : (!llvm.ptr, !llvm.ptr, i64) -> i1
-//CHECK-NEXT:        %55 = "llvm.load"(%5) : (!llvm.ptr) -> i32
+//CHECK-NEXT:        %55 = "llvm.load"(%5) <{ordering = 0 : i64}> : (!llvm.ptr) -> i32
 //CHECK-NEXT:        %56 = func.call @_FortranAioOutputInteger32(%42, %55) : (!llvm.ptr, i32) -> i1
 //CHECK-NEXT:        %57 = func.call @_FortranAioEndIoStatement(%42) : (!llvm.ptr) -> i32
 //CHECK-NEXT:      }

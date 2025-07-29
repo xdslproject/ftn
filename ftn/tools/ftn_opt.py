@@ -16,7 +16,7 @@ from pathlib import Path
 from typing import Callable, Dict, List
 
 from xdsl.xdsl_opt_main import xDSLOptMain
-from ftn.dialects import dlti, ftn_relative_cf
+from ftn.dialects import ftn_relative_cf
 
 import traceback
 
@@ -47,7 +47,6 @@ class FtnOptMain(xDSLOptMain):
 
     def register_all_dialects(self):
         super().register_all_dialects()
-        self.ctx.load_dialect(dlti.DLTI)
         self.ctx.load_dialect(ftn_relative_cf.Ftn_relative_cf)
 
     @staticmethod

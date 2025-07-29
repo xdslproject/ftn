@@ -18,7 +18,7 @@
 //CHECK-NEXT:      %5 = "memref.alloca"() <{operandSegmentSizes = array<i32: 0, 0>}> : () -> memref<i32>
 //CHECK-NEXT:      %6 = "llvm.mlir.addressof"() <{global_name = @{{.*}}}> : () -> !llvm.ptr
 //CHECK-NEXT:      "memref.alloca_scope"() ({
-//CHECK-NEXT:        %7 = "llvm.load"(%4) : (!llvm.ptr) -> i32
+//CHECK-NEXT:        %7 = "llvm.load"(%4) <{ordering = 0 : i64}> : (!llvm.ptr) -> i32
 //CHECK-NEXT:        %8 = arith.constant 20 : i32
 //CHECK-NEXT:        %9 = arith.cmpi eq, %7, %8 : i32
 //CHECK-NEXT:        %10 = "memref.alloca"() <{operandSegmentSizes = array<i32: 0, 0>}> : () -> memref<i1>
@@ -52,7 +52,7 @@
 //CHECK-NEXT:      %27 = arith.constant 13 : i32
 //CHECK-NEXT:      "llvm.store"(%27, %3) <{ordering = 0 : i64}> : (i32, !llvm.ptr) -> ()
 //CHECK-NEXT:      "memref.alloca_scope"() ({
-//CHECK-NEXT:        %28 = "llvm.load"(%3) : (!llvm.ptr) -> i32
+//CHECK-NEXT:        %28 = "llvm.load"(%3) <{ordering = 0 : i64}> : (!llvm.ptr) -> i32
 //CHECK-NEXT:        %29 = arith.cmpi eq, %28, %27 : i32
 //CHECK-NEXT:        %30 = "memref.alloca"() <{operandSegmentSizes = array<i32: 0, 0>}> : () -> memref<i1>
 //CHECK-NEXT:        memref.store %29, %30[] : memref<i1>
@@ -70,7 +70,7 @@
 //CHECK-NEXT:      %38 = arith.constant 87 : i32
 //CHECK-NEXT:      "llvm.store"(%38, %4) <{ordering = 0 : i64}> : (i32, !llvm.ptr) -> ()
 //CHECK-NEXT:      "memref.alloca_scope"() ({
-//CHECK-NEXT:        %39 = "llvm.load"(%4) : (!llvm.ptr) -> i32
+//CHECK-NEXT:        %39 = "llvm.load"(%4) <{ordering = 0 : i64}> : (!llvm.ptr) -> i32
 //CHECK-NEXT:        %40 = arith.cmpi eq, %39, %38 : i32
 //CHECK-NEXT:        %41 = "memref.alloca"() <{operandSegmentSizes = array<i32: 0, 0>}> : () -> memref<i1>
 //CHECK-NEXT:        memref.store %40, %41[] : memref<i1>
@@ -90,7 +90,7 @@
 //CHECK-NEXT:        "memref.alloca_scope.return"() : () -> ()
 //CHECK-NEXT:      }) : () -> ()
 //CHECK-NEXT:      "memref.alloca_scope"() ({
-//CHECK-NEXT:        %49 = "llvm.load"(%3) : (!llvm.ptr) -> i32
+//CHECK-NEXT:        %49 = "llvm.load"(%3) <{ordering = 0 : i64}> : (!llvm.ptr) -> i32
 //CHECK-NEXT:        %50 = arith.constant 99 : i32
 //CHECK-NEXT:        %51 = arith.cmpi eq, %49, %50 : i32
 //CHECK-NEXT:        %52 = "memref.alloca"() <{operandSegmentSizes = array<i32: 0, 0>}> : () -> memref<i1>
@@ -107,7 +107,7 @@
 //CHECK-NEXT:        "memref.alloca_scope.return"() : () -> ()
 //CHECK-NEXT:      }) : () -> ()
 //CHECK-NEXT:      "memref.alloca_scope"() ({
-//CHECK-NEXT:        %60 = "llvm.load"(%4) : (!llvm.ptr) -> i32
+//CHECK-NEXT:        %60 = "llvm.load"(%4) <{ordering = 0 : i64}> : (!llvm.ptr) -> i32
 //CHECK-NEXT:        %61 = arith.constant 66 : i32
 //CHECK-NEXT:        %62 = arith.cmpi eq, %60, %61 : i32
 //CHECK-NEXT:        %63 = "memref.alloca"() <{operandSegmentSizes = array<i32: 0, 0>}> : () -> memref<i1>

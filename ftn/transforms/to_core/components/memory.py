@@ -432,7 +432,7 @@ def translate_declare(
             ctx[op.results[1]] = alloc_memref_container.results[0]
             return [alloc_memref_container]
 
-    if len(op.results[0].uses) == 0 and len(op.results[1].uses) == 0:
+    if op.results[0].uses.get_length() == 0 and op.results[1].uses.get_length() == 0:
         # Some declare ops are never actually used in the code, Flang seems to generate
         # the declare for global arrays regardless in some functions and therefore
         # we ignore them if the declare doesn't have any uses
