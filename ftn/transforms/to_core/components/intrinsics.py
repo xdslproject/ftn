@@ -145,31 +145,73 @@ def translate_sum(program_state: ProgramState, ctx: SSAValueCtx, op: hlfir.SumOp
     if ctx.contains(op.results[0]):
         return []
 
-    array_ops_list = expressions.translate_expr(program_state, ctx, op.array)
+    ops_list = expressions.translate_expr(program_state, ctx, op.array)
 
-    ops_list = []
     if isa(ctx[op.array].type.element_type, builtin.MemRefType):
         load_op, array_load_ssa = generate_dereference_memref(ctx[op.array])
         ops_list.append(load_op)
     else:
         array_load_ssa = ctx[op.array]
 
-    output_memref_op = memref.AllocaOp.get(op.results[0].type, shape=[])
+    if op.dim is not None:
+        dim_ops_list = expressions.translate_expr(program_state, ctx, op.dim)
+        # Just support constant expression as the dimension as need to know
+        # this statically for the linalg.reduce operation
+        assert len(dim_ops_list) == 1
+        assert isa(dim_ops_list[0], arith.ConstantOp)
+        assert dim_ops_list[0].value.type == builtin.i32
+        reduction_dimensions = [
+            (len(array_load_ssa.type.shape) - 1)
+            - (dim_ops_list[0].value.value.data - 1)
+        ]
+    else:
+        reduction_dimensions = list(range(len(array_load_ssa.type.shape)))
 
-    block = Block(arg_types=[op.results[0].type, op.results[0].type])
-    if isa(op.results[0].type, builtin.IntegerType):
-        zero_const = arith.ConstantOp.from_int_and_width(0, op.results[0].type)
-        add_op = arith.AddiOp(block.args[0], block.args[1])
-    elif isa(op.results[0].type, builtin.AnyFloat):
-        if isa(op.results[0].type, builtin.Float16Type):
-            width = 16
-        elif isa(op.results[0].type, builtin.Float32Type):
-            width = 32
-        elif isa(op.results[0].type, builtin.Float64Type):
-            width = 64
+    input_array_shape = [s.data for s in array_load_ssa.type.shape]
+
+    if len(reduction_dimensions) == len(array_load_ssa.type.shape):
+        memref_shape = []
+        memref_dynamic_sizes = []
+    elif len(reduction_dimensions) == 1:
+        if -1 in input_array_shape:
+            assert len(set(input_array_shape)) == 1
+            memref_shape = [-1] * (len(array_load_ssa.type.shape) - 1)
+            memref_dynamic_sizes = []
+            if len(array_load_ssa.type.shape) > 1:
+                for dim in list(range(len(array_load_ssa.type.shape))):
+                    if dim not in reduction_dimensions:
+                        dim_const_op = create_index_constant(dim)
+                        dim_op = memref.DimOp.from_source_and_index(
+                            array_load_ssa, dim_const_op
+                        )
+                        ops_list += [dim_const_op, dim_op]
+                        memref_dynamic_sizes.append(dim_op.results[0])
         else:
-            assert False
-        zero_const = arith.ConstantOp.from_float_and_width(0.0, width)
+            memref_shape = list(array_load_ssa.type.shape)
+            del memref_shape[reduction_dimensions[0]]
+            memref_dynamic_sizes = []
+    else:
+        assert False
+
+    if isa(op.results[0].type, hlfir.ExprType):
+        # If this is an exprtype then it is an array output, put onto the heap
+        base_type = op.results[0].type.elementType
+        output_memref_op = memref.AllocOp.get(
+            base_type, shape=memref_shape, dynamic_sizes=memref_dynamic_sizes
+        )
+    else:
+        # For a singleton output use the stack
+        base_type = op.results[0].type
+        output_memref_op = memref.AllocaOp.get(
+            base_type, shape=memref_shape, dynamic_sizes=memref_dynamic_sizes
+        )
+
+    block = Block(arg_types=[base_type, base_type])
+    if isa(base_type, builtin.IntegerType):
+        zero_const = arith.ConstantOp.from_int_and_width(0, base_type)
+        add_op = arith.AddiOp(block.args[0], block.args[1])
+    elif isa(base_type, builtin.AnyFloat):
+        zero_const = arith.ConstantOp(builtin.FloatAttr(0.0, base_type))
         add_op = arith.AddfOp(block.args[0], block.args[1])
     else:
         assert False
@@ -177,29 +219,55 @@ def translate_sum(program_state: ProgramState, ctx: SSAValueCtx, op: hlfir.SumOp
     yield_op = linalg.YieldOp(add_op)
 
     # We need to initialise the output memref to zero
-    initialise_output_memref = memref.StoreOp.get(
-        zero_const, output_memref_op.results[0], []
-    )
+    if len(output_memref_op.results[0].type.shape) == 0:
+        # If it's a singleton then simply do a memref store
+        initialise_output_memref_ops = [
+            memref.StoreOp.get(zero_const, output_memref_op.results[0], [])
+        ]
+    else:
+        # Otherwise we need to broadcast the constant to all elements
+        const_memref = memref.AllocaOp.get(zero_const.results[0].type, shape=[])
+        set_zero_const_memref = memref.StoreOp.get(
+            zero_const, const_memref.results[0], []
+        )
+        initialise_output_memref = linalg.BroadcastOp(
+            const_memref.results[0],
+            output_memref_op.results[0],
+            builtin.DenseArrayBase.from_list(
+                builtin.i64, list(range(len(output_memref_op.results[0].type.shape)))
+            ),
+        )
+        initialise_output_memref_ops = [
+            const_memref,
+            set_zero_const_memref,
+            initialise_output_memref,
+        ]
 
     block.add_ops([add_op, yield_op])
 
-    reduce_op = linalg.ReductionOp(
-        [array_load_ssa],
-        [output_memref_op],
-        builtin.DenseArrayBase.create_dense_int_or_index(builtin.i32, [0]),
+    reduce_op = linalg.ReduceOp(
+        array_load_ssa,
+        output_memref_op.results[0],
+        builtin.DenseArrayBase.from_list(builtin.i64, reduction_dimensions),
         Region([block]),
     )
-    extract_op = memref.LoadOp.get(output_memref_op, [])
 
-    ctx[op.results[0]] = extract_op.results[0]
+    reduction_ops = [reduce_op]
+    if len(output_memref_op.results[0].type.shape) == 0:
+        # If it is a singleton then extract that
+        extract_op = memref.LoadOp.get(output_memref_op, [])
+        reduction_ops.append(extract_op)
+        ctx[op.results[0]] = extract_op.results[0]
+    else:
+        # Otherwise the return is the output array
+        ctx[op.results[0]] = output_memref_op.results[0]
 
-    return ops_list + [
-        output_memref_op,
-        zero_const,
-        initialise_output_memref,
-        reduce_op,
-        extract_op,
-    ]
+    return (
+        ops_list
+        + [output_memref_op, zero_const]
+        + initialise_output_memref_ops
+        + reduction_ops
+    )
 
 
 def handle_movealloc_intrinsic_call(

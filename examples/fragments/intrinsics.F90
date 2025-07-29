@@ -9,6 +9,7 @@ contains
   subroutine calc()
     call test_transpose()
     call test_matmul()
+    call test_sum()
   end subroutine calc
 
   subroutine test_transpose()
@@ -35,6 +36,8 @@ contains
         call assert(d(j,i)==i, __FILE__, __LINE__)
       end do
     end do
+
+    deallocate(c, d)
   end subroutine test_transpose
 
   subroutine test_matmul()
@@ -84,6 +87,48 @@ contains
       end do
     end do
   end subroutine compare_matmul
+
+  subroutine test_sum()
+    real :: stack_data(10,5), out_stack_one(10), out_stack_two(5), out_stack_three
+    integer, dimension(:,:), allocatable :: heap_data
+    integer, dimension(:), allocatable :: out_heap_one, out_heap_two
+    integer i, j, out_heap_three
+
+    allocate(heap_data(10, 5), out_heap_one(10), out_heap_two(5))
+
+    do i=1, 5
+      do j=1, 10
+        stack_data(j,i)=j
+        heap_data(j,i)=j
+      end do
+    end do
+
+    out_stack_one=sum(stack_data, 2)
+    out_stack_two=sum(stack_data, 1)
+    out_stack_three=sum(stack_data)
+
+    out_heap_one=sum(heap_data, 2)
+    out_heap_two=sum(heap_data, 1)
+    out_heap_three=sum(heap_data)
+
+    do j=1, 10
+      if (j .le. 5) then
+        call assert(out_stack_two(j)==55.0, __FILE__, __LINE__)
+        call assert(out_heap_two(j)==55.0, __FILE__, __LINE__)
+      end if
+      call assert(out_stack_one(j)==real(j*5), __FILE__, __LINE__)
+      call assert(out_heap_one(j)==real(j*5), __FILE__, __LINE__)
+    end do
+
+    do j=1, 5
+      call assert(out_stack_two(j)==55.0, __FILE__, __LINE__)
+    end do
+
+    call assert(out_stack_three == 275.0, __FILE__, __LINE__)
+    call assert(out_heap_three == 275.0, __FILE__, __LINE__)
+
+    deallocate(heap_data, out_heap_one, out_heap_two)
+  end subroutine test_sum
 
 end module intrinsics_test
 
