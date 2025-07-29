@@ -38,13 +38,13 @@ contains
   end subroutine test_transpose
 
   subroutine test_matmul()
-    real :: a(10,10), b(10,10), c(10,10)
+    real :: a(5,5), b(5,5), c(5,5)
     real, dimension(:,:), allocatable :: d, e, f
 
     integer :: i, j
 
-    do i=1, 10
-      do j=1, 10
+    do i=1, 5
+      do j=1, 5
         a(j,i)=real(j)
         b(i,j)=real(i)
       end do
@@ -52,8 +52,7 @@ contains
 
     c=matmul(a, b)
 
-    call compare_matmul(a, b, c, 10, 10, 10)
-
+    call compare_matmul(a, b, c, 5, 5, 5)
     allocate(d(10,10), e(10,10), f(10,10))
 
     do i=1, 10
@@ -63,7 +62,7 @@ contains
       end do
     end do
 
-    f=matmul(a, b)
+    f=matmul(d, e)
 
     call compare_matmul(d, e, f, 10, 10, 10)
     deallocate(d, e, f)
