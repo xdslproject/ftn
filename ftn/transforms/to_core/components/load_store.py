@@ -215,9 +215,6 @@ def translate_assign(program_state: ProgramState, ctx: SSAValueCtx, op: hlfir.As
                         ctx[op.lhs], memref_alloca_op.results[0], []
                     )
 
-                    result_type = builtin.TensorType(
-                        lhs_load_ssa.type.element_type, lhs_load_ssa.type.shape
-                    )
                     linalg_bcast = linalg.BroadcastOp(
                         memref_alloca_op.results[0],
                         lhs_load_ssa,
