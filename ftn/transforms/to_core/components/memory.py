@@ -542,9 +542,9 @@ def translate_reassoc(
     if isa(op, fir.NoReassocOp):
         expr_list = expressions.translate_expr(program_state, ctx, op.val)
     elif isa(op, hlfir.NoReassocOp):
-        expr_list = expressions.translate_expr(program_state, ctx, op.var)
+        expr_list = expressions.translate_expr(program_state, ctx, op.val)
 
-    ctx[op.results[0]] = ctx[op.var]
+    ctx[op.results[0]] = ctx[op.val]
     return expr_list
 
 
