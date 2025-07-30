@@ -1,7 +1,8 @@
 from xdsl.dialects.experimental import fir, hlfir
 from xdsl.utils.hints import isa
-from xdsl.ir import Block, Region
+from xdsl.ir import Block, Region, BlockArgument
 from xdsl.dialects import builtin, arith, memref, linalg
+from xdsl.builder import Builder
 
 from ftn.transforms.to_core.misc.fortran_code_description import ProgramState
 from ftn.transforms.to_core.misc.ssa_context import SSAValueCtx
@@ -141,10 +142,13 @@ def translate_transpose(
     return array_ops_list + allocation_ops + [transpose_op]
 
 
-def translate_sum(program_state: ProgramState, ctx: SSAValueCtx, op: hlfir.SumOp):
-    if ctx.contains(op.results[0]):
-        return []
-
+def handle_reduction_operation(
+    program_state: ProgramState,
+    ctx: SSAValueCtx,
+    op: hlfir.SumOp | hlfir.ProductOp,
+    region: Region,
+    initial_value=0,
+):
     ops_list = expressions.translate_expr(program_state, ctx, op.array)
 
     if isa(ctx[op.array].type.element_type, builtin.MemRefType):
@@ -206,29 +210,26 @@ def translate_sum(program_state: ProgramState, ctx: SSAValueCtx, op: hlfir.SumOp
             base_type, shape=memref_shape, dynamic_sizes=memref_dynamic_sizes
         )
 
-    block = Block(arg_types=[base_type, base_type])
     if isa(base_type, builtin.IntegerType):
-        zero_const = arith.ConstantOp.from_int_and_width(0, base_type)
-        add_op = arith.AddiOp(block.args[0], block.args[1])
+        initial_const = arith.ConstantOp.from_int_and_width(initial_value, base_type)
     elif isa(base_type, builtin.AnyFloat):
-        zero_const = arith.ConstantOp(builtin.FloatAttr(0.0, base_type))
-        add_op = arith.AddfOp(block.args[0], block.args[1])
+        initial_const = arith.ConstantOp(
+            builtin.FloatAttr(float(initial_value), base_type)
+        )
     else:
         assert False
-
-    yield_op = linalg.YieldOp(add_op)
 
     # We need to initialise the output memref to zero
     if len(output_memref_op.results[0].type.shape) == 0:
         # If it's a singleton then simply do a memref store
         initialise_output_memref_ops = [
-            memref.StoreOp.get(zero_const, output_memref_op.results[0], [])
+            memref.StoreOp.get(initial_const, output_memref_op.results[0], [])
         ]
     else:
         # Otherwise we need to broadcast the constant to all elements
-        const_memref = memref.AllocaOp.get(zero_const.results[0].type, shape=[])
-        set_zero_const_memref = memref.StoreOp.get(
-            zero_const, const_memref.results[0], []
+        const_memref = memref.AllocaOp.get(initial_const.results[0].type, shape=[])
+        set_initial_const_memref = memref.StoreOp.get(
+            initial_const, const_memref.results[0], []
         )
         initialise_output_memref = linalg.BroadcastOp(
             const_memref.results[0],
@@ -239,17 +240,15 @@ def translate_sum(program_state: ProgramState, ctx: SSAValueCtx, op: hlfir.SumOp
         )
         initialise_output_memref_ops = [
             const_memref,
-            set_zero_const_memref,
+            set_initial_const_memref,
             initialise_output_memref,
         ]
-
-    block.add_ops([add_op, yield_op])
 
     reduce_op = linalg.ReduceOp(
         array_load_ssa,
         output_memref_op.results[0],
         builtin.DenseArrayBase.from_list(builtin.i64, reduction_dimensions),
-        Region([block]),
+        region,
     )
 
     reduction_ops = [reduce_op]
@@ -264,10 +263,52 @@ def translate_sum(program_state: ProgramState, ctx: SSAValueCtx, op: hlfir.SumOp
 
     return (
         ops_list
-        + [output_memref_op, zero_const]
+        + [output_memref_op, initial_const]
         + initialise_output_memref_ops
         + reduction_ops
     )
+
+
+def translate_product(
+    program_state: ProgramState, ctx: SSAValueCtx, op: hlfir.ProductOp
+):
+    if ctx.contains(op.results[0]):
+        return []
+
+    if isa(op.results[0].type, hlfir.ExprType):
+        base_type = op.results[0].type.elementType
+    else:
+        base_type = op.results[0].type
+
+    @Builder.implicit_region([base_type, base_type])
+    def mul_region(args: tuple[BlockArgument, ...]) -> None:
+        if isa(base_type, builtin.IntegerType):
+            res = arith.MuliOp(args[0], args[1])
+        else:
+            res = arith.MulfOp(args[0], args[1])
+        linalg.YieldOp(res)
+
+    return handle_reduction_operation(program_state, ctx, op, mul_region, 1)
+
+
+def translate_sum(program_state: ProgramState, ctx: SSAValueCtx, op: hlfir.SumOp):
+    if ctx.contains(op.results[0]):
+        return []
+
+    if isa(op.results[0].type, hlfir.ExprType):
+        base_type = op.results[0].type.elementType
+    else:
+        base_type = op.results[0].type
+
+    @Builder.implicit_region([base_type, base_type])
+    def sum_region(args: tuple[BlockArgument, ...]) -> None:
+        if isa(base_type, builtin.IntegerType):
+            res = arith.AddiOp(args[0], args[1])
+        else:
+            res = arith.AddfOp(args[0], args[1])
+        linalg.YieldOp(res)
+
+    return handle_reduction_operation(program_state, ctx, op, sum_region)
 
 
 def handle_movealloc_intrinsic_call(

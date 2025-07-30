@@ -144,6 +144,8 @@ def try_translate_expr(
         return ftn_memory.translate_absent(program_state, ctx, op)
     elif isa(op, hlfir.SumOp):
         return ftn_intrinsics.translate_sum(program_state, ctx, op)
+    elif isa(op, hlfir.ProductOp):
+        return ftn_intrinsics.translate_product(program_state, ctx, op)
     elif isa(op, hlfir.TransposeOp):
         return ftn_intrinsics.translate_transpose(program_state, ctx, op)
     elif isa(op, hlfir.MatmulOp):

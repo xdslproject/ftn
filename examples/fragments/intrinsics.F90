@@ -10,6 +10,7 @@ contains
     call test_transpose()
     call test_matmul()
     call test_sum()
+    call test_product()
   end subroutine calc
 
   subroutine test_transpose()
@@ -117,11 +118,7 @@ contains
         call assert(out_heap_two(j)==55.0, __FILE__, __LINE__)
       end if
       call assert(out_stack_one(j)==real(j*5), __FILE__, __LINE__)
-      call assert(out_heap_one(j)==real(j*5), __FILE__, __LINE__)
-    end do
-
-    do j=1, 5
-      call assert(out_stack_two(j)==55.0, __FILE__, __LINE__)
+      call assert(out_heap_one(j)==j*5, __FILE__, __LINE__)
     end do
 
     call assert(out_stack_three == 275.0, __FILE__, __LINE__)
@@ -129,6 +126,44 @@ contains
 
     deallocate(heap_data, out_heap_one, out_heap_two)
   end subroutine test_sum
+
+  subroutine test_product()
+    real :: stack_data(10,5), out_stack_one(10), out_stack_two(5), out_stack_three
+    integer(kind=16), dimension(:,:), allocatable :: heap_data
+    integer(kind=16), dimension(:), allocatable :: out_heap_one, out_heap_two
+    integer i, j
+    integer(kind=16) :: out_heap_three
+
+    allocate(heap_data(10, 5), out_heap_one(10), out_heap_two(5))
+
+    do i=1, 5
+      do j=1, 10
+        stack_data(j,i)=j
+        heap_data(j,i)=j
+      end do
+    end do
+
+    out_stack_one=product(stack_data, 2)
+    out_stack_two=product(stack_data, 1)
+    out_stack_three=product(stack_data)
+
+    out_heap_one=product(heap_data, 2)
+    out_heap_two=product(heap_data, 1)
+    out_heap_three=product(heap_data)
+
+    do j=1, 10
+      if (j .le. 5) then
+        call assert(out_stack_two(j)==3.6288E+06, __FILE__, __LINE__)
+        call assert(out_heap_two(j)==3628800, __FILE__, __LINE__)
+      end if
+      call assert(out_stack_one(j)==real(j**5), __FILE__, __LINE__)
+      call assert(out_heap_one(j)==j**5, __FILE__, __LINE__)
+    end do
+
+    call assert(out_stack_three == 6.292383E+32, __FILE__, __LINE__)
+    call assert(out_heap_three == 629238322197897601351680000000000, __FILE__, __LINE__)
+    deallocate(heap_data, out_heap_one, out_heap_two)
+  end subroutine test_product
 
 end module intrinsics_test
 
