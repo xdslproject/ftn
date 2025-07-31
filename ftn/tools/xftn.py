@@ -48,6 +48,14 @@ def initialise_argument_parser():
         help="Define preprocessor macros for Flang",
     )
     parser.add_argument(
+        "-e",
+        "--extra-pass",
+        action="append",
+        dest="ftn-opt-extra-passes",
+        default=[],
+        help="Additional transformation pass for ftn-opt",
+    )
+    parser.add_argument(
         "-I",
         "--include-directory",
         action="append",
@@ -370,6 +378,8 @@ def lower_fir_to_core_dialects(
 
     if not options_db["debug"]:
         transformation_passes += ["canonicalize", "cse"]
+    transformation_passes += options_db["ftn-opt-extra-passes"]
+
     run_ftnopt_passes(
         output_tmp_dir,
         input_fn,
@@ -404,7 +414,7 @@ def run_mlir_pipeline_to_llvm_ir(
     else:
         output_f = output_fn
 
-    mlir_pipeline_pass = '--pass-pipeline="builtin.module(canonicalize, cse, loop-invariant-code-motion, convert-linalg-to-loops, convert-scf-to-cf, convert-cf-to-llvm{index-bitwidth=64}, fold-memref-alias-ops,lower-affine,finalize-memref-to-llvm, convert-arith-to-llvm{index-bitwidth=64}, convert-func-to-llvm, math-uplift-to-fma, convert-math-to-llvm, fold-memref-alias-ops,lower-affine,finalize-memref-to-llvm, reconcile-unrealized-casts)"'
+    mlir_pipeline_pass = '--pass-pipeline="builtin.module(canonicalize, cse, loop-invariant-code-motion, math-uplift-to-fma, convert-math-to-llvm, convert-math-to-funcs, convert-linalg-to-loops, convert-scf-to-cf, convert-cf-to-llvm{index-bitwidth=64}, fold-memref-alias-ops,lower-affine,finalize-memref-to-llvm, convert-arith-to-llvm{index-bitwidth=64}, convert-func-to-llvm, fold-memref-alias-ops,lower-affine,finalize-memref-to-llvm, reconcile-unrealized-casts)"'
     mlir_args = f"{mlir_pipeline_pass} {input_f}"
 
     print_verbose_message(
