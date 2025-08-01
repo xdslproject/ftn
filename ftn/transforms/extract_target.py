@@ -1,6 +1,8 @@
 from abc import ABC
+from ast import Module
+from hmac import new
 from typing import TypeVar, cast
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 import itertools
 from xdsl.utils.hints import isa
 from xdsl.dialects import memref, scf, omp
@@ -14,10 +16,12 @@ from xdsl.pattern_rewriter import (RewritePattern, PatternRewriter,
 from xdsl.passes import ModulePass
 from xdsl.dialects import builtin, func, llvm, arith
 from ftn.util.visitor import Visitor
+from xdsl.rewriter import InsertPoint
 
+@dataclass
 class RewriteTarget(RewritePattern):
-  def __init__(self):
-    self.target_ops=[]
+  module : builtin.ModuleOp
+  target_ops: list[Operation] = field(default_factory=list)
 
   @op_type_rewrite_pattern
   def match_and_rewrite(self, op: omp.TargetOp, rewriter: PatternRewriter, /):
@@ -104,11 +108,13 @@ class RewriteTarget(RewritePattern):
     body.add_block(new_block)
 
     new_func=func.FuncOp("tt_device", new_fn_type, body)
+    new_func_signature=func.FuncOp.external("tt_device", new_fn_type.inputs.data, new_fn_type.outputs.data)
 
     self.target_ops=[new_func]
 
     call_fn=func.CallOp.create(properties={"callee": builtin.SymbolRefAttr("tt_device")}, operands=arg_ssa, result_types=[])
     op.parent.insert_ops_before(memref_dim_ops+[call_fn], op)
+    rewriter.insert_op(new_func_signature, InsertPoint.at_start(self.module.body.block))
 
     op.parent.detach_op(op)
 
@@ -120,7 +126,7 @@ class ExtractTarget(ModulePass):
   name = 'extract-target'
 
   def apply(self, ctx: Context, module: builtin.ModuleOp):
-    rw_target= RewriteTarget()
+    rw_target= RewriteTarget(module)
     walker = PatternRewriteWalker(GreedyRewritePatternApplier([
               rw_target,
     ]), apply_recursively=False, walk_reverse=True)
