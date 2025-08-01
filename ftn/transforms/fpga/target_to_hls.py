@@ -21,6 +21,8 @@ from xdsl.rewriter import InsertPoint
 
 @dataclass
 class TargetFuncToHLS(RewritePattern):
+    target_funcs : list[func.FuncOp] = field(default_factory=list)
+
     def deref_args(self, func_op: func.FuncOp, rewriter : PatternRewriter):
         """Dereference the arguments of a function operation."""
         new_input_types = []
@@ -113,6 +115,7 @@ class TargetFuncToHLS(RewritePattern):
 
         target_name = module.attributes["target"].data
         target_func = [op for op in module.walk() if isinstance(op, func.FuncOp) and op.sym_name.data == target_name][0]
+        self.target_funcs.append(target_func)
 
         self.deref_args(target_func, rewriter)
         for map_info in target_func.walk():
@@ -133,9 +136,22 @@ class TargetToHLSPass(ModulePass):
   """
   name = 'target-to-hls'
 
+  generate : str = "hls"
+
   def apply(self, ctx: Context, module: builtin.ModuleOp):
+    target_funcs : list[func.FuncOp] = []
     walker = PatternRewriteWalker(GreedyRewritePatternApplier([
-              TargetFuncToHLS(),
+        TargetFuncToHLS(target_funcs),
     ]), apply_recursively=False, walk_reverse=True)
 
     walker.rewrite_module(module)
+
+    if self.generate == "hls":
+        # Keep only the top level module to contain the function
+        for target_func in target_funcs:
+            target_func.detach()
+
+        module_block = module.body.block
+        module.body.detach_block(module.body.block)
+        module_block.erase()
+        module.body.add_block(Block(target_funcs))
