@@ -34,6 +34,45 @@ class TargetFuncToHLS(RewritePattern):
     def forward_map_info(self, map_info: omp.MapInfoOp, rewriter: PatternRewriter):
         map_info.omp_ptr.replace_by(map_info.var_ptr)
 
+    def deref_scalar_memops(self, scalar_ssa: SSAValue, rewriter: PatternRewriter):
+        for use in scalar_ssa.uses:
+            if isinstance(use.operation, memref.LoadOp):
+                load_op = use.operation
+                # NOTE: the operand of the load operation is not a memref anymore, we have dereferenced it, 
+                # so we forward it.
+                load_op.res.replace_by(load_op.memref)
+                rewriter.erase_op(use.operation)
+            elif isinstance(use.operation, memref.StoreOp):
+                rewriter.erase_op(use.operation)
+
+    def deref_memref_memops(self, memref_ssa: SSAValue, rewriter: PatternRewriter):
+        for use in memref_ssa.uses:
+            if isinstance(use.operation, memref.LoadOp):
+                # The first load was used to load the pointer to the array. The index to retrieve an element from the array is applied 
+                # in the next load. Since we have dereferenced the first pointer, we need to end up with a single load that accesses
+                # the array directly.
+                ptr_load_op = use.operation
+
+                # FIXME: this is assuming each dereferencing load only has one use
+                for ptr_use in ptr_load_op.res.uses:
+                    if isinstance(ptr_use.operation, memref.LoadOp):
+                        array_load_op = ptr_use.operation
+                        array_idx = array_load_op.indices
+
+                        new_load_op = memref.LoadOp.get(memref_ssa, array_idx)
+                        array_load_op.res.replace_by(ptr_load_op.res)
+                        rewriter.replace_op(ptr_load_op, new_load_op)
+                        rewriter.erase_op(array_load_op)
+
+                    elif isinstance(ptr_use.operation, memref.StoreOp):
+                        array_store_op = ptr_use.operation
+                        array_idx = array_store_op.indices
+                        new_store_op = memref.StoreOp.get(array_store_op.value, memref_ssa, array_idx)
+                        rewriter.insert_op(new_store_op, InsertPoint.before(ptr_load_op))
+                        rewriter.erase_op(array_store_op)
+                        rewriter.erase_op(ptr_load_op)
+
+
     def remove_target(self, target_op: omp.TargetOp, target_func: func.FuncOp, rewriter: PatternRewriter):
         """Remove the target operation from the module."""
         for operand in target_op.map_vars:
@@ -42,44 +81,9 @@ class TargetFuncToHLS(RewritePattern):
             block_arg.replace_by(operand)
 
             if not isinstance(operand.type, builtin.MemRefType):
-                for use in operand.uses:
-                    if isinstance(use.operation, memref.LoadOp):
-                        load_op = use.operation
-                        # NOTE: the operand of the load operation is not a memref anymore, we have dereferenced it, 
-                        # so we forward it.
-                        load_op.res.replace_by(load_op.memref)
-                        rewriter.erase_op(use.operation)
-                    elif isinstance(use.operation, memref.StoreOp):
-                        rewriter.erase_op(use.operation)
+                self.deref_scalar_memops(operand, rewriter)
             else:
-                # Adjust the store and load operations that use the dereferenced pointer.
-                for use in operand.uses:
-                    if isinstance(use.operation, memref.LoadOp):
-                        # The first load was used to load the pointer to the array. The index to retrieve an element from the array is applied 
-                        # in the next load. Since we have dereferenced the first pointer, we need to end up with a single load that accesses
-                        # the array directly.
-                        ptr_load_op = use.operation
-
-                        # FIXME: this is assuming each dereferencing load only has one use
-                        for ptr_use in ptr_load_op.res.uses:
-                            if isinstance(ptr_use.operation, memref.LoadOp):
-                                array_load_op = ptr_use.operation
-                                array_idx = array_load_op.indices
-
-                                new_load_op = memref.LoadOp.get(operand, array_idx)
-                                array_load_op.res.replace_by(ptr_load_op.res)
-                                rewriter.replace_op(ptr_load_op, new_load_op)
-                                rewriter.erase_op(array_load_op)
-
-                            elif isinstance(ptr_use.operation, memref.StoreOp):
-                                array_store_op = ptr_use.operation
-                                array_idx = array_store_op.indices
-                                new_store_op = memref.StoreOp.get(array_store_op.value, operand, array_idx)
-                                rewriter.insert_op(new_store_op, InsertPoint.before(ptr_load_op))
-                                rewriter.erase_op(array_store_op)
-                                rewriter.erase_op(ptr_load_op)
-
-
+                self.deref_memref_memops(operand, rewriter)
 
         target_op_terminator = target_op.region.block.last_op
         assert target_op_terminator
