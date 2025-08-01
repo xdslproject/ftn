@@ -47,6 +47,9 @@ class DataMovementGenerator:
             alloc_ssas.append(alloc_ssa)
             rewriter.replace_op(corresponding_mapinfo, alloc_ops, [alloc_ssa])
 
+            for bound in corresponding_mapinfo.bounds:
+                pass  # rewriter.erase_op(bound.owner, False)
+
             preamble_ops += top_ops
             postamble_ops += bottom_ops
 
@@ -68,6 +71,14 @@ class DataMovementGenerator:
 
         return alloc_ssas, preamble_ops, postamble_ops
 
+    def gather_sizes_from_mapinfo_bounds(mapinfo_bounds_ops):
+        size_ssas = []
+        for bound in mapinfo_bounds_ops:
+            assert bound.owner.extent is not None
+            size_ssas.append(bound.owner.extent)
+        size_ssas.reverse()
+        return size_ssas
+
     def generate_for_mapped_var(mapinfo_op, data_env_direction):
         """
         Generates the operations for a mapped variable based upon some direction, the
@@ -82,13 +93,20 @@ class DataMovementGenerator:
         assert isa(mapinfo_op, omp.MapInfoOp)
         map_info_type = omp.OpenMPOffloadMappingFlags(mapinfo_op.map_type.value.data)
 
+        if mapinfo_op.bounds is not None:
+            size_ssas = DataMovementGenerator.gather_sizes_from_mapinfo_bounds(
+                mapinfo_op.bounds
+            )
+        else:
+            size_ssas = []
+
         var_type = mapinfo_op.var_type
         if not isa(var_type, builtin.MemRefType):
             # If this is a scalar then package as a memref
             var_type = builtin.MemRefType(var_type, [])
 
         alloc_memref_ssa, alloc_ops = DataMovementGenerator.generate_allocate_or_lookup(
-            var_type, mapinfo_op.var_name, 1
+            var_type, mapinfo_op.var_name, 1, size_ssas
         )
 
         if (
@@ -151,7 +169,7 @@ class DataMovementGenerator:
             bottom_ops,
         )
 
-    def generate_allocate_or_lookup(var_type, var_name, memory_space):
+    def generate_allocate_or_lookup(var_type, var_name, memory_space, size_ssas):
         """
         Generates allocation of a variable on the device, or variable look up,
         depending on whether it exists. If it exists then do a look up,
@@ -161,14 +179,14 @@ class DataMovementGenerator:
         @Builder.implicit_region([])
         def true_region(args: tuple[BlockArgument, ...]) -> None:
             res = device.LookUpOp(var_name, memory_space, var_type)
-            scf.YieldOp(res)
+            scf.YieldOp(res.results[0])
 
         @Builder.implicit_region([])
         def false_region(args: tuple[BlockArgument, ...]) -> None:
             res = DataMovementGenerator.generate_allocate_on_device(
-                var_type, var_name, memory_space
+                var_type, var_name, memory_space, size_ssas
             )
-            scf.YieldOp(res)
+            scf.YieldOp(res.results[0])
 
         return DataMovementGenerator.generate_conditional_on_data_exists(
             var_name,
@@ -221,7 +239,7 @@ class DataMovementGenerator:
         else:
             assert False
 
-    def generate_allocate_on_device(var_type, var_name, memory_space):
+    def generate_allocate_on_device(var_type, var_name, memory_space, size_ssas):
         """
         Generates allocation of data on the device.
         """
@@ -248,9 +266,9 @@ class DataMovementGenerator:
         zero_idx = arith.ConstantOp(builtin.IntegerAttr.from_index_int_value(0))
         dma_start_copy_op = memref.DmaStartOp.get(
             src,
-            [zero_idx],
+            [zero_idx] * len(src.type.shape),
             dest,
-            [zero_idx],
+            [zero_idx] * len(src.type.shape),
             number_elements,
             tag_memref.results[0],
             [],
@@ -329,7 +347,7 @@ class DataMovementGenerator:
             var_type,
         )
         tag_ssa, ops_list = DataMovementGenerator.generate_dma_data_copy(
-            var_name, memory_space, device_memref, dest
+            var_name, memory_space, device_memref.results[0], dest
         )
         return tag_ssa, [device_memref] + ops_list
 
