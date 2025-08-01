@@ -64,8 +64,11 @@ class RewriteTarget(RewritePattern):
         bound_op=var_op.bounds[0].owner
         arg_types.append(bound_op.lower_bound.type)
         arg_ssa.append(bound_op.lower_bound)
+        arg_types.append(bound_op.upper_bound.type)
+        arg_ssa.append(bound_op.upper_bound)
         locations[bound_op]=loc_idx
-        loc_idx+=1
+        # Adding both lower and upper bound
+        loc_idx+=2
       else:
         pass#self.target_ops+=[var_op]
 
@@ -80,7 +83,7 @@ class RewriteTarget(RewritePattern):
         bound_op=var_op.bounds[0].owner
         res_types=[]
         for res in bound_op.results: res_types.append(res.type)
-        new_bounds_op=omp.MapBoundsOp.build(operands=[[new_block.args[locations[bound_op]]], [], [], [], []],
+        new_bounds_op=omp.MapBoundsOp.build(operands=[[new_block.args[locations[bound_op]]], [new_block.args[locations[bound_op]+1]], [], [], []],
                       properties={"stride_in_bytes": bound_op.stride_in_bytes},
                       result_types=res_types)
 
