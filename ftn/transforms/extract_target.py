@@ -39,6 +39,7 @@ class RewriteTarget(RewritePattern):
       arg_types.append(var_op.var_ptr.type)
       arg_ssa.append(var_op.var_ptr)
       locations[var_op]=loc_idx
+      loc_idx+=1
       if isa(var_op.var_ptr.type, builtin.MemRefType):
         memref_type=var_op.var_ptr.type
         src_memref=var_op.var_ptr
