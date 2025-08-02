@@ -25,6 +25,31 @@ class DataEnvironmentDirection(Enum):
 
 
 class DataMovementGenerator:
+    def collect_mapped_vars_by_stack_and_heap(mapped_vars):
+        sorted_mapped_vars = []
+        ignore_mapped_vars = []
+        for mapped_var in mapped_vars:
+            if mapped_var in ignore_mapped_vars:
+                continue
+
+            if mapped_var.owner.var_name is not None and mapped_var.owner.var_name.data:
+                # This has a name, therefore the overarching descriptor
+                if (
+                    mapped_var.owner.members is not None
+                    and len(mapped_var.owner.members) > 0
+                ):
+                    # Allocatable array as this is an op to the mapinfo
+                    # For now we just handle one map_info as an argument
+                    assert len(mapped_var.owner.members) == 1
+                    sorted_mapped_vars.append(
+                        (mapped_var.owner, mapped_var.owner.members[0].owner)
+                    )
+                    ignore_mapped_vars.append(mapped_var)
+                else:
+                    # On its own, so just add this alone (scalar or static array)
+                    sorted_mapped_vars.append((mapped_var.owner, None))
+        return sorted_mapped_vars
+
     def generate_for_mapped_vars(mapped_vars, rewriter, data_env_direction):
         """
         Generates operations for handling a list of mapped variables
@@ -35,20 +60,34 @@ class DataMovementGenerator:
         wait_to_ssas_list = []
         wait_from_ssas_list = []
         alloc_ssas = []
-        for input_ssa in mapped_vars:
-            corresponding_mapinfo = input_ssa.owner
 
+        sorted_mapped_vars = (
+            DataMovementGenerator.collect_mapped_vars_by_stack_and_heap(mapped_vars)
+        )
+
+        for input_mapped_var in sorted_mapped_vars:
             alloc_ssa, wait_to_ssas, wait_from_ssas, alloc_ops, top_ops, bottom_ops = (
                 DataMovementGenerator.generate_for_mapped_var(
-                    corresponding_mapinfo, data_env_direction
+                    input_mapped_var, data_env_direction
                 )
             )
 
             alloc_ssas.append(alloc_ssa)
-            rewriter.replace_op(corresponding_mapinfo, alloc_ops, [alloc_ssa])
+            rewriter.replace_op(input_mapped_var[0], alloc_ops, [alloc_ssa])
 
-            for bound in corresponding_mapinfo.bounds:
-                pass  # rewriter.erase_op(bound.owner, False)
+            if input_mapped_var[1] is not None:
+                rewriter.erase_op(input_mapped_var[1], False)
+
+            if input_mapped_var[0].bounds is not None:
+                for bound in input_mapped_var[0].bounds:
+                    rewriter.erase_op(bound.owner, False)
+
+            if (
+                input_mapped_var[1] is not None
+                and input_mapped_var[1].bounds is not None
+            ):
+                for bound in input_mapped_var[1].bounds:
+                    rewriter.erase_op(bound.owner, False)
 
             preamble_ops += top_ops
             postamble_ops += bottom_ops
@@ -79,7 +118,29 @@ class DataMovementGenerator:
         size_ssas.reverse()
         return size_ssas
 
-    def generate_for_mapped_var(mapinfo_op, data_env_direction):
+    def extract_mapinfo_description(map_infos):
+        description = {}
+        assert len(map_infos) == 2
+
+        assert isa(map_infos[0], omp.MapInfoOp)
+        if map_infos[1] is None:
+            # Statically allocated
+            description["map_type"] = map_infos[0].map_type
+            description["bounds"] = map_infos[0].bounds
+            description["var_type"] = map_infos[0].var_type
+            description["var_name"] = map_infos[0].var_name
+            description["var_ptr"] = map_infos[0].var_ptr
+        else:
+            # Heap allocated
+            assert isa(map_infos[1], omp.MapInfoOp)
+            description["map_type"] = map_infos[1].map_type
+            description["bounds"] = map_infos[1].bounds
+            description["var_type"] = map_infos[0].var_type
+            description["var_name"] = map_infos[0].var_name
+            description["var_ptr"] = map_infos[1].var_ptr
+        return description
+
+    def generate_for_mapped_var(mapinfos_description, data_env_direction):
         """
         Generates the operations for a mapped variable based upon some direction, the
         direction is needed to understand whether this is entering a data environment,
@@ -90,23 +151,29 @@ class DataMovementGenerator:
         bottom_ops = []
         wait_to_ssas = None
         wait_from_ssas = None
-        assert isa(mapinfo_op, omp.MapInfoOp)
-        map_info_type = omp.OpenMPOffloadMappingFlags(mapinfo_op.map_type.value.data)
 
-        if mapinfo_op.bounds is not None:
+        mapped_var_description = DataMovementGenerator.extract_mapinfo_description(
+            mapinfos_description
+        )
+
+        map_info_type = omp.OpenMPOffloadMappingFlags(
+            mapped_var_description["map_type"].value.data
+        )
+
+        if mapped_var_description["bounds"] is not None:
             size_ssas = DataMovementGenerator.gather_sizes_from_mapinfo_bounds(
-                mapinfo_op.bounds
+                mapped_var_description["bounds"]
             )
         else:
             size_ssas = []
 
-        var_type = mapinfo_op.var_type
+        var_type = mapped_var_description["var_type"]
         if not isa(var_type, builtin.MemRefType):
             # If this is a scalar then package as a memref
             var_type = builtin.MemRefType(var_type, [])
 
         alloc_memref_ssa, alloc_ops = DataMovementGenerator.generate_allocate_or_lookup(
-            var_type, mapinfo_op.var_name, 1, size_ssas
+            var_type, mapped_var_description["var_name"], 1, size_ssas
         )
 
         if (
@@ -120,19 +187,25 @@ class DataMovementGenerator:
                     # may or may not be needed to copy to the device
                     wait_to_ssas, to_ops_list = (
                         DataMovementGenerator.generate_conditional_copy_to_device(
-                            mapinfo_op.var_name, 1, mapinfo_op.var_ptr, alloc_memref_ssa
+                            mapped_var_description["var_name"],
+                            1,
+                            mapped_var_description["var_ptr"],
+                            alloc_memref_ssa,
                         )
                     )
                 else:
                     wait_to_ssas, to_ops_list = (
                         DataMovementGenerator.generate_copy_to_device(
-                            mapinfo_op.var_name, 1, mapinfo_op.var_ptr, alloc_memref_ssa
+                            mapped_var_description["var_name"],
+                            1,
+                            mapped_var_description["var_ptr"],
+                            alloc_memref_ssa,
                         )
                     )
                 top_ops += to_ops_list
 
             # Lastly, mark this variable as acquired by the current data environment
-            top_ops.append(device.DataAcquire(mapinfo_op.var_name, 1))
+            top_ops.append(device.DataAcquire(mapped_var_description["var_name"], 1))
 
         if (
             data_env_direction == DataEnvironmentDirection.EXIT
@@ -141,7 +214,7 @@ class DataMovementGenerator:
             # If this is the exit a data environment then handle the to
 
             # First, release this variable from the current data environment
-            bottom_ops.append(device.DataRelease(mapinfo_op.var_name, 1))
+            bottom_ops.append(device.DataRelease(mapped_var_description["var_name"], 1))
 
             if omp.OpenMPOffloadMappingFlags.FROM in map_info_type:
                 if omp.OpenMPOffloadMappingFlags.IMPLICIT in map_info_type:
@@ -149,13 +222,19 @@ class DataMovementGenerator:
                     # may or may not be needed to copy from the device
                     wait_from_ssas, from_ops_list = (
                         DataMovementGenerator.generate_conditional_copy_from_device(
-                            mapinfo_op.var_name, 1, var_type, mapinfo_op.var_ptr
+                            mapped_var_description["var_name"],
+                            1,
+                            var_type,
+                            mapped_var_description["var_ptr"],
                         )
                     )
                 else:
                     wait_from_ssas, from_ops_list = (
                         DataMovementGenerator.generate_copy_from_device(
-                            mapinfo_op.var_name, 1, var_type, mapinfo_op.var_ptr
+                            mapped_var_description["var_name"],
+                            1,
+                            var_type,
+                            mapped_var_description["var_ptr"],
                         )
                     )
                 bottom_ops += from_ops_list
@@ -243,17 +322,18 @@ class DataMovementGenerator:
         """
         Generates allocation of data on the device.
         """
-        if isa(var_type, builtin.MemRefType):
-            # We have a memref here, for now assume all static
-            return device.AllocOp(
-                var_name,
-                var_type.element_type,
-                builtin.IntegerAttr.from_int_and_width(memory_space, builtin.i32),
-                var_type.shape,
-            )
-        else:
-            # Element, therefore need to construct memref from bounds
-            return None
+        dynamic_ssas = []
+        for idx, shape in enumerate(var_type.shape):
+            if shape.data == -1:
+                dynamic_ssas.append(size_ssas[idx])
+
+        return device.AllocOp(
+            var_name,
+            var_type.element_type,
+            builtin.IntegerAttr.from_int_and_width(memory_space, builtin.i32),
+            var_type.shape,
+            dynamic_ssas,
+        )
 
     def generate_dma_data_copy(var_name, memory_space, src, dest):
         """
