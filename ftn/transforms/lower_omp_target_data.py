@@ -1,21 +1,21 @@
-from xdsl.context import Context
-from xdsl.utils.hints import isa
-from xdsl.ir import BlockArgument
+from dataclasses import dataclass
 from enum import Enum
-from xdsl.builder import Builder
-from xdsl.rewriter import BlockInsertPoint
 
-from xdsl.pattern_rewriter import (
-    RewritePattern,
-    PatternRewriter,
-    op_type_rewrite_pattern,
-    PatternRewriteWalker,
-    GreedyRewritePatternApplier,
-)
+from xdsl.builder import Builder
+from xdsl.context import Context
+from xdsl.dialects import arith, builtin, memref, omp, scf
+from xdsl.ir import BlockArgument
 from xdsl.passes import ModulePass
+from xdsl.pattern_rewriter import (
+    GreedyRewritePatternApplier,
+    PatternRewriter,
+    PatternRewriteWalker,
+    RewritePattern,
+    op_type_rewrite_pattern,
+)
+from xdsl.utils.hints import isa
 
 from ftn.dialects import device
-from xdsl.dialects import builtin, arith, memref, scf, omp
 
 
 class DataEnvironmentDirection(Enum):
@@ -50,7 +50,9 @@ class DataMovementGenerator:
                     sorted_mapped_vars.append((mapped_var.owner, None))
         return sorted_mapped_vars
 
-    def generate_for_mapped_vars(mapped_vars, rewriter, data_env_direction):
+    def generate_for_mapped_vars(
+        mapped_vars, rewriter, data_env_direction, device_mem_space
+    ):
         """
         Generates operations for handling a list of mapped variables
         """
@@ -68,7 +70,7 @@ class DataMovementGenerator:
         for input_mapped_var in sorted_mapped_vars:
             alloc_ssa, wait_to_ssas, wait_from_ssas, alloc_ops, top_ops, bottom_ops = (
                 DataMovementGenerator.generate_for_mapped_var(
-                    input_mapped_var, data_env_direction
+                    input_mapped_var, data_env_direction, device_mem_space
                 )
             )
 
@@ -140,7 +142,9 @@ class DataMovementGenerator:
             description["var_ptr"] = map_infos[1].var_ptr
         return description
 
-    def generate_for_mapped_var(mapinfos_description, data_env_direction):
+    def generate_for_mapped_var(
+        mapinfos_description, data_env_direction, device_mem_space
+    ):
         """
         Generates the operations for a mapped variable based upon some direction, the
         direction is needed to understand whether this is entering a data environment,
@@ -173,7 +177,7 @@ class DataMovementGenerator:
             var_type = builtin.MemRefType(var_type, [])
 
         alloc_memref_ssa, alloc_ops = DataMovementGenerator.generate_allocate_or_lookup(
-            var_type, mapped_var_description["var_name"], 1, size_ssas
+            var_type, mapped_var_description["var_name"], device_mem_space, size_ssas
         )
 
         if (
@@ -188,7 +192,7 @@ class DataMovementGenerator:
                     wait_to_ssas, to_ops_list = (
                         DataMovementGenerator.generate_conditional_copy_to_device(
                             mapped_var_description["var_name"],
-                            1,
+                            device_mem_space,
                             mapped_var_description["var_ptr"],
                             alloc_memref_ssa,
                         )
@@ -197,7 +201,7 @@ class DataMovementGenerator:
                     wait_to_ssas, to_ops_list = (
                         DataMovementGenerator.generate_copy_to_device(
                             mapped_var_description["var_name"],
-                            1,
+                            device_mem_space,
                             mapped_var_description["var_ptr"],
                             alloc_memref_ssa,
                         )
@@ -205,7 +209,9 @@ class DataMovementGenerator:
                 top_ops += to_ops_list
 
             # Lastly, mark this variable as acquired by the current data environment
-            top_ops.append(device.DataAcquire(mapped_var_description["var_name"], 1))
+            top_ops.append(
+                device.DataAcquire(mapped_var_description["var_name"], device_mem_space)
+            )
 
         if (
             data_env_direction == DataEnvironmentDirection.EXIT
@@ -214,7 +220,9 @@ class DataMovementGenerator:
             # If this is the exit a data environment then handle the to
 
             # First, release this variable from the current data environment
-            bottom_ops.append(device.DataRelease(mapped_var_description["var_name"], 1))
+            bottom_ops.append(
+                device.DataRelease(mapped_var_description["var_name"], device_mem_space)
+            )
 
             if omp.OpenMPOffloadMappingFlags.FROM in map_info_type:
                 if omp.OpenMPOffloadMappingFlags.IMPLICIT in map_info_type:
@@ -223,7 +231,7 @@ class DataMovementGenerator:
                     wait_from_ssas, from_ops_list = (
                         DataMovementGenerator.generate_conditional_copy_from_device(
                             mapped_var_description["var_name"],
-                            1,
+                            device_mem_space,
                             var_type,
                             mapped_var_description["var_ptr"],
                         )
@@ -232,7 +240,7 @@ class DataMovementGenerator:
                     wait_from_ssas, from_ops_list = (
                         DataMovementGenerator.generate_copy_from_device(
                             mapped_var_description["var_name"],
-                            1,
+                            device_mem_space,
                             var_type,
                             mapped_var_description["var_ptr"],
                         )
@@ -316,7 +324,9 @@ class DataMovementGenerator:
         elif len(conditional_return_type) == 2:
             return (cond.results[0], cond.results[1]), ops
         else:
-            assert False
+            raise Exception(
+                "Too many return types for conditional return type, only 1 or 2 allowed"
+            )
 
     def generate_allocate_on_device(var_type, var_name, memory_space, size_ssas):
         """
@@ -443,36 +453,60 @@ class DataMovementGenerator:
         return ops_list
 
 
+@dataclass(frozen=True)
 class LowerTargetEnterData(RewritePattern):
+    device_mem_space: int | None = None
+
     @op_type_rewrite_pattern
     def match_and_rewrite(self, op: omp.TargetEnterDataOp, rewriter: PatternRewriter):
         alloc_ssas, preamble_ops, postamble_ops = (
             DataMovementGenerator.generate_for_mapped_vars(
-                op.mapped_vars, rewriter, DataEnvironmentDirection.ENTER
+                op.mapped_vars,
+                rewriter,
+                DataEnvironmentDirection.ENTER,
+                self.device_mem_space,
             )
         )
+        assert self.device_mem_space is not None
+
         rewriter.replace_matched_op(preamble_ops + postamble_ops, [])
 
 
+@dataclass(frozen=True)
 class LowerTargetExitData(RewritePattern):
+    device_mem_space: int | None = None
+
     @op_type_rewrite_pattern
     def match_and_rewrite(self, op: omp.TargetExitDataOp, rewriter: PatternRewriter):
         alloc_ssas, preamble_ops, postamble_ops = (
             DataMovementGenerator.generate_for_mapped_vars(
-                op.mapped_vars, rewriter, DataEnvironmentDirection.EXIT
+                op.mapped_vars,
+                rewriter,
+                DataEnvironmentDirection.EXIT,
+                self.device_mem_space,
             )
         )
+        assert self.device_mem_space is not None
+
         rewriter.replace_matched_op(preamble_ops + postamble_ops, [])
 
 
+@dataclass(frozen=True)
 class LowerTargetOp(RewritePattern):
+    device_mem_space: int | None = None
+
     @op_type_rewrite_pattern
     def match_and_rewrite(self, op: omp.TargetOp, rewriter: PatternRewriter):
         alloc_ssas, preamble_ops, postamble_ops = (
             DataMovementGenerator.generate_for_mapped_vars(
-                op.map_vars, rewriter, DataEnvironmentDirection.BOTH
+                op.map_vars,
+                rewriter,
+                DataEnvironmentDirection.BOTH,
+                self.device_mem_space,
             )
         )
+
+        assert self.device_mem_space is not None
 
         rewriter.insert_op_before_matched_op(preamble_ops)
         rewriter.insert_op_after_matched_op(postamble_ops)
@@ -500,14 +534,22 @@ class LowerTargetOp(RewritePattern):
         rewriter.replace_matched_op(target_op)
 
 
+@dataclass(frozen=True)
 class LowerTargetDataOp(RewritePattern):
+    device_mem_space: int | None = None
+
     @op_type_rewrite_pattern
     def match_and_rewrite(self, op: omp.TargetDataOp, rewriter: PatternRewriter):
         alloc_ssas, preamble_ops, postamble_ops = (
             DataMovementGenerator.generate_for_mapped_vars(
-                op.mapped_vars, rewriter, DataEnvironmentDirection.BOTH
+                op.mapped_vars,
+                rewriter,
+                DataEnvironmentDirection.BOTH,
+                self.device_mem_space,
             )
         )
+
+        assert self.device_mem_space is not None
 
         rewriter.insert_op_before_matched_op(preamble_ops)
 
@@ -521,17 +563,50 @@ class LowerTargetDataOp(RewritePattern):
         rewriter.erase_op(op)
 
 
+@dataclass(frozen=True)
 class LowerOmpTargetDataPass(ModulePass):
     name = "lower-omp-target-data"
 
+    memory_order: str = "HBM,DDR"
+
+    def get_device_mem_space_name(self, accel_config):
+        for mem in self.memory_order.split(","):
+            mem_type = device.MemoryKindAttr(device.MemoryKind[mem])
+            for mem_config in accel_config["memory"]:
+                if mem_config.value["kind"] == mem_type:
+                    return mem_config.key.data
+        return None
+
+    def get_mem_space_from_target_system_spec(self, target, configuration):
+        accel_config = configuration[target]
+
+        memspace_name = self.get_device_mem_space_name(accel_config)
+        assert memspace_name is not None
+
+        for el in configuration["memory_spaces"]:
+            if el.value.data == memspace_name:
+                return int(el.key.data)
+        return None
+
     def apply(self, ctx: Context, op: builtin.ModuleOp) -> None:
+        assert "omp.target_triples" in op.attributes
+        assert "dlti.target_system_spec" in op.attributes
+
+        assert len(op.attributes["omp.target_triples"]) == 1
+        target = op.attributes["omp.target_triples"].data[0]
+
+        device_mem_space = self.get_mem_space_from_target_system_spec(
+            target.data, op.attributes["dlti.target_system_spec"]
+        )
+        assert device_mem_space is not None
+
         PatternRewriteWalker(
             GreedyRewritePatternApplier(
                 [
-                    LowerTargetEnterData(),
-                    LowerTargetExitData(),
-                    LowerTargetDataOp(),
-                    LowerTargetOp(),
+                    LowerTargetEnterData(device_mem_space=device_mem_space),
+                    LowerTargetExitData(device_mem_space=device_mem_space),
+                    LowerTargetDataOp(device_mem_space=device_mem_space),
+                    LowerTargetOp(device_mem_space=device_mem_space),
                 ]
             ),
             apply_recursively=False,
