@@ -6,11 +6,12 @@ module ex8_test
 contains
 
   subroutine calc()
-    real, dimension(:), allocatable :: a, b, c
+    real, dimension(:), allocatable :: a
+    real :: b(100), c(100)
 
     integer :: i
 
-    allocate(a(100), b(100), c(100))
+    allocate(a(100))
 
     !$omp target enter data map(alloc: c)
     !$omp target map(to:a,b)
