@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-import abc
 from collections.abc import Iterable, Sequence
+from enum import auto
 
 from xdsl.dialects.builtin import (
     IndexType,
@@ -9,13 +9,22 @@ from xdsl.dialects.builtin import (
     IntegerAttr,
     MemRefType,
     StringAttr,
-    i32,
     i1,
+    i32,
 )
-from xdsl.ir import Attribute, Dialect, Operation, SSAValue
+from xdsl.ir import (
+    Attribute,
+    Dialect,
+    EnumAttribute,
+    Operation,
+    SpacedOpaqueSyntaxAttribute,
+    SSAValue,
+    StrEnum,
+)
 from xdsl.irdl import (
     AttrSizedOperandSegments,
     IRDLOperation,
+    irdl_attr_definition,
     irdl_op_definition,
     prop_def,
     result_def,
@@ -26,6 +35,41 @@ from xdsl.traits import (
     MemoryAllocEffect,
 )
 from xdsl.utils.hints import isa
+
+
+class MemoryKind(StrEnum):
+    HBM = auto()
+    DDR = auto()
+    SRAM = auto()
+    BRAM = auto()
+    URAM = auto()
+
+
+class ArchitectureKind(StrEnum):
+    FPGA = auto()
+    MANYCORE = auto()
+
+
+class IntegrationKind(StrEnum):
+    PCIe = auto()
+    EMBEDDED = auto()
+
+
+@irdl_attr_definition
+class MemoryKindAttr(EnumAttribute[MemoryKind], SpacedOpaqueSyntaxAttribute):
+    name = "device.memorykind"
+
+
+@irdl_attr_definition
+class ArchitectureKindAttr(
+    EnumAttribute[ArchitectureKind], SpacedOpaqueSyntaxAttribute
+):
+    name = "device.architecturekind"
+
+
+@irdl_attr_definition
+class IntegrationKindAttr(EnumAttribute[IntegrationKind], SpacedOpaqueSyntaxAttribute):
+    name = "device.integrationkind"
 
 
 @irdl_op_definition
@@ -170,5 +214,9 @@ Device = Dialect(
         DataRelease,
         LookUpOp,
     ],
-    [],
+    [
+        ArchitectureKindAttr,
+        IntegrationKindAttr,
+        MemoryKindAttr,
+    ],
 )
