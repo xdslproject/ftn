@@ -9,6 +9,7 @@ from ftn.transforms.to_core.misc.ssa_context import SSAValueCtx
 
 from ftn.transforms.to_core.utils import (
     create_index_constant,
+    generate_dereference_memref,
     generate_extract_ptr_from_memref,
 )
 
@@ -199,6 +200,15 @@ def translate_omp_mapinfo(
     )
     # The type returned here is the return type of the operation
     assert len(var_ptr_types) == 1
+
+    if isa(var_ptr_ssa.type, builtin.MemRefType) and isa(
+        var_ptr_ssa.type.element_type, builtin.MemRefType
+    ):
+        # If this is a memref to a memref (allocatable array) then dereference
+        load_op, load_ssa = generate_dereference_memref(var_ptr_ssa)
+        var_ptr_ssa = load_ssa
+        var_ptr_types[0] = load_ssa.type
+        var_ptr_ops.append(load_op)
 
     var_ptr_ptr_ops, var_ptr_ptr_ssa, __ = handle_opt_operand_field(
         program_state, ctx, op.var_ptr_ptr

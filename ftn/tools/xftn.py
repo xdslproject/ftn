@@ -208,6 +208,9 @@ def build_options_db_from_args(args):
                 print(f"Unknown stage provided as argument '{e}'")
             exit(-1)
 
+    if options_db["debug"]:
+        options_db["ftnopt_args"].append("disable-verify")
+
     return options_db
 
 

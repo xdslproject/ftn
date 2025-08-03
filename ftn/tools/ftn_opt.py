@@ -7,6 +7,7 @@ from ftn.transforms.rewrite_fir_to_core import RewriteFIRToCore
 from ftn.transforms.merge_memref_deref import MergeMemRefDeref
 from ftn.transforms.extract_target import ExtractTarget
 from ftn.transforms.fpga.target_to_hls import TargetToHLSPass
+from ftn.transforms.lower_omp_target_data import LowerOmpTargetDataPass
 # from ftn.transforms.isolate_target import IsolateTarget
 # from psy.extract_stencil import ExtractStencil
 # from ftn.transforms.tenstorrent.convert_to_tt import ConvertToTT
@@ -29,6 +30,7 @@ class FtnOptMain(xDSLOptMain):
         self.register_pass("merge-memref-deref", lambda: MergeMemRefDeref)
         self.register_pass("extract-target", lambda: ExtractTarget)
         self.register_pass("target-to-hls", lambda: TargetToHLSPass)
+        self.register_pass("lower-omp-target-data", lambda: LowerOmpTargetDataPass)
         # self.register_pass("isolate-target", lambda: IsolateTarget)
         # self.register_pass("convert-to-tt", lambda: ConvertToTT)
 
