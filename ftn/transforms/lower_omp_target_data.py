@@ -77,20 +77,6 @@ class DataMovementGenerator:
             alloc_ssas.append(alloc_ssa)
             rewriter.replace_op(input_mapped_var[0], alloc_ops, [alloc_ssa])
 
-            if input_mapped_var[1] is not None:
-                rewriter.erase_op(input_mapped_var[1], False)
-
-            if input_mapped_var[0].bounds is not None:
-                for bound in input_mapped_var[0].bounds:
-                    rewriter.erase_op(bound.owner, False)
-
-            if (
-                input_mapped_var[1] is not None
-                and input_mapped_var[1].bounds is not None
-            ):
-                for bound in input_mapped_var[1].bounds:
-                    rewriter.erase_op(bound.owner, False)
-
             preamble_ops += top_ops
             postamble_ops += bottom_ops
 
@@ -563,6 +549,22 @@ class LowerTargetDataOp(RewritePattern):
         rewriter.erase_op(op)
 
 
+class CleanMapInfoOps(RewritePattern):
+    @op_type_rewrite_pattern
+    def match_and_rewrite(self, op: omp.MapInfoOp, rewriter: PatternRewriter):
+        for res in op.results:
+            assert res.uses.get_length() == 0
+        rewriter.erase_op(op)
+
+
+class CleanMapBoundsOps(RewritePattern):
+    @op_type_rewrite_pattern
+    def match_and_rewrite(self, op: omp.MapBoundsOp, rewriter: PatternRewriter):
+        for res in op.results:
+            assert res.uses.get_length() == 0
+        rewriter.erase_op(op)
+
+
 class CleanTargetOpBlockArgs(RewritePattern):
     @op_type_rewrite_pattern
     def match_and_rewrite(self, op: omp.TargetOp, rewriter: PatternRewriter):
@@ -638,7 +640,16 @@ class LowerOmpTargetDataPass(ModulePass):
         PatternRewriteWalker(
             GreedyRewritePatternApplier(
                 [
+                    CleanMapInfoOps(),
                     CleanTargetOpBlockArgs(),
+                ]
+            ),
+        ).rewrite_module(op)
+
+        PatternRewriteWalker(
+            GreedyRewritePatternApplier(
+                [
+                    CleanMapBoundsOps(),
                 ]
             ),
         ).rewrite_module(op)
