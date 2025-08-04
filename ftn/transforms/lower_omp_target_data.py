@@ -563,27 +563,50 @@ class LowerTargetDataOp(RewritePattern):
         rewriter.erase_op(op)
 
 
+class CleanTargetOpBlockArgs(RewritePattern):
+    @op_type_rewrite_pattern
+    def match_and_rewrite(self, op: omp.TargetOp, rewriter: PatternRewriter):
+        if len(op.region.block.args) > len(op.has_device_addr_vars):
+            for i in range(
+                len(op.region.block.args) - 1, len(op.has_device_addr_vars) - 1, -1
+            ):
+                assert op.region.block.args[i].uses.get_length() == 0
+                rewriter.erase_block_argument(op.region.block.args[i])
+
+
 @dataclass(frozen=True)
 class LowerOmpTargetDataPass(ModulePass):
     name = "lower-omp-target-data"
 
     memory_order: str = "HBM,DDR"
 
+    def get_dlti_item(config, name):
+        for e in config.entries.data:
+            if e.key == builtin.StringAttr(name):
+                return e.value
+
     def get_device_mem_space_name(self, accel_config):
         for mem in self.memory_order.split(","):
             mem_type = device.MemoryKindAttr(device.MemoryKind[mem])
-            for mem_config in accel_config["memory"]:
-                if mem_config.value["kind"] == mem_type:
+            for mem_config in LowerOmpTargetDataPass.get_dlti_item(
+                accel_config, "memory"
+            ).entries.data:
+                if (
+                    LowerOmpTargetDataPass.get_dlti_item(mem_config.value, "kind")
+                    == mem_type
+                ):
                     return mem_config.key.data
         return None
 
     def get_mem_space_from_target_system_spec(self, target, configuration):
-        accel_config = configuration[target]
+        accel_config = LowerOmpTargetDataPass.get_dlti_item(configuration, target)
 
         memspace_name = self.get_device_mem_space_name(accel_config)
         assert memspace_name is not None
 
-        for el in configuration["memory_spaces"]:
+        for el in LowerOmpTargetDataPass.get_dlti_item(
+            configuration, "memory_spaces"
+        ).entries.data:
             if el.value.data == memspace_name:
                 return int(el.key.data)
         return None
@@ -610,4 +633,12 @@ class LowerOmpTargetDataPass(ModulePass):
                 ]
             ),
             apply_recursively=False,
+        ).rewrite_module(op)
+
+        PatternRewriteWalker(
+            GreedyRewritePatternApplier(
+                [
+                    CleanTargetOpBlockArgs(),
+                ]
+            ),
         ).rewrite_module(op)
