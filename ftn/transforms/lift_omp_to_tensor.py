@@ -341,7 +341,7 @@ class LiftOMPToTensors(RewritePattern, ABC):
         else:
             return None
 
-    def lift_op(self, op: omp.SimdOp | omp.ParallelOp, rewriter: PatternRewriter):
+    def lift_op(self, op: omp.SimdOp | omp.WsLoopOp, rewriter: PatternRewriter):
         loop_nest_op = LiftOMPToTensors.find_child_op(omp.LoopNestOp, op)
         assert loop_nest_op is not None
 
@@ -444,6 +444,24 @@ class LiftSIMDOp(LiftOMPToTensors):
         self.lift_op(op, rewriter)
 
 
+class LiftWsLoopOp(LiftOMPToTensors):
+    @op_type_rewrite_pattern
+    def match_and_rewrite(self, op: omp.WsLoopOp, rewriter: PatternRewriter):
+        self.lift_op(op, rewriter)
+
+
+class RemoveParallelOp(RewritePattern):
+    @op_type_rewrite_pattern
+    def match_and_rewrite(self, op: omp.ParallelOp, rewriter: PatternRewriter):
+        tensor_compute_op = LiftOMPToTensors.find_child_op(device.TensorComputeOp, op)
+        if tensor_compute_op is not None:
+            # Remove the parallel region terminator
+            rewriter.erase_op(op.region.block.ops.last)
+            # Now move this up
+            rewriter.inline_block_before_matched_op(op.region.block)
+            rewriter.erase_op(op)
+
+
 class LiftOmpToTensorPass(ModulePass):
     name = "lift-omp-to-tensor"
 
@@ -452,7 +470,16 @@ class LiftOmpToTensorPass(ModulePass):
             GreedyRewritePatternApplier(
                 [
                     LiftSIMDOp(),
+                    LiftWsLoopOp(),
                 ]
             ),
             apply_recursively=False,
+        ).rewrite_module(op)
+
+        PatternRewriteWalker(
+            GreedyRewritePatternApplier(
+                [
+                    RemoveParallelOp(),
+                ]
+            ),
         ).rewrite_module(op)
