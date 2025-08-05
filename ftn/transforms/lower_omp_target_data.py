@@ -582,33 +582,21 @@ class LowerOmpTargetDataPass(ModulePass):
 
     memory_order: str = "HBM,DDR"
 
-    def get_dlti_item(config, name):
-        for e in config.entries.data:
-            if e.key == builtin.StringAttr(name):
-                return e.value
-
     def get_device_mem_space_name(self, accel_config):
         for mem in self.memory_order.split(","):
             mem_type = device.MemoryKindAttr(device.MemoryKind[mem])
-            for mem_config in LowerOmpTargetDataPass.get_dlti_item(
-                accel_config, "memory"
-            ).entries.data:
-                if (
-                    LowerOmpTargetDataPass.get_dlti_item(mem_config.value, "kind")
-                    == mem_type
-                ):
+            for mem_config in accel_config["memory"].entries:
+                if mem_config.value["kind"] == mem_type:
                     return mem_config.key.data
         return None
 
     def get_mem_space_from_target_system_spec(self, target, configuration):
-        accel_config = LowerOmpTargetDataPass.get_dlti_item(configuration, target)
+        accel_config = configuration[target]
 
         memspace_name = self.get_device_mem_space_name(accel_config)
         assert memspace_name is not None
 
-        for el in LowerOmpTargetDataPass.get_dlti_item(
-            configuration, "memory_spaces"
-        ).entries.data:
+        for el in configuration["memory_spaces"].entries:
             if el.value.data == memspace_name:
                 return int(el.key.data)
         return None

@@ -22,6 +22,8 @@ class LowerTargetOp(RewritePattern):
     def match_and_rewrite(self, op: omp.TargetOp, rewriter: PatternRewriter):
         assert self.target is not None
 
+        rewriter.replace_op(op.region.block.ops.last, device.KernelTerminatorOp())
+
         kernel = device.KernelCreate(
             self.target,
             rewriter.move_region_contents_to_new_regions(op.region),
@@ -33,12 +35,6 @@ class LowerTargetOp(RewritePattern):
         wait = device.KernelWait(kernel)
 
         rewriter.replace_matched_op([kernel, launch, wait])
-
-
-class ConvertOmpTerminatorOp(RewritePattern):
-    @op_type_rewrite_pattern
-    def match_and_rewrite(self, op: omp.TerminatorOp, rewriter: PatternRewriter):
-        rewriter.replace_matched_op(device.KernelTerminatorOp())
 
 
 class OmpTargetToKernelPass(ModulePass):
@@ -54,7 +50,6 @@ class OmpTargetToKernelPass(ModulePass):
             GreedyRewritePatternApplier(
                 [
                     LowerTargetOp(target),
-                    ConvertOmpTerminatorOp(),
                 ]
             ),
             apply_recursively=False,
