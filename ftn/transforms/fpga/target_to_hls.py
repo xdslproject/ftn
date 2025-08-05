@@ -2,6 +2,7 @@ from abc import ABC
 from ast import FunctionType, Module
 from hmac import new
 from json import load
+from sys import set_coroutine_origin_tracking_depth
 from typing import TypeVar, cast
 from dataclasses import dataclass, field
 import itertools
@@ -18,6 +19,7 @@ from xdsl.passes import ModulePass
 from xdsl.dialects import builtin, func, llvm, arith
 from ftn.util.visitor import Visitor
 from xdsl.rewriter import InsertPoint
+from xdsl.dialects.experimental.hls import PragmaPipelineOp
 
 class DerefMemrefs:
     @staticmethod
@@ -92,6 +94,69 @@ class RemoveOps:
         rewriter.erase_op(target_op)
 
     @staticmethod
+    def remove_omp_parallel(parallel_op: omp.ParallelOp, rewriter: PatternRewriter):
+        ws_loop = None
+        for op in parallel_op.walk():
+            if isinstance(op, omp.WsLoopOp):
+                ws_loop = op
+                break
+
+        assert ws_loop
+        print(ws_loop.body.block)
+        omp_loop_op = ws_loop.body.block.first_op
+        ws_loop_block = ws_loop.body.block
+        ws_loop.body.detach_block(ws_loop_block)
+        rewriter.inline_block(ws_loop_block, InsertPoint.before(ws_loop))
+        rewriter.erase_op(ws_loop)
+
+        if isinstance(omp_loop_op, omp.LoopNestOp):
+            flat_loop_body = rewriter.move_region_contents_to_new_regions(omp_loop_op.body)
+            rewriter.replace_op(flat_loop_body.block.last_op, scf.YieldOp())
+            flat_lb = arith.IndexCastOp(omp_loop_op.lowerBound[0], builtin.IndexType())
+            flat_ub = arith.IndexCastOp(omp_loop_op.upperBound[0], builtin.IndexType())
+            flat_step = arith.IndexCastOp(omp_loop_op.step[0], builtin.IndexType())
+            rewriter.insert_op(flat_lb, InsertPoint.after(omp_loop_op.lowerBound[0].owner))
+            rewriter.insert_op(flat_ub, InsertPoint.after(omp_loop_op.upperBound[0].owner))
+            rewriter.insert_op(flat_step, InsertPoint.after(omp_loop_op.step[0].owner))
+            rewriter.replace_value_with_new_type(flat_loop_body.block.args[0], builtin.IndexType())
+
+            # Replace the store ops first
+            for arg_use in flat_loop_body.block.args[0].uses:
+                if isinstance(arg_use.operation, memref.StoreOp):
+                    store_op = arg_use.operation
+                    alloca_op = store_op.memref.owner
+                    assert isinstance(alloca_op, memref.AllocaOp)
+                    index_alloca = memref.AllocaOp.get(builtin.IndexType(), shape=alloca_op.memref.type.shape)
+                    rewriter.replace_op(alloca_op, index_alloca)
+
+                    idx_memref = store_op.memref
+                    for idx_memref_use in idx_memref.uses:
+                        if isinstance(idx_memref_use.operation, memref.LoadOp):
+                            load_op = idx_memref_use.operation
+                            index_load = memref.LoadOp.get(load_op.memref, load_op.indices)
+                            rewriter.replace_op(load_op, index_load)
+
+                            # Original type of the block arg of the loop nest op
+                            cast_ind_var = arith.IndexCastOp(index_load.res, builtin.i32)
+                            rewriter.insert_op(cast_ind_var, InsertPoint.after(index_load))
+                            index_load.res.replace_by_if(cast_ind_var.result, lambda use: use.operation != cast_ind_var)
+
+            flat_loop = scf.ForOp(flat_lb, flat_ub, flat_step, (), flat_loop_body)
+            #flat_loop = scf.ForOp(omp_loop_op.lowerBound[0], omp_loop_op.upperBound[0], omp_loop_op.step[0], (), flat_loop_body)
+            rewriter.replace_op(omp_loop_op, flat_loop)
+
+            one = arith.ConstantOp.from_int_and_width(1, 32)
+            pragma_pipeline = PragmaPipelineOp(one)
+            rewriter.insert_op([one, pragma_pipeline], InsertPoint.at_start(flat_loop_body.block))
+
+        parallel_block = parallel_op.region.block
+        parallel_op.region.detach_block(parallel_block)
+        rewriter.erase_op(parallel_block.last_op)
+        rewriter.inline_block(parallel_block, InsertPoint.before(parallel_op))
+        rewriter.erase_op(parallel_op)
+
+
+    @staticmethod
     def remove_remaining_omp_ops(target_func: func.FuncOp, rewriter: PatternRewriter):
         """Remove any remaining OpenMP operations in the target function."""
         for op in target_func.walk():
@@ -125,6 +190,15 @@ class TargetFuncToHLS(RewritePattern):
                 continue
 
             RemoveOps.forward_map_info(map_info, rewriter)
+
+        omp_parallel = None
+        for op in target_func.walk():
+            if isinstance(op, omp.ParallelOp):
+                omp_parallel = op
+                break
+
+        if omp_parallel:
+            RemoveOps.remove_omp_parallel(omp_parallel, rewriter)
 
         target_op = [op for op in target_func.walk() if isinstance(op, omp.TargetOp)][0]
         RemoveOps.remove_target(target_op, target_func, rewriter)
