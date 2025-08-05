@@ -7,11 +7,13 @@ from xdsl.dialects.builtin import (
     IndexType,
     IntAttr,
     IntegerAttr,
+    IntegerType,
     MemRefType,
     StringAttr,
     i1,
     i32,
 )
+from xdsl.dialects.utils import AbstractYieldOperation
 from xdsl.ir import (
     Attribute,
     Dialect,
@@ -27,6 +29,7 @@ from xdsl.ir import (
 from xdsl.irdl import (
     AttrSizedOperandSegments,
     IRDLOperation,
+    base,
     irdl_attr_definition,
     irdl_op_definition,
     operand_def,
@@ -35,8 +38,10 @@ from xdsl.irdl import (
     result_def,
     traits_def,
     var_operand_def,
+    var_result_def,
 )
 from xdsl.traits import (
+    HasParent,
     IsTerminator,
     MemoryAllocEffect,
     Pure,
@@ -294,6 +299,51 @@ class KernelTerminatorOp(IRDLOperation):
     traits = traits_def(IsTerminator(), Pure())
 
 
+@irdl_op_definition
+class TensorComputeOp(IRDLOperation):
+    name = "device.tensor_compute"
+
+    inputs = var_operand_def()
+    lowerBound = var_operand_def(base(IntegerType) | base(IndexType))
+    upperBound = var_operand_def(base(IntegerType) | base(IndexType))
+    step = var_operand_def(base(IntegerType) | base(IndexType))
+    res = var_result_def()
+
+    body = region_def("single_block")
+
+    irdl_options = [AttrSizedOperandSegments(as_property=True)]
+
+    def __init__(
+        self,
+        inputs: Sequence[SSAValue | Operation],
+        lowerBound: Sequence[SSAValue | Operation],
+        upperBound: Sequence[SSAValue | Operation],
+        step: Sequence[SSAValue | Operation],
+        results: Sequence[Attribute],
+        region: Region,
+    ):
+        super().__init__(
+            operands=([inputs, lowerBound, upperBound, step]),
+            result_types=[results],
+            regions=[region],
+        )
+
+
+@irdl_op_definition
+class TensorYieldOp(AbstractYieldOperation[Attribute]):
+    name = "device.tensor_yield"
+
+    assembly_format = "( `(` $arguments^ `:` type($arguments) `)` )? attr-dict"
+
+    traits = traits_def(
+        IsTerminator(),
+        Pure(),
+        HasParent(
+            TensorComputeOp,
+        ),
+    )
+
+
 Device = Dialect(
     "device",
     [
@@ -307,6 +357,8 @@ Device = Dialect(
         KernelLaunch,
         KernelTerminatorOp,
         KernelWait,
+        TensorComputeOp,
+        TensorYieldOp,
     ],
     [
         ArchitectureKindAttr,
