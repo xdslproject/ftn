@@ -3,11 +3,15 @@ import os, glob
 
 from xdsl.dialects.builtin import ModuleOp
 
+from typing import IO
+
 from ftn.transforms.rewrite_fir_to_core import RewriteFIRToCore
 from ftn.transforms.merge_memref_deref import MergeMemRefDeref
 from ftn.transforms.extract_target import ExtractTarget
 from ftn.transforms.fpga.target_to_hls import TargetToHLSPass
 from ftn.transforms.lower_omp_target_data import LowerOmpTargetDataPass
+from ftn.transforms.apply_target_config import ApplyTargetConfig
+from ftn.transforms.omp_target_to_kernel import OmpTargetToKernelPass
 # from ftn.transforms.isolate_target import IsolateTarget
 # from psy.extract_stencil import ExtractStencil
 # from ftn.transforms.tenstorrent.convert_to_tt import ConvertToTT
@@ -19,6 +23,7 @@ from typing import Callable, Dict, List
 
 from xdsl.xdsl_opt_main import xDSLOptMain
 from ftn.dialects import ftn_relative_cf
+from ftn.dialects import device
 
 import traceback
 
@@ -31,11 +36,20 @@ class FtnOptMain(xDSLOptMain):
         self.register_pass("extract-target", lambda: ExtractTarget)
         self.register_pass("target-to-hls", lambda: TargetToHLSPass)
         self.register_pass("lower-omp-target-data", lambda: LowerOmpTargetDataPass)
+        self.register_pass("apply-target", lambda: ApplyTargetConfig)
+        self.register_pass("omp-target-to-kernel", lambda: OmpTargetToKernelPass)
         # self.register_pass("isolate-target", lambda: IsolateTarget)
         # self.register_pass("convert-to-tt", lambda: ConvertToTT)
 
     def register_all_targets(self):
+        def _output_fpga_host(prog: ModuleOp, output: IO[str]):
+            from ftn.dialects.fpga.host_printer import HostPrinter
+
+            printer = HostPrinter(stream=output)
+            printer.print(prog)
+
         super().register_all_targets()
+        self.available_targets["fpga-host"] = _output_fpga_host
 
     def setup_pipeline(self):
         super().setup_pipeline()
@@ -52,6 +66,7 @@ class FtnOptMain(xDSLOptMain):
     def register_all_dialects(self):
         super().register_all_dialects()
         self.ctx.load_dialect(ftn_relative_cf.Ftn_relative_cf)
+        self.ctx.load_dialect(device.Device)
 
     @staticmethod
     def get_passes_as_dict() -> Dict[str, Callable[[ModuleOp], None]]:
