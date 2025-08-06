@@ -112,6 +112,13 @@ def initialise_argument_parser():
         default=1,
         help="Enable verbose mode (default is 1)",
     )
+    parser.add_argument(
+        "-p",
+        "--print-target",
+        choices=["mlir", "fpga-host"],
+        default="mlir",
+        help="Print the target output, either MLIR or FPGA host code (default is 'mlir')",
+    )
     return parser
 
 
@@ -483,6 +490,9 @@ def print_file_contents(filename):
     with open(filename) as f:
         print(f.read())
 
+def generate_fpga_host_code(filename):
+    host_filename = filename.split(".")[0] + "_fpga_host.c"
+    os.system(f"ftn-opt {filename} -t fpga-host -o {host_filename}")
 
 def main():
     parser = initialise_argument_parser()
@@ -590,6 +600,9 @@ def main():
     if options_db["run_fpga_llvmir_stage"]:
         print_verbose_message(options_db, "Running FPGA LLVM-IR generation stage",)
         generate_llvmir_for_fpga(out_file)
+
+    if options_db["print_target"] == "fpga-host":
+        generate_fpga_host_code(out_file)
 
     if options_db["cleanup"]:
         remove_file_if_exists(
