@@ -50,6 +50,7 @@ from xdsl.traits import (
     MemoryAllocEffect,
     Pure,
 )
+from xdsl.utils.exceptions import VerifyException
 from xdsl.utils.hints import isa
 
 
@@ -278,6 +279,16 @@ class KernelCreate(IRDLOperation):
             properties=properties,
             regions=[region],
         )
+
+    def verify(self) -> None:
+        if self.device_function and self.body:
+            raise VerifyException(
+                "can not provide both a device function and body to a device kernel"
+            )
+        if not self.device_function and not self.body:
+            raise VerifyException(
+                "must provide either a device function or a body to a device kernel"
+            )
 
 
 @irdl_op_definition
