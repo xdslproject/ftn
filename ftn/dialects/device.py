@@ -4,12 +4,14 @@ from collections.abc import Iterable, Sequence
 from enum import auto
 
 from xdsl.dialects.builtin import (
+    FlatSymbolRefAttrConstr,
     IndexType,
     IntAttr,
     IntegerAttr,
     IntegerType,
     MemRefType,
     StringAttr,
+    SymbolRefAttr,
     i1,
     i32,
 )
@@ -33,6 +35,8 @@ from xdsl.irdl import (
     irdl_attr_definition,
     irdl_op_definition,
     operand_def,
+    opt_prop_def,
+    opt_region_def,
     prop_def,
     region_def,
     result_def,
@@ -229,9 +233,10 @@ class KernelCreate(IRDLOperation):
     runtime_args = var_operand_def()
     mapped_data = var_operand_def()
 
-    target = prop_def(StringAttr)
+    target_device = prop_def(StringAttr)
+    device_function = opt_prop_def(FlatSymbolRefAttrConstr)
 
-    body = region_def("single_block")
+    body = opt_region_def("single_block")
 
     res = result_def(KernelHandle)
 
@@ -239,11 +244,12 @@ class KernelCreate(IRDLOperation):
 
     def __init__(
         self,
-        target: StringAttr | str,
-        region: Region,
+        target_device: StringAttr | str,
+        region: Region | None = None,
         static_args: Sequence[SSAValue | Operation] | None = None,
         runtime_args: Sequence[SSAValue | Operation] | None = None,
         mapped_data: Sequence[SSAValue | Operation] | None = None,
+        device_function: FlatSymbolRefAttrConstr | str | None = None,
     ):
         if static_args is None:
             static_args = []
@@ -254,10 +260,22 @@ class KernelCreate(IRDLOperation):
         if mapped_data is None:
             mapped_data = []
 
+        if region is None:
+            region = []
+
+        if isa(target_device, str):
+            target_device = StringAttr(target_device)
+
+        properties = {"target_device": target_device}
+        if device_function:
+            if isa(device_function, str):
+                device_function = SymbolRefAttr(device_function)
+            properties["device_function"] = device_function
+
         super().__init__(
             operands=([static_args, runtime_args, mapped_data]),
             result_types=[KernelHandle()],
-            properties={"target": target},
+            properties=properties,
             regions=[region],
         )
 
