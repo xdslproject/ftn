@@ -88,10 +88,15 @@ class ApplyTargetConfig(ModulePass):
 
     target: str = "tenstorrent"
 
+    def get_dlti_item(config, name):
+        for e in config.entries.data:
+            if e.key == builtin.StringAttr(name):
+                return e.value
+
     def generate_system_config(self, accelerator_name, accelerator_config):
-        mem_config = accelerator_config["memory"]
+        mem_config = ApplyTargetConfig.get_dlti_item(accelerator_config, "memory")
         accel_memories = []
-        for entry in mem_config:
+        for entry in mem_config.entries.data:
             accel_memories.append(entry.key.data)
         memory_spaces_config = {"0": "HOST_DRAM"}
         for idx, am in enumerate(accel_memories):

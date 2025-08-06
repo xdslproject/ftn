@@ -7,32 +7,44 @@ from xdsl.dialects.builtin import (
     IndexType,
     IntAttr,
     IntegerAttr,
+    IntegerType,
     MemRefType,
     StringAttr,
     i1,
     i32,
 )
+from xdsl.dialects.utils import AbstractYieldOperation
 from xdsl.ir import (
     Attribute,
     Dialect,
     EnumAttribute,
     Operation,
+    ParametrizedAttribute,
+    Region,
     SpacedOpaqueSyntaxAttribute,
     SSAValue,
     StrEnum,
+    TypeAttribute,
 )
 from xdsl.irdl import (
     AttrSizedOperandSegments,
     IRDLOperation,
+    base,
     irdl_attr_definition,
     irdl_op_definition,
+    operand_def,
     prop_def,
+    region_def,
     result_def,
     traits_def,
     var_operand_def,
+    var_result_def,
 )
 from xdsl.traits import (
+    HasParent,
+    IsTerminator,
     MemoryAllocEffect,
+    Pure,
 )
 from xdsl.utils.hints import isa
 
@@ -70,6 +82,11 @@ class ArchitectureKindAttr(
 @irdl_attr_definition
 class IntegrationKindAttr(EnumAttribute[IntegrationKind], SpacedOpaqueSyntaxAttribute):
     name = "device.integrationkind"
+
+
+@irdl_attr_definition
+class KernelHandle(ParametrizedAttribute, TypeAttribute):
+    name = "device.kernelhandle"
 
 
 @irdl_op_definition
@@ -204,6 +221,129 @@ class DataNumElements(IRDLOperation):
         )
 
 
+@irdl_op_definition
+class KernelCreate(IRDLOperation):
+    name = "device.kernel_create"
+
+    static_args = var_operand_def()
+    runtime_args = var_operand_def()
+    mapped_data = var_operand_def()
+
+    target = prop_def(StringAttr)
+
+    body = region_def("single_block")
+
+    res = result_def(KernelHandle)
+
+    irdl_options = [AttrSizedOperandSegments(as_property=True)]
+
+    def __init__(
+        self,
+        target: StringAttr | str,
+        region: Region,
+        static_args: Sequence[SSAValue | Operation] | None = None,
+        runtime_args: Sequence[SSAValue | Operation] | None = None,
+        mapped_data: Sequence[SSAValue | Operation] | None = None,
+    ):
+        if static_args is None:
+            static_args = []
+
+        if runtime_args is None:
+            runtime_args = []
+
+        if mapped_data is None:
+            mapped_data = []
+
+        super().__init__(
+            operands=([static_args, runtime_args, mapped_data]),
+            result_types=[KernelHandle()],
+            properties={"target": target},
+            regions=[region],
+        )
+
+
+@irdl_op_definition
+class KernelLaunch(IRDLOperation):
+    name = "device.kernel_launch"
+
+    handle = operand_def()
+
+    def __init__(
+        self,
+        handle: SSAValue | Operation,
+    ):
+        super().__init__(
+            operands=([handle]),
+        )
+
+
+@irdl_op_definition
+class KernelWait(IRDLOperation):
+    name = "device.kernel_wait"
+
+    handle = operand_def()
+
+    def __init__(
+        self,
+        handle: SSAValue | Operation,
+    ):
+        super().__init__(
+            operands=([handle]),
+        )
+
+
+@irdl_op_definition
+class KernelTerminatorOp(IRDLOperation):
+    name = "device.kernel_terminator"
+
+    traits = traits_def(IsTerminator(), Pure())
+
+
+@irdl_op_definition
+class TensorComputeOp(IRDLOperation):
+    name = "device.tensor_compute"
+
+    inputs = var_operand_def()
+    lowerBound = var_operand_def(base(IntegerType) | base(IndexType))
+    upperBound = var_operand_def(base(IntegerType) | base(IndexType))
+    step = var_operand_def(base(IntegerType) | base(IndexType))
+    res = var_result_def()
+
+    body = region_def("single_block")
+
+    irdl_options = [AttrSizedOperandSegments(as_property=True)]
+
+    def __init__(
+        self,
+        inputs: Sequence[SSAValue | Operation],
+        lowerBound: Sequence[SSAValue | Operation],
+        upperBound: Sequence[SSAValue | Operation],
+        step: Sequence[SSAValue | Operation],
+        results: Sequence[Attribute],
+        region: Region,
+    ):
+        super().__init__(
+            operands=([inputs, lowerBound, upperBound, step]),
+            result_types=[results],
+            regions=[region],
+        )
+
+
+@irdl_op_definition
+class TensorYieldOp(AbstractYieldOperation[Attribute]):
+    name = "device.tensor_yield"
+
+    assembly_format = "( `(` $arguments^ `:` type($arguments) `)` )? attr-dict"
+
+    traits = traits_def(
+        IsTerminator(),
+        Pure(),
+        HasParent(
+            TensorComputeOp,
+        ),
+    )
+
+
 Device = Dialect(
     "device",
     [
@@ -213,10 +353,17 @@ Device = Dialect(
         DataNumElements,
         DataRelease,
         LookUpOp,
+        KernelCreate,
+        KernelLaunch,
+        KernelTerminatorOp,
+        KernelWait,
+        TensorComputeOp,
+        TensorYieldOp,
     ],
     [
         ArchitectureKindAttr,
         IntegrationKindAttr,
         MemoryKindAttr,
+        KernelHandle,
     ],
 )

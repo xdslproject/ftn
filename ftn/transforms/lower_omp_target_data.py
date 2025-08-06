@@ -77,20 +77,6 @@ class DataMovementGenerator:
             alloc_ssas.append(alloc_ssa)
             rewriter.replace_op(input_mapped_var[0], alloc_ops, [alloc_ssa])
 
-            if input_mapped_var[1] is not None:
-                rewriter.erase_op(input_mapped_var[1], False)
-
-            if input_mapped_var[0].bounds is not None:
-                for bound in input_mapped_var[0].bounds:
-                    rewriter.erase_op(bound.owner, False)
-
-            if (
-                input_mapped_var[1] is not None
-                and input_mapped_var[1].bounds is not None
-            ):
-                for bound in input_mapped_var[1].bounds:
-                    rewriter.erase_op(bound.owner, False)
-
             preamble_ops += top_ops
             postamble_ops += bottom_ops
 
@@ -563,6 +549,33 @@ class LowerTargetDataOp(RewritePattern):
         rewriter.erase_op(op)
 
 
+class CleanMapInfoOps(RewritePattern):
+    @op_type_rewrite_pattern
+    def match_and_rewrite(self, op: omp.MapInfoOp, rewriter: PatternRewriter):
+        for res in op.results:
+            assert res.uses.get_length() == 0
+        rewriter.erase_op(op)
+
+
+class CleanMapBoundsOps(RewritePattern):
+    @op_type_rewrite_pattern
+    def match_and_rewrite(self, op: omp.MapBoundsOp, rewriter: PatternRewriter):
+        for res in op.results:
+            assert res.uses.get_length() == 0
+        rewriter.erase_op(op)
+
+
+class CleanTargetOpBlockArgs(RewritePattern):
+    @op_type_rewrite_pattern
+    def match_and_rewrite(self, op: omp.TargetOp, rewriter: PatternRewriter):
+        if len(op.region.block.args) > len(op.has_device_addr_vars):
+            for i in range(
+                len(op.region.block.args) - 1, len(op.has_device_addr_vars) - 1, -1
+            ):
+                assert op.region.block.args[i].uses.get_length() == 0
+                rewriter.erase_block_argument(op.region.block.args[i])
+
+
 @dataclass(frozen=True)
 class LowerOmpTargetDataPass(ModulePass):
     name = "lower-omp-target-data"
@@ -572,7 +585,7 @@ class LowerOmpTargetDataPass(ModulePass):
     def get_device_mem_space_name(self, accel_config):
         for mem in self.memory_order.split(","):
             mem_type = device.MemoryKindAttr(device.MemoryKind[mem])
-            for mem_config in accel_config["memory"]:
+            for mem_config in accel_config["memory"].entries:
                 if mem_config.value["kind"] == mem_type:
                     return mem_config.key.data
         return None
@@ -583,7 +596,7 @@ class LowerOmpTargetDataPass(ModulePass):
         memspace_name = self.get_device_mem_space_name(accel_config)
         assert memspace_name is not None
 
-        for el in configuration["memory_spaces"]:
+        for el in configuration["memory_spaces"].entries:
             if el.value.data == memspace_name:
                 return int(el.key.data)
         return None
@@ -610,4 +623,21 @@ class LowerOmpTargetDataPass(ModulePass):
                 ]
             ),
             apply_recursively=False,
+        ).rewrite_module(op)
+
+        PatternRewriteWalker(
+            GreedyRewritePatternApplier(
+                [
+                    CleanMapInfoOps(),
+                    CleanTargetOpBlockArgs(),
+                ]
+            ),
+        ).rewrite_module(op)
+
+        PatternRewriteWalker(
+            GreedyRewritePatternApplier(
+                [
+                    CleanMapBoundsOps(),
+                ]
+            ),
         ).rewrite_module(op)
