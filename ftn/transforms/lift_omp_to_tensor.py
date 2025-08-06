@@ -400,7 +400,11 @@ class BuildApplicableOpDependencyTrees(Visitor):
             )
             for input_var in input_vars:
                 # Ensure that the memref has a corresponding tenssor in the map
-                assert input_var.var_ssa in memref_to_tensor_map
+                if input_var.var_ssa not in memref_to_tensor_map:
+                    raise Exception(
+                        "Assumed input variable not found in mapped list, this is "
+                        "likely because you are using a shared intermediate variable"
+                    )
                 input_var.set_tensor(memref_to_tensor_map[input_var.var_ssa])
 
     def get_all_output_var_ssas(self):
@@ -508,6 +512,8 @@ class LiftOMPToTensors(RewritePattern, ABC):
 
         arg_types = []
         for input_var in input_vars:
+            if not input_var.type.shape:
+                continue
             assert len(input_var.type.shape) == len(tensor_sizes)
             arg_types.append(
                 builtin.TensorType(input_var.type.element_type, tensor_sizes)
