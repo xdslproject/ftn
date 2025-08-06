@@ -106,11 +106,17 @@ class GetStoreCalculationContributedOperations(Visitor):
     # to it, for instance the arithmetic operations, LHS and RHS variables
     # and constants, conversions etc
 
-    class ContributedOperation:
+    class ContributedOperation(ABC):
         def walk(self, to_match):
             if isa(self, to_match):
                 return [self]
             return []
+
+        def is_constant(self, ssa):
+            return not isa(ssa.type, builtin.TensorType)
+
+        def splat_constant_to_tensor(self, ssa, shape):
+            return tensor.SplatOp(ssa, [], builtin.TensorType(ssa.type, shape))
 
     class ArithmeticOperation(ContributedOperation):
         class ArithOpTypes(Enum):
@@ -136,6 +142,18 @@ class GetStoreCalculationContributedOperations(Visitor):
         def generate(self):
             lhs_ops, lhs_ssa = self.lhs.generate()
             rhs_ops, rhs_ssa = self.rhs.generate()
+
+            if self.is_constant(lhs_ssa):
+                assert not self.is_constant(rhs_ssa)
+                splat = self.splat_constant_to_tensor(lhs_ssa, rhs_ssa.type.get_shape())
+                lhs_ops.append(splat)
+                lhs_ssa = splat.results[0]
+
+            if self.is_constant(rhs_ssa):
+                assert not self.is_constant(lhs_ssa)
+                splat = self.splat_constant_to_tensor(rhs_ssa, lhs_ssa.type.get_shape())
+                rhs_ops.append(splat)
+                rhs_ssa = splat.results[0]
 
             if (
                 self.arith_type
@@ -173,6 +191,11 @@ class GetStoreCalculationContributedOperations(Visitor):
         def __init__(self, value, op_data_type):
             self.value = value
             self.op_data_type = op_data_type
+
+        def generate(self):
+            constant_op = arith.ConstantOp(self.value, self.op_data_type)
+            # splatop=tensor.SplatOp(constant_op.results[0], [], builtin.TensorType(self.op_data_type, [100,100]))
+            return [constant_op], constant_op.results[0]
 
     class VariableLoadOperation(ContributedOperation):
         def __init__(self, var_ssa, var_type):
