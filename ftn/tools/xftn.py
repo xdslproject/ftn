@@ -106,6 +106,13 @@ def initialise_argument_parser():
         default=1,
         help="Enable verbose mode (default is 1)",
     )
+    parser.add_argument(
+        "-p",
+        "--print-target",
+        choices=["mlir", "fpga-host"],
+        default="mlir",
+        help="Print the target output, either MLIR or FPGA host code (default is 'mlir')",
+    )
     return parser
 
 
@@ -459,11 +466,9 @@ def build_executable(output_tmp_dir, input_fn, executable_fn, options_db):
     os.system(f"clang {clang_args}")
     post_stage_check(executable_fn, options_db["verbose"], executable=True)
 
-
 def print_file_contents(filename):
     with open(filename) as f:
         print(f.read())
-
 
 def main():
     parser = initialise_argument_parser()
