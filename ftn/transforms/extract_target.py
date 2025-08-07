@@ -24,39 +24,32 @@ class RewriteTarget(RewritePattern):
       var_type = var.type
       arg_types.append(var_type)
 
-    # The target function is extracted to a function in a different module. This function will 
-    # be called in the original module instead. The function signature is necessary to have the 
-    # function in the symbol table.
-    call_dev_func = func.CallOp("tt_device", op.mapped_data, [device.KernelHandle()])
-    dev_func_signature = func.FuncOp.external("tt_device", arg_types, [device.KernelHandle()])
-    rewriter.insert_op(call_dev_func, InsertPoint.before(op))
-    rewriter.insert_op(dev_func_signature, InsertPoint.at_start(self.module.body.block))
+    assert op.body
+    dev_func_body = rewriter.move_region_contents_to_new_regions(op.body)
+    dev_func = func.FuncOp.from_region(
+        "tt_device",
+        arg_types,
+        [],
+        dev_func_body
+    )
 
-    dev_func_block = op.body.block
-
-    # Fix type of the block arguments (there is a mismatch between mapped_data and block args)
-    n_args = len(dev_func_block.args)
-    for block_arg, arg_type in zip(dev_func_block.args, arg_types):
-      new_block_arg = dev_func_block.insert_arg(arg_type, len(dev_func_block.args))
+    ## Fix type of the block arguments (there is a mismatch between mapped_data and block args)
+    n_args = len(dev_func_body.block.args)
+    for block_arg, arg_type in zip(dev_func_body.block.args, arg_types):
+      new_block_arg = dev_func_body.block.insert_arg(arg_type, len(dev_func_body.block.args))
       block_arg.replace_by(new_block_arg)
 
-    for arg in dev_func_block.args[:n_args]:
+    for arg in dev_func_body.block.args[:n_args]:
       rewriter.erase_block_argument(arg)
 
-    op.res.replace_by(call_dev_func.results[0])
-    op.body.detach_block(op.body.block)
-    rewriter.erase_matched_op()
-    assert dev_func_block.last_op is not None, "The last operation in the device function block must not be None"
-    rewriter.erase_op(dev_func_block.last_op)
+    # kernel_create cannot have both a pointer to a device_function and a body.
+    op.device_function = builtin.SymbolRefAttr(dev_func.sym_name)
+    op.body = []
 
-    dev_func_body = Region([dev_func_block])
+    assert dev_func_body.block.last_op is not None, "The last operation in the device function block must not be None"
+    rewriter.erase_op(dev_func_body.block.last_op)
 
     rewriter.insert_op(func.ReturnOp(), InsertPoint.at_end(dev_func_body.block))
-    for block_arg,operand in zip(dev_func_block.args, op.mapped_data):
-      operand.replace_by_if(block_arg, lambda use: use.operation == op)
-
-    dev_func = func.FuncOp.from_region("tt_device", arg_types, [], dev_func_body)
-
 
     self.target_ops = [dev_func]
 
