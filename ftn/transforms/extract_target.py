@@ -19,7 +19,7 @@ class RewriteTarget(RewritePattern):
   @op_type_rewrite_pattern
   def match_and_rewrite(self, op: device.KernelCreate, rewriter: PatternRewriter, /):
     arg_types = []
-    for var_idx,var in enumerate(op.mapped_data):
+    for var in op.mapped_data:
       assert isinstance(var.type, builtin.MemRefType)
       var_type = var.type
       arg_types.append(var_type)
