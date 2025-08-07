@@ -568,9 +568,13 @@ class CleanMapBoundsOps(RewritePattern):
 class CleanTargetOpBlockArgs(RewritePattern):
     @op_type_rewrite_pattern
     def match_and_rewrite(self, op: omp.TargetOp, rewriter: PatternRewriter):
-        if len(op.region.block.args) > len(op.has_device_addr_vars):
+        if len(op.region.block.args) > len(op.has_device_addr_vars) + len(
+            op.host_eval_vars
+        ):
             for i in range(
-                len(op.region.block.args) - 1, len(op.has_device_addr_vars) - 1, -1
+                len(op.region.block.args) - 1,
+                (len(op.has_device_addr_vars) + len(op.host_eval_vars)) - 1,
+                -1,
             ):
                 assert op.region.block.args[i].uses.get_length() == 0
                 rewriter.erase_block_argument(op.region.block.args[i])
