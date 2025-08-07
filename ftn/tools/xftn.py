@@ -56,12 +56,6 @@ def initialise_argument_parser():
         help="Additional transformation pass for ftn-opt",
     )
     parser.add_argument(
-        "-f",
-        "--fpga-llvmir",
-        action="store_true",
-        help="Generate LLVM IR for FPGA compatible with Vitis HLS."
-    )
-    parser.add_argument(
         "-I",
         "--include-directory",
         action="append",
@@ -102,7 +96,7 @@ def initialise_argument_parser():
     parser.add_argument(
         "--stages",
         default=None,
-        help="Specify which stages will run (a combination of: flang, pre, ftn, post, mlir, obj, clang, fpga-llvmir) in comma separated list without spaces",
+        help="Specify which stages will run (a combination of: flang, pre, ftn, post, mlir, obj, clang) in comma separated list without spaces",
     )
     parser.add_argument(
         "-v",
@@ -145,7 +139,6 @@ def enable_disable_stages_by_output_type(options_db, output_type):
     options_db["run_mlir_to_llvmir_stage"] = options_db["run_postprocess_stage"]
     options_db["run_create_object_stage"] = output_type == OutputType.OBJECT
     options_db["run_build_executable_stage"] = output_type == OutputType.EXECUTABLE
-    options_db["run_fpga_llvmir_stage"] = False
 
 
 def build_options_db_from_args(args):
@@ -189,9 +182,6 @@ def build_options_db_from_args(args):
         options_db["run_mlir_to_llvmir_stage"] = False
         options_db["run_build_executable_stage"] = False
 
-    if options_db["fpga_llvmir"]:
-        options_db["run_fpga_llvmir_stage"] = True
-
     if options_db["stages"] is not None:
         # We handle stages to run last, this overrides all other stage selection
         # through other options or output filename
@@ -205,7 +195,6 @@ def build_options_db_from_args(args):
         options_db["run_mlir_to_llvmir_stage"] = "mlir" in stages_to_run
         options_db["run_create_object_stage"] = "obj" in stages_to_run
         options_db["run_build_executable_stage"] = "clang" in stages_to_run
-        options_db["run_fpga_llvmir_stage"] = "fpga-llvmir" in stages_to_run
 
         if "flang" in stages_to_run:
             stages_to_run.remove("flang")
@@ -221,8 +210,6 @@ def build_options_db_from_args(args):
             stages_to_run.remove("obj")
         if "clang" in stages_to_run:
             stages_to_run.remove("clang")
-        if "fpga-llvmir" in stages_to_run:
-            stages_to_run.remove("fpga-llvmir")
         if len(stages_to_run) > 0:
             for e in stages_to_run:
                 print(f"Unknown stage provided as argument '{e}'")
@@ -260,9 +247,6 @@ def display_verbose_start_message(options_db):
     )
     print(
         f"Stage 'Build executable': {'Enabled' if options_db['run_build_executable_stage'] else 'Disabled'}"
-    )
-    print(
-        f"Stage 'FPGA LLVM-IR': {'Enabled' if options_db['run_fpga_llvmir_stage'] else 'Disabled'}"
     )
     if options_db["run_build_executable_stage"]:
         print("")
@@ -482,17 +466,9 @@ def build_executable(output_tmp_dir, input_fn, executable_fn, options_db):
     os.system(f"clang {clang_args}")
     post_stage_check(executable_fn, options_db["verbose"], executable=True)
 
-def generate_llvmir_for_fpga(out_file):
-    tools_path = os.path.dirname(os.path.abspath(__file__))
-    os.system(f"{tools_path}/mlir_to_ll.sh {out_file} tt_device")
-
 def print_file_contents(filename):
     with open(filename) as f:
         print(f.read())
-
-def generate_fpga_host_code(filename):
-    host_filename = filename.split(".")[0] + "_fpga_host.c"
-    os.system(f"ftn-opt {filename} -t fpga-host -o {host_filename}")
 
 def main():
     parser = initialise_argument_parser()
@@ -596,13 +572,6 @@ def main():
 
     if options_db["offload"]:
         print_verbose_message(options_db, f"Offload MLIR in '{out_file}'")
-
-    if options_db["run_fpga_llvmir_stage"]:
-        print_verbose_message(options_db, "Running FPGA LLVM-IR generation stage",)
-        generate_llvmir_for_fpga(out_file)
-
-    if options_db["print_target"] == "fpga-host":
-        generate_fpga_host_code(out_file)
 
     if options_db["cleanup"]:
         remove_file_if_exists(
