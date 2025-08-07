@@ -1,23 +1,15 @@
-from abc import ABC
-from ast import FunctionType, Module
-from hmac import new
-from json import load
-from sys import set_coroutine_origin_tracking_depth
-from typing import TypeVar, cast
 from dataclasses import dataclass, field
-import itertools
 from xdsl.utils.hints import isa
 from xdsl.dialects import memref, scf, omp
 from xdsl.context import Context
-from xdsl.ir import Operation, SSAValue, OpResult, Attribute, Block, Region
+from xdsl.ir import SSAValue, Block
 
 from xdsl.pattern_rewriter import (RewritePattern, PatternRewriter,
                                    op_type_rewrite_pattern,
                                    PatternRewriteWalker,
                                    GreedyRewritePatternApplier)
 from xdsl.passes import ModulePass
-from xdsl.dialects import builtin, func, llvm, arith
-from ftn.util.visitor import Visitor
+from xdsl.dialects import builtin, func, arith
 from xdsl.rewriter import InsertPoint
 from xdsl.dialects.experimental.hls import PragmaPipelineOp, PragmaUnrollOp
 
@@ -124,25 +116,6 @@ class RemoveOps:
 
 
     @staticmethod
-    def remove_target(target_op: omp.TargetOp, target_func: func.FuncOp, rewriter: PatternRewriter):
-        """Remove the target operation from the module."""
-        for operand in target_op.map_vars:
-            operand_idx = target_op.operands.index(operand)
-            block_arg = target_op.region.block.args[operand_idx]
-            block_arg.replace_by(operand)
-
-        target_op_terminator = target_op.region.block.last_op
-        assert target_op_terminator
-        rewriter.erase_op(target_op_terminator)
-
-        target_func_terminator = target_func.body.block.last_op
-        assert target_func_terminator
-        for block in reversed(target_op.region.blocks):
-            rewriter.inline_block(block, InsertPoint.before(target_func_terminator))
-
-        rewriter.erase_op(target_op)
-
-    @staticmethod
     def remove_omp_parallel(parallel_op: omp.ParallelOp, rewriter: PatternRewriter):
         ws_loop = None
         for op in parallel_op.walk():
@@ -247,8 +220,6 @@ class TargetFuncToHLS(RewritePattern):
         if omp_simd:
             RemoveOps.remove_omp_simd(omp_simd, rewriter)
 
-        target_op = [op for op in target_func.walk() if isinstance(op, omp.TargetOp)][0]
-        RemoveOps.remove_target(target_op, target_func, rewriter)
         RemoveOps.remove_remaining_omp_ops(target_func, rewriter)
 
 
