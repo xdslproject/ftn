@@ -6,7 +6,7 @@ from xdsl.dialects import arith, builtin, memref, func, llvm, scf, affine
 from xdsl.dialects.experimental import hls
 from xdsl.ir import Operation, SSAValue, BlockArgument
 from xdsl.utils.base_printer import BasePrinter
-import re
+from ftn.dialects import device
 
 RESULT = 0
 HLS_STREAM = 1
@@ -116,9 +116,11 @@ class HostPrinter(BasePrinter):
         elif isinstance(result_type, llvm.LLVMPointerType):
             c_result_type = "__global struct packaged_double * restrict"
         elif isinstance(result_type, memref.MemRefType):
-            memref_type = HostPrinter.convert_result_type(result_type.element_type)
-            #c_result_type = f"__global {memref_type} * const restrict"
-            c_result_type = f"{memref_type}"
+            #memref_type = HostPrinter.convert_result_type(result_type.element_type)
+            ##c_result_type = f"__global {memref_type} * const restrict"
+            #c_result_type = f"{memref_type}"
+            # FIXME: this is only for device side buffers
+            c_result_type = "cl_mem"
 
         return c_result_type
 
@@ -345,6 +347,17 @@ class HostPrinter(BasePrinter):
             indices_array_form = "".join([f"[{ind_name}]" for ind_name in indices_names])
             self.print_string(f"{memref_name}{indices_array_form} = {value_name};\n")
 
+    @print.register
+    def _(self, op: memref.StoreOp):
+        value_name = self.get_name(op.value)
+        memref_name = self.get_name(op.memref)
+        indices_names = []
+        for index in op.indices:
+            indices_names.append(self.get_name(index))
+
+        indices_array_form = "".join([f"[{ind_name}]" for ind_name in indices_names])
+        self.print_string(f"{memref_name}{indices_array_form} = {value_name};\n")
+
 
     @print.register
     def _(self, op: affine.YieldOp):
@@ -394,9 +407,18 @@ class HostPrinter(BasePrinter):
     def _(self, op: arith.ConstantOp):
         const_name = self.gen_name(op.result)
 
+        value = ""
         constant_type = ""
-        if isinstance(op.result.type, builtin.IntegerType) or \
-            isinstance(op.result.type, builtin.IndexType):
+        if isinstance(op.result.type, builtin.IntegerType):
+            if op.result.type.width.data == 1:
+                constant_type = "bool"
+                if op.value.value.data == 1:
+                    value = "true"
+                else:
+                    value = "false"
+            else:
+                constant_type = "int"
+        elif isinstance(op.result.type, builtin.IndexType):
             constant_type = "int"
         elif isinstance(op.result.type, builtin.Float32Type):
             constant_type = "float"
@@ -405,7 +427,10 @@ class HostPrinter(BasePrinter):
 
         self.print_string(f"{constant_type} {const_name} = ")
 
-        self.print_string(f"{op.value.value.data};\n")
+        if value:
+            self.print_string(f"{value};\n")
+        else:
+            self.print_string(f"{op.value.value.data};\n")
 
     @print.register
     def _(self, op: arith.IndexCastOp):
@@ -541,3 +566,25 @@ class HostPrinter(BasePrinter):
             for false_op in op.false_region.blocks[0].ops:
                 self.print(false_op)
             self.print_string("}\n")
+
+    @print.register
+    def _(self, op: device.DataCheckExists):
+        bool_check = self.gen_name(op.res)
+        self.print_string(f"bool {bool_check} = data_check_exists(\"{op.memory_name.data}\", {op.memory_space.value.data});\n")
+
+    @print.register
+    def _(self, op: device.LookUpOp):
+        memref_name = self.gen_name(op.memref)
+        self.print_string(f"{HostPrinter.convert_result_type(op.memref.type)} {memref_name} = lookup(\"{op.memory_name.data}\", {op.memory_space.value.data});\n")
+
+    @print.register
+    def _(self, op: device.AllocOp):
+        memref_name = self.gen_name(op.memref)
+        shape = ", ".join([str(dim.data) for dim in op.memref.type.shape.data])
+        self.print_string(f"{HostPrinter.convert_result_type(op.memref.type)} {memref_name} = alloc(\"{op.memory_name.data}\", {shape}, {op.memory_space.value.data});\n")
+
+    @print.register
+    def _(self, op: device.DataAcquire):
+        memref_name = op.memory_name.data
+        self.print_string(f"data_acquire(\"{memref_name}\", {op.memory_space.value.data});\n")
+
