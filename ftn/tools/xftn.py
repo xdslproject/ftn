@@ -416,12 +416,15 @@ class xftnMain:
         else:
             output_f = output_fn
 
-        mlir_pipeline_pass = '--pass-pipeline="builtin.module(canonicalize, cse, '
-        "loop-invariant-code-motion, math-uplift-to-fma, convert-math-to-llvm, convert-math-to-funcs, "
-        "convert-linalg-to-loops, convert-scf-to-cf, convert-cf-to-llvm{index-bitwidth=64}, "
-        "fold-memref-alias-ops,lower-affine,finalize-memref-to-llvm, convert-arith-to-llvm{index-bitwidth=64}, "
-        "convert-func-to-llvm, fold-memref-alias-ops, lower-affine, "
-        'finalize-memref-to-llvm, reconcile-unrealized-casts)"'
+        mlir_pipeline_pass = (
+            '--pass-pipeline="builtin.module('
+            'canonicalize, cse, loop-invariant-code-motion, math-uplift-to-fma, '
+            'convert-math-to-llvm, convert-math-to-funcs, convert-linalg-to-loops, '
+            'convert-scf-to-cf, convert-cf-to-llvm{index-bitwidth=64}, fold-memref-alias-ops, '
+            'lower-affine, finalize-memref-to-llvm, convert-arith-to-llvm{index-bitwidth=64}, '
+            'convert-func-to-llvm, fold-memref-alias-ops, lower-affine, finalize-memref-to-llvm, '
+            'reconcile-unrealized-casts)"'
+        )
         mlir_args = f"{mlir_pipeline_pass} {input_f}"
 
         self.print_verbose_message(
@@ -569,9 +572,13 @@ class xftnMain:
                 not self.options_db["output_type"] == xftnMain.OutputType.BITCODE,
             )
         if self.options_db["run_create_object_stage"]:
+            print("Before creating object file")
             self.create_object_file(tmp_dir, source_fn_no_ext + "_res.bc", out_file)
+            print("After creating object file")
         if self.options_db["run_build_executable_stage"]:
+            print("Before building executable")
             self.build_executable(tmp_dir, source_fn_no_ext + "_res.bc", out_file)
+            print("After building executable")
 
         if self.options_db["offload"]:
             self.print_verbose_message(f"Offload MLIR in '{out_file}'")
