@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from ast import arg
 from functools import singledispatchmethod
 
 from xdsl.dialects import arith, builtin, memref, func, llvm, scf, affine
@@ -184,6 +185,8 @@ class HostPrinter(BasePrinter):
             op_sign = "&"
         elif isinstance(op, arith.OrIOp):
             op_sign = "|"
+        elif isinstance(op, arith.XOrIOp):
+            op_sign = "^"
 
         lhs = None
         rhs = None
@@ -588,3 +591,37 @@ class HostPrinter(BasePrinter):
         memref_name = op.memory_name.data
         self.print_string(f"data_acquire(\"{memref_name}\", {op.memory_space.value.data});\n")
 
+
+    @print.register
+    def _(self, op: device.DataNumElements):
+        num_elements_name = self.gen_name(op.res)
+        self.print_string(f"int {num_elements_name} = data_num_elements(\"{op.memory_name.data}\", {op.memory_space.value.data});\n")
+
+    @print.register
+    def _(self, op: device.KernelCreate):
+        kernel = self.gen_name(op.res)
+        kernel_name = op.device_function.root_reference.data
+
+        self.print_string(f"cl_kernel {kernel} = clCreateKernel(\"{kernel_name}\");\n")
+
+
+    @print.register
+    def _(self, op: device.KernelLaunch):
+        kernel = self.get_name(op.handle)
+        kernel_create : device.KernelCreate = op.handle.owner
+
+        arg_names = []
+        for arg in kernel_create.mapped_data:
+            arg_names.append(self.get_name(arg))
+
+        self.print_string(f"clEnqueueTask({kernel}, {', '.join(arg_names)});\n")
+
+    @print.register
+    def _(self, op: device.KernelWait):
+        kernel = self.get_name(op.handle)
+        self.print_string(f"clFinish({kernel});\n")
+
+    @print.register
+    def _(self, op: device.DataRelease):
+        memref_name = op.memory_name.data
+        self.print_string(f"data_release(\"{memref_name}\", {op.memory_space.value.data});\n")
