@@ -84,7 +84,7 @@ class HostPrinter(BasePrinter):
     @singledispatchmethod
     def print(self, op: Operation) -> None:
         raise NotImplementedError(
-            f"Printing of '{op.name}' to WGSL is not implemented yet."
+            f"Printing of '{op.name}' to OpenCL is not implemented yet."
         )
 
     @print.register
