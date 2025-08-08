@@ -13,6 +13,10 @@ class xftnMain:
 
     def initialise_argument_parser(self):
         parser = argparse.ArgumentParser(description="xDSL Fortran compiler flow")
+        self.set_parser_arguments(parser)
+        return parser
+
+    def set_parser_arguments(self, parser):
         parser.add_argument("source file", help="Filename of source Fortran code")
         parser.add_argument(
             "-o",
@@ -109,7 +113,6 @@ class xftnMain:
             default=1,
             help="Enable verbose mode (default is 1)",
         )
-        return parser
 
     def get_output_type_from_out_name(self, output_name):
         if "." not in output_name:
@@ -217,36 +220,38 @@ class xftnMain:
 
         return options_db
 
-    def display_verbose_start_message(self, options_db):
+    def display_verbose_start_message(self):
         print("Running compilation pipeline with configuration")
         print("-----------------------------------------------")
-        print(f"OpenMP enabled: {options_db['openmp']}")
-        print(f"Offload enabled: {options_db['offload']}")
+        print(f"OpenMP enabled: {self.options_db['openmp']}")
+        print(f"Offload enabled: {self.options_db['offload']}")
         print("")
         print(
-            f"Stage 'Flang': {'Enabled' if options_db['run_flang_stage'] else 'Disabled'}"
+            f"Stage 'Flang': {'Enabled' if self.options_db['run_flang_stage'] else 'Disabled'}"
         )
         print(
-            f"Stage 'Preprocess': {'Enabled' if options_db['run_preprocess_stage'] else 'Disabled'}"
+            f"Stage 'Preprocess': {'Enabled' if self.options_db['run_preprocess_stage'] else 'Disabled'}"
         )
         print(
-            f"Stage 'Lower to core dialects': {'Enabled' if options_db['run_lower_to_core_stage'] else 'Disabled'}"
+            f"Stage 'Lower to core dialects': {'Enabled' if self.options_db['run_lower_to_core_stage'] else 'Disabled'}"
         )
         print(
-            f"Stage 'Postprocess for MLIR': {'Enabled' if options_db['run_postprocess_stage'] else 'Disabled'}"
+            f"Stage 'Postprocess for MLIR': {'Enabled' if self.options_db['run_postprocess_stage'] else 'Disabled'}"
         )
         print(
-            f"Stage 'Convert MLIR to LLVM-IR': {'Enabled' if options_db['run_mlir_to_llvmir_stage'] else 'Disabled'}"
+            f"Stage 'Convert MLIR to LLVM-IR': {'Enabled' if self.options_db['run_mlir_to_llvmir_stage'] else 'Disabled'}"
         )
         print(
-            f"Stage 'Create object file': {'Enabled' if options_db['run_create_object_stage'] else 'Disabled'}"
+            f"Stage 'Create object file': {'Enabled' if self.options_db['run_create_object_stage'] else 'Disabled'}"
         )
         print(
-            f"Stage 'Build executable': {'Enabled' if options_db['run_build_executable_stage'] else 'Disabled'}"
+            f"Stage 'Build executable': {'Enabled' if self.options_db['run_build_executable_stage'] else 'Disabled'}"
         )
-        if options_db["run_build_executable_stage"]:
+        if self.options_db["run_build_executable_stage"]:
             print("")
-            print(f"Also linking against object files {options_db['link-objectfiles']}")
+            print(
+                f"Also linking against object files {self.options_db['link-objectfiles']}"
+            )
         print("------------------------------------------------")
 
     def remove_file_if_exists(self, dir_prefix, *filenames):
@@ -270,10 +275,10 @@ class xftnMain:
                 "Source filename must end in 'F90', 'f90' or 'f', you provided '{src_fn}'"
             )
 
-    def print_verbose_message(self, options_db, *messages):
+    def print_verbose_message(self, *messages):
         assert len(messages) > 0
 
-        verbose_level = options_db["verbose"]
+        verbose_level = self.options_db["verbose"]
         if verbose_level == 1:
             print(messages[0])
         elif verbose_level == 2:
@@ -290,21 +295,21 @@ class xftnMain:
                 f"  -> Completed, {'executable' if executable else 'results'} in '{check_fn}'"
             )
 
-    def generate_flang_optional_args(self, options_db):
+    def generate_flang_optional_args(self):
         optional_args = ""
-        if options_db["openmp"]:
+        if self.options_db["openmp"]:
             optional_args += "-fopenmp "
-        for flang_pp_macro in options_db["flang_pp_macros"]:
+        for flang_pp_macro in self.options_db["flang_pp_macros"]:
             optional_args += f"-D{flang_pp_macro} "
-        for flang_include in options_db["flang_includes"]:
+        for flang_include in self.options_db["flang_includes"]:
             optional_args += f"-I{flang_include} "
         return optional_args
 
-    def generate_clang_optional_args(self, options_db):
+    def generate_clang_optional_args(self):
         optional_args = ""
-        if options_db["openmp"]:
+        if self.options_db["openmp"]:
             optional_args += "-fopenmp "
-        for object_file in options_db["link-objectfiles"]:
+        for object_file in self.options_db["link-objectfiles"]:
             optional_args += object_file + " "
         return optional_args
 
@@ -314,7 +319,6 @@ class xftnMain:
         input_fn,
         output_fn,
         passes,
-        options_db,
         verbose_msg_preamble="Executing ftn-opt transformation passes",
         store_out_in_tmp=True,
     ):
@@ -330,89 +334,81 @@ class xftnMain:
 
         ftn_args = f"{input_f} -p {passes_list} -o {output_f}"
 
-        for arg in options_db["ftnopt_args"]:
+        for arg in self.options_db["ftnopt_args"]:
             ftn_args += f" --{arg}"
 
         self.print_verbose_message(
-            options_db,
             verbose_msg_preamble,
             f"{verbose_msg_preamble} with arguments '{ftn_args}'",
         )
 
         os.system(f"ftn-opt {ftn_args}")
-        self.post_stage_check(output_f, options_db["verbose"])
+        self.post_stage_check(output_f, self.options_db["verbose"])
 
-    def run_flang(self, source_filename, output_tmp_dir, output_filename, options_db):
+    def run_flang(self, source_filename, output_tmp_dir, output_filename):
         output_mlir_fn = os.path.join(output_tmp_dir, output_filename)
 
-        if options_db["flang_module_dir"] is None:
+        if self.options_db["flang_module_dir"] is None:
             module_out_dir = output_tmp_dir
         else:
-            module_out_dir = options_db["flang_module_dir"]
+            module_out_dir = self.options_db["flang_module_dir"]
 
         flang_args = (
             f"-fc1 -module-dir {module_out_dir} -emit-hlfir -mmlir -mlir-print-op-generic "
-            f"{self.generate_flang_optional_args(options_db)} {source_filename} -o {output_mlir_fn}"
+            f"{self.generate_flang_optional_args()} {source_filename} -o {output_mlir_fn}"
         )
 
         self.print_verbose_message(
-            options_db, "Running Flang", f"Running Flang with arguments '{flang_args}'"
+            "Running Flang", f"Running Flang with arguments '{flang_args}'"
         )
 
         os.system(f"flang {flang_args}")
-        self.post_stage_check(output_mlir_fn, options_db["verbose"])
+        self.post_stage_check(output_mlir_fn, self.options_db["verbose"])
 
-    def run_preprocess_flang_to_xdsl(
-        self, output_tmp_dir, input_fn, output_fn, options_db
-    ):
+    def run_preprocess_flang_to_xdsl(self, output_tmp_dir, input_fn, output_fn):
         input_f = os.path.join(output_tmp_dir, input_fn)
         output_f = os.path.join(output_tmp_dir, output_fn)
 
         self.print_verbose_message(
-            options_db,
             "Preprocessing to xDSL compatible form",
             f"Preprocessing '{input_f}' to xDSL compatible form stored in '{output_f}'",
         )
 
         os.system(f"preprocess_mlir_for_xdsl {input_f} {output_f}")
-        self.post_stage_check(output_f, options_db["verbose"])
+        self.post_stage_check(output_f, self.options_db["verbose"])
 
     def lower_fir_to_core_dialects(
-        self, output_tmp_dir, input_fn, output_fn, options_db, store_out_in_tmp
+        self, output_tmp_dir, input_fn, output_fn, store_out_in_tmp
     ):
         transformation_passes = ["rewrite-fir-to-core", "merge-memref-deref"]
 
-        if not options_db["debug"]:
+        if not self.options_db["debug"]:
             transformation_passes += ["canonicalize", "cse"]
-        transformation_passes += options_db["ftn-opt-extra-passes"]
+        transformation_passes += self.options_db["ftn-opt-extra-passes"]
 
         self.run_ftnopt_passes(
             output_tmp_dir,
             input_fn,
             output_fn,
             transformation_passes,
-            options_db,
             "Lowering to core dialects",
             store_out_in_tmp,
         )
 
-    def run_postprocess_core_mlir(
-        self, output_tmp_dir, input_fn, output_fn, options_db
-    ):
+    def run_postprocess_core_mlir(self, output_tmp_dir, input_fn, output_fn):
         input_f = os.path.join(output_tmp_dir, input_fn)
         output_f = os.path.join(output_tmp_dir, output_fn)
 
         self.print_verbose_message(
-            options_db,
             "Postprocessing xDSL output to MLIR compatible form",
             f"Postprocessing xDSL output '{input_f}' to MLIR compatible form stored in '{output_f}'",
         )
 
         os.system(f"postprocess_xdsl_for_mlir {input_f} {output_f}")
-        self.post_stage_check(output_f, options_db["verbose"])
+        self.post_stage_check(output_f, self.options_db["verbose"])
 
     def run_mlir_pipeline_to_llvm_ir(
-        self, output_tmp_dir, input_fn, output_fn, options_db, store_out_in_tmp
+        self, output_tmp_dir, input_fn, output_fn, store_out_in_tmp
     ):
         input_f = os.path.join(output_tmp_dir, input_fn)
         if store_out_in_tmp:
@@ -420,54 +416,59 @@ class xftnMain:
         else:
             output_f = output_fn
 
-        mlir_pipeline_pass = '--pass-pipeline="builtin.module(canonicalize, cse, '
-        "loop-invariant-code-motion, math-uplift-to-fma, convert-math-to-llvm, convert-math-to-funcs, "
-        "convert-linalg-to-loops, convert-scf-to-cf, convert-cf-to-llvm{index-bitwidth=64}, "
-        "fold-memref-alias-ops,lower-affine,finalize-memref-to-llvm, convert-arith-to-llvm{index-bitwidth=64}, "
-        "convert-func-to-llvm, fold-memref-alias-ops, lower-affine, "
-        'finalize-memref-to-llvm, reconcile-unrealized-casts)"'
+        mlir_pipeline_pass = (
+            '--pass-pipeline="builtin.module(canonicalize, cse, '
+            "loop-invariant-code-motion, math-uplift-to-fma, convert-math-to-llvm, convert-math-to-funcs, "
+            "convert-linalg-to-loops, convert-scf-to-cf, convert-cf-to-llvm{index-bitwidth=64}, "
+            "fold-memref-alias-ops,lower-affine,finalize-memref-to-llvm, convert-arith-to-llvm{index-bitwidth=64}, "
+            "convert-func-to-llvm, fold-memref-alias-ops, lower-affine, "
+            'finalize-memref-to-llvm, reconcile-unrealized-casts)"'
+        )
         mlir_args = f"{mlir_pipeline_pass} {input_f}"
 
         self.print_verbose_message(
-            options_db,
             "Generating LLVM-IR",
-            f"Running MLIR pipeline pass '{mlir_pipeline_pass}' and then 'mlir-translate --mlir-to-llvmir' "
-            "on the output to generate LLVM-IR",
+            (
+                f"Running MLIR pipeline pass '{mlir_pipeline_pass}' and then 'mlir-translate --mlir-to-llvmir' "
+                "on the output to generate LLVM-IR"
+            ),
         )
 
         os.system(
             f"mlir-opt {mlir_args} | mlir-translate --mlir-to-llvmir -o {output_f}"
         )
-        self.post_stage_check(output_f, options_db["verbose"])
+        self.post_stage_check(output_f, self.options_db["verbose"])
 
-    def create_object_file(self, output_tmp_dir, input_fn, executable_fn, options_db):
+    def create_object_file(self, output_tmp_dir, input_fn, executable_fn):
         input_f = os.path.join(output_tmp_dir, input_fn)
 
         clang_args = f"-O3 -o {executable_fn} -c {input_f}"
 
         self.print_verbose_message(
-            options_db,
             "Creating object file",
             f"Creating object by executing clang with arguments '{clang_args}'",
         )
 
         os.system(f"clang {clang_args}")
-        self.post_stage_check(executable_fn, options_db["verbose"])
+        self.post_stage_check(executable_fn, self.options_db["verbose"])
 
-    def build_executable(self, output_tmp_dir, input_fn, executable_fn, options_db):
+    def build_executable(self, output_tmp_dir, input_fn, executable_fn):
         input_f = os.path.join(output_tmp_dir, input_fn)
 
-        clang_args = f"-O3 -o {executable_fn} {input_f} {self.generate_clang_optional_args(options_db)} "
-        "-lFortranRuntime -lFortranDecimal -lm -lgcc"
+        clang_args = (
+            f"-O3 -o {executable_fn} {input_f} {self.generate_clang_optional_args()} "
+            f"-lFortranRuntime -lFortranDecimal -lm -lgcc"
+        )
 
         self.print_verbose_message(
-            options_db,
             "Building executable",
             f"Building executable by executing clang with arguments '{clang_args}'",
         )
 
         os.system(f"clang {clang_args}")
-        self.post_stage_check(executable_fn, options_db["verbose"], executable=True)
+        self.post_stage_check(
+            executable_fn, self.options_db["verbose"], executable=True
+        )
 
     def print_file_contents(self, filename):
         with open(filename) as f:
@@ -476,15 +477,15 @@ class xftnMain:
     def run(self):
         parser = self.initialise_argument_parser()
         args = parser.parse_args()
-        options_db = self.build_options_db_from_args(args)
-        if options_db["verbose"] == 2:
-            self.display_verbose_start_message(options_db)
+        self.options_db = self.build_options_db_from_args(args)
+        if self.options_db["verbose"] == 2:
+            self.display_verbose_start_message()
 
-        src_fn = options_db["source file"]
-        source_fn_no_ext = options_db["source_filename_no_ext_no_path"]
+        src_fn = self.options_db["source file"]
+        source_fn_no_ext = self.options_db["source_filename_no_ext_no_path"]
 
-        out_file = options_db["out"]
-        tmp_dir = options_db["tempdir"]
+        out_file = self.options_db["out"]
+        tmp_dir = self.options_db["tempdir"]
         os.makedirs(tmp_dir, exist_ok=True)
         self.remove_file_if_exists(
             tmp_dir,
@@ -498,96 +499,88 @@ class xftnMain:
         if os.path.exists(out_file):
             os.remove(out_file)
 
-        if options_db["run_flang_stage"]:
-            self.run_flang(src_fn, tmp_dir, source_fn_no_ext + ".mlir", options_db)
-            if options_db["stdout"] and (
-                not options_db["run_preprocess_stage"]
-                and not options_db["run_lower_to_core_stage"]
-                and not options_db["run_postprocess_stage"]
-                and not options_db["run_mlir_to_llvmir_stage"]
-                and not options_db["run_create_object_stage"]
-                and not options_db["run_build_executable_stage"]
+        if self.options_db["run_flang_stage"]:
+            self.run_flang(src_fn, tmp_dir, source_fn_no_ext + ".mlir")
+            if self.options_db["stdout"] and (
+                not self.options_db["run_preprocess_stage"]
+                and not self.options_db["run_lower_to_core_stage"]
+                and not self.options_db["run_postprocess_stage"]
+                and not self.options_db["run_mlir_to_llvmir_stage"]
+                and not self.options_db["run_create_object_stage"]
+                and not self.options_db["run_build_executable_stage"]
             ):
                 self.print_file_contents(
                     os.path.join(tmp_dir, source_fn_no_ext + ".mlir")
                 )
-        if options_db["run_preprocess_stage"]:
+        if self.options_db["run_preprocess_stage"]:
             self.run_preprocess_flang_to_xdsl(
                 tmp_dir,
                 source_fn_no_ext + ".mlir",
                 source_fn_no_ext + "_pre.mlir",
-                options_db,
             )
-            if options_db["stdout"] and (
-                not options_db["run_lower_to_core_stage"]
-                and not options_db["run_postprocess_stage"]
-                and not options_db["run_mlir_to_llvmir_stage"]
-                and not options_db["run_create_object_stage"]
-                and not options_db["run_build_executable_stage"]
+            if self.options_db["stdout"] and (
+                not self.options_db["run_lower_to_core_stage"]
+                and not self.options_db["run_postprocess_stage"]
+                and not self.options_db["run_mlir_to_llvmir_stage"]
+                and not self.options_db["run_create_object_stage"]
+                and not self.options_db["run_build_executable_stage"]
             ):
                 self.print_file_contents(
                     os.path.join(tmp_dir, source_fn_no_ext + "_pre.mlir")
                 )
-        if options_db["run_lower_to_core_stage"]:
+        if self.options_db["run_lower_to_core_stage"]:
             self.lower_fir_to_core_dialects(
                 tmp_dir,
                 source_fn_no_ext + "_pre.mlir",
                 out_file
-                if options_db["output_type"] == xftnMain.OutputType.MLIR
+                if self.options_db["output_type"] == xftnMain.OutputType.MLIR
                 else source_fn_no_ext + "_res.mlir",
-                options_db,
-                not options_db["output_type"] == xftnMain.OutputType.MLIR
-                or options_db["stdout"],
+                not self.options_db["output_type"] == xftnMain.OutputType.MLIR
+                or self.options_db["stdout"],
             )
-            if options_db["stdout"] and (
-                not options_db["run_postprocess_stage"]
-                and not options_db["run_mlir_to_llvmir_stage"]
-                and not options_db["run_create_object_stage"]
-                and not options_db["run_build_executable_stage"]
+            if self.options_db["stdout"] and (
+                not self.options_db["run_postprocess_stage"]
+                and not self.options_db["run_mlir_to_llvmir_stage"]
+                and not self.options_db["run_create_object_stage"]
+                and not self.options_db["run_build_executable_stage"]
             ):
                 self.print_file_contents(
                     os.path.join(tmp_dir, out_file)
-                    if options_db["output_type"] == xftnMain.OutputType.MLIR
+                    if self.options_db["output_type"] == xftnMain.OutputType.MLIR
                     else os.path.join(tmp_dir, source_fn_no_ext + "_res.mlir")
                 )
-        if options_db["run_postprocess_stage"]:
+        if self.options_db["run_postprocess_stage"]:
             self.run_postprocess_core_mlir(
                 tmp_dir,
                 source_fn_no_ext + "_res.mlir",
                 source_fn_no_ext + "_post.mlir",
-                options_db,
             )
-            if options_db["stdout"] and (
-                not options_db["run_mlir_to_llvmir_stage"]
-                and not options_db["run_create_object_stage"]
-                and not options_db["run_build_executable_stage"]
+            if self.options_db["stdout"] and (
+                not self.options_db["run_mlir_to_llvmir_stage"]
+                and not self.options_db["run_create_object_stage"]
+                and not self.options_db["run_build_executable_stage"]
             ):
                 self.print_file_contents(
                     os.path.join(tmp_dir, source_fn_no_ext + "_post.mlir")
                 )
-        if options_db["run_mlir_to_llvmir_stage"]:
+        if self.options_db["run_mlir_to_llvmir_stage"]:
             self.run_mlir_pipeline_to_llvm_ir(
                 tmp_dir,
                 source_fn_no_ext + "_post.mlir",
                 out_file
-                if options_db["output_type"] == xftnMain.OutputType.BITCODE
+                if self.options_db["output_type"] == xftnMain.OutputType.BITCODE
                 else source_fn_no_ext + "_res.bc",
-                options_db,
-                not options_db["output_type"] == xftnMain.OutputType.BITCODE,
+                not self.options_db["output_type"] == xftnMain.OutputType.BITCODE,
             )
-        if options_db["run_create_object_stage"]:
-            self.create_object_file(
-                tmp_dir, source_fn_no_ext + "_res.bc", out_file, options_db
-            )
-        if options_db["run_build_executable_stage"]:
-            self.build_executable(
-                tmp_dir, source_fn_no_ext + "_res.bc", out_file, options_db
-            )
+        if self.options_db["run_create_object_stage"]:
+            self.create_object_file(tmp_dir, source_fn_no_ext + "_res.bc", out_file)
+        if self.options_db["run_build_executable_stage"]:
+            self.build_executable(tmp_dir, source_fn_no_ext + "_res.bc", out_file)
 
-        if options_db["offload"]:
-            self.print_verbose_message(options_db, f"Offload MLIR in '{out_file}'")
+        if self.options_db["offload"]:
+            self.print_verbose_message(f"Offload MLIR in '{out_file}'")
 
-        if options_db["cleanup"]:
+        if self.options_db["cleanup"]:
             self.remove_file_if_exists(
                 tmp_dir,
                 source_fn_no_ext + ".mlir",
@@ -601,6 +594,10 @@ class xftnMain:
                 os.remove(f)
             if len(os.listdir(tmp_dir)) == 0:
                 os.rmdir(tmp_dir)
+
+
+def main():
+    xftnMain().run()
 
 
 if __name__ == "__main__":
