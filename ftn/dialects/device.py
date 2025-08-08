@@ -262,7 +262,7 @@ class KernelCreate(IRDLOperation):
             mapped_data = []
 
         if region is None:
-            region = []
+            region = Region([])
 
         if isa(target_device, str):
             target_device = StringAttr(target_device)
@@ -281,11 +281,11 @@ class KernelCreate(IRDLOperation):
         )
 
     def verify(self) -> None:
-        if self.device_function and self.body:
+        if self.device_function and self.body.first_block:
             raise VerifyException(
                 "can not provide both a device function and body to a device kernel"
             )
-        if not self.device_function and not self.body:
+        if not self.device_function and not self.body.first_block:
             raise VerifyException(
                 "must provide either a device function or a body to a device kernel"
             )
