@@ -44,7 +44,6 @@ class RewriteTarget(RewritePattern):
 
     # kernel_create cannot have both a pointer to a device_function and a body.
     op.device_function = builtin.SymbolRefAttr(dev_func.sym_name)
-    op.body = []
 
     assert dev_func_body.block.last_op is not None, "The last operation in the device function block must not be None"
     rewriter.erase_op(dev_func_body.block.last_op)
