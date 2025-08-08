@@ -416,18 +416,22 @@ class xftnMain:
         else:
             output_f = output_fn
 
-        mlir_pipeline_pass = '--pass-pipeline="builtin.module(canonicalize, cse, '
-        "loop-invariant-code-motion, math-uplift-to-fma, convert-math-to-llvm, convert-math-to-funcs, "
-        "convert-linalg-to-loops, convert-scf-to-cf, convert-cf-to-llvm{index-bitwidth=64}, "
-        "fold-memref-alias-ops,lower-affine,finalize-memref-to-llvm, convert-arith-to-llvm{index-bitwidth=64}, "
-        "convert-func-to-llvm, fold-memref-alias-ops, lower-affine, "
-        'finalize-memref-to-llvm, reconcile-unrealized-casts)"'
+        mlir_pipeline_pass = (
+            '--pass-pipeline="builtin.module(canonicalize, cse, '
+            "loop-invariant-code-motion, math-uplift-to-fma, convert-math-to-llvm, convert-math-to-funcs, "
+            "convert-linalg-to-loops, convert-scf-to-cf, convert-cf-to-llvm{index-bitwidth=64}, "
+            "fold-memref-alias-ops,lower-affine,finalize-memref-to-llvm, convert-arith-to-llvm{index-bitwidth=64}, "
+            "convert-func-to-llvm, fold-memref-alias-ops, lower-affine, "
+            'finalize-memref-to-llvm, reconcile-unrealized-casts)"'
+        )
         mlir_args = f"{mlir_pipeline_pass} {input_f}"
 
         self.print_verbose_message(
             "Generating LLVM-IR",
-            f"Running MLIR pipeline pass '{mlir_pipeline_pass}' and then 'mlir-translate --mlir-to-llvmir' "
-            "on the output to generate LLVM-IR",
+            (
+                f"Running MLIR pipeline pass '{mlir_pipeline_pass}' and then 'mlir-translate --mlir-to-llvmir' "
+                "on the output to generate LLVM-IR"
+            ),
         )
 
         os.system(
@@ -453,8 +457,8 @@ class xftnMain:
 
         clang_args = (
             f"-O3 -o {executable_fn} {input_f} {self.generate_clang_optional_args()} "
+            f"-lFortranRuntime -lFortranDecimal -lm -lgcc"
         )
-        "-lFortranRuntime -lFortranDecimal -lm -lgcc"
 
         self.print_verbose_message(
             "Building executable",
