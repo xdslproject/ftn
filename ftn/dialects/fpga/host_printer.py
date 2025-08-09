@@ -94,6 +94,19 @@ class HostPrinter(BasePrinter):
         self.print_string("#include <stdlib.h>\n")
         self.print_string("#include <stdio.h>\n")
 
+        self.print_string("std::unordered_map<std::string, cl::Buffer> bufferMap;")
+        self.print_string("""
+        cl_ulong getBufferSize(const cl::Buffer &buffer) {
+            cl_ulong size = 0;
+            // Query the buffer info with CL_MEM_SIZE
+            cl_int err = buffer.getInfo(CL_MEM_SIZE, &size);
+            if (err != CL_SUCCESS) {
+            throw std::runtime_error("Failed to get buffer size");
+            }
+            return size;
+        }
+        """)
+
         for o in op.body.ops:
             self.print(o)
 
@@ -122,7 +135,7 @@ class HostPrinter(BasePrinter):
             ##c_result_type = f"__global {memref_type} * const restrict"
             #c_result_type = f"{memref_type}"
             # FIXME: this is only for device side buffers
-            c_result_type = "cl_mem"
+            c_result_type = "cl::Buffer"
 
         return c_result_type
 
@@ -490,6 +503,11 @@ class HostPrinter(BasePrinter):
     def _(self, op: memref.AllocaOp | memref.AllocOp):
         alloca_res = self.gen_name(op.memref)
 
+        for use in op.memref.uses:
+            if isinstance(use.operation, memref.DmaStartOp) and use.operation.tag == op.memref:
+                self.print_string(f"cl::Event {alloca_res};\n")
+                return
+
         elem_type = op.memref.type.element_type
         alloca_type = HostPrinter.convert_result_type(elem_type)
 
@@ -552,9 +570,17 @@ class HostPrinter(BasePrinter):
     def _(self, op: scf.IfOp):
         cond_name = self.get_name(op.cond)
 
-        for res in op.results:
+        # FIXME: this is a hack to get the type of an event right. In the future, we should
+        # tag event memrefs with an attribute. Similarly with the buffer size
+        for res_idx,res in enumerate(op.results):
             res_name = self.gen_name(res)
-            res_type = HostPrinter.convert_result_type(res.type)
+            if len(op.results) == 2:
+                if res_idx == 0:
+                    res_type = "cl::Event"
+                else:
+                    res_type = "cl_ulong"
+            else:
+                res_type = HostPrinter.convert_result_type(res.type)
             self.print_string(self.indent * "\t" + f"{res_type} {res_name};\n")
 
         self.print_string(f"if({cond_name})\n")
@@ -574,12 +600,12 @@ class HostPrinter(BasePrinter):
     @print.register
     def _(self, op: device.DataCheckExists):
         bool_check = self.gen_name(op.res)
-        self.print_string(f"bool {bool_check} = data_check_exists(\"{op.memory_name.data}\", {op.memory_space.value.data});\n")
+        self.print_string(f"bool {bool_check} = bufferMap.find(\"{op.memory_name.data}\") != bufferMap.end();\n")
 
     @print.register
     def _(self, op: device.LookUpOp):
         memref_name = self.gen_name(op.memref)
-        self.print_string(f"{HostPrinter.convert_result_type(op.memref.type)} {memref_name} = lookup(\"{op.memory_name.data}\", {op.memory_space.value.data});\n")
+        self.print_string(f"cl::Buffer {memref_name} = bufferMap.at(\"{op.memory_name.data}\");\n")
 
     @print.register
     def _(self, op: device.AllocOp):
@@ -589,25 +615,28 @@ class HostPrinter(BasePrinter):
 
         size = prod([dim.data for dim in op.memref.type.shape.data])
 
-        self.print_string(f"cl_mem {memref_name} = clCreateBuffer(context, CL_MEM_READ_WRITE, {size}, NULL, &err);\n")
+        self.print_string(f"cl::Buffer {memref_name}(context, CL_MEM_READ_WRITE, {size});\n")
+        self.print_string(f"bufferMap.emplace(\"{op.memory_name.data}\" {memref_name});\n")
 
     @print.register
     def _(self, op: device.DataAcquire):
         memref_name = op.memory_name.data
+        return
         self.print_string(f"data_acquire(\"{memref_name}\", {op.memory_space.value.data});\n")
 
 
     @print.register
     def _(self, op: device.DataNumElements):
         num_elements_name = self.gen_name(op.res)
-        self.print_string(f"int {num_elements_name} = data_num_elements(\"{op.memory_name.data}\", {op.memory_space.value.data});\n")
+        #self.print_string(f"int {num_elements_name} = data_num_elements(\"{op.memory_name.data}\", {op.memory_space.value.data});\n")
+        self.print_string(f"cl_ulong {num_elements_name} = getBufferSize(bufferMap.at(\"{op.memory_name.data}\"));\n")
 
     @print.register
     def _(self, op: device.KernelCreate):
         kernel = self.gen_name(op.res)
         kernel_name = op.device_function.root_reference.data
 
-        self.print_string(f"cl_kernel {kernel} = clCreateKernel(\"{kernel_name}\");\n")
+        self.print_string(f"cl::Kernel {kernel}(program, \"{kernel_name}\", &err);\n")
 
 
     @print.register
@@ -619,16 +648,16 @@ class HostPrinter(BasePrinter):
         for arg in kernel_create.mapped_data:
             arg_names.append(self.get_name(arg))
 
-        self.print_string(f"clEnqueueTask({kernel}, {', '.join(arg_names)});\n")
+        self.print_string(f"compute_queue.enqueueTask({kernel}, nullptr, nullptr);\n")
 
     @print.register
     def _(self, op: device.KernelWait):
-        kernel = self.get_name(op.handle)
-        self.print_string(f"clFinish({kernel});\n")
+        self.print_string("compute_queue.finish();\n")
 
     @print.register
     def _(self, op: device.DataRelease):
         memref_name = op.memory_name.data
+        return
         self.print_string(f"data_release(\"{memref_name}\", {op.memory_space.value.data});\n")
 
     @print.register
@@ -636,12 +665,19 @@ class HostPrinter(BasePrinter):
         src_name = self.get_name(op.src)
         dst_name = self.get_name(op.dest)
         n_elems = self.get_name(op.num_elements)
+        event = self.get_name(op.tag)
 
-        self.print_string(f"clEnqueueWriteBuffer({src_name}, {dst_name}, {n_elems});\n")
+        if op.src.type.memory_space != builtin.NoneAttr() and op.src.type.memory_space.value.data == 2:
+            # Device to host
+            self.print_string(f"queue.enqueueReadBuffer({src_name}, CL_TRUE, 0, {n_elems}, {dst_name}, nullptr, &{event});\n")
+        else:
+            # Host to device
+            self.print_string(f"queue.enqueueWriteBuffer({src_name}, CL_TRUE, 0, {n_elems}, {dst_name}, nullptr, &{event});\n")
 
     @print.register
     def _(self, op: memref.DmaWaitOp):
-        # TODO: use arguments for asynchronous execution with events
-        self.print_string(f"clFinish();\n")
+        event = self.get_name(op.tag)
+
+        self.print_string(f"{event}.wait();\n")
 
 
