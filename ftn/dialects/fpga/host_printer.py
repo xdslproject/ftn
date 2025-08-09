@@ -625,3 +625,18 @@ class HostPrinter(BasePrinter):
     def _(self, op: device.DataRelease):
         memref_name = op.memory_name.data
         self.print_string(f"data_release(\"{memref_name}\", {op.memory_space.value.data});\n")
+
+    @print.register
+    def _(self, op: memref.DmaStartOp):
+        src_name = self.get_name(op.src)
+        dst_name = self.get_name(op.dest)
+        n_elems = self.get_name(op.num_elements)
+
+        self.print_string(f"clEnqueueWriteBuffer({src_name}, {dst_name}, {n_elems});\n")
+
+    @print.register
+    def _(self, op: memref.DmaWaitOp):
+        # TODO: use arguments for asynchronous execution with events
+        self.print_string(f"clFinish();\n")
+
+
