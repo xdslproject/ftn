@@ -156,8 +156,27 @@ class HostPrinter(BasePrinter):
 
             // 5. Build a simple program (replace with your actual kernel source)
             const char* kernel_source = R"CLC(
-            __kernel void tt_device() {
-                // example kernel - does nothing
+            __kernel void tt_device(__global int *scalar_counter,
+                        __global float *out_array,
+                        __global float *in_array1,
+                        __global float *in_array2) {
+                // Loop variables like in MLIR:
+                int i = 1;           // start index
+                int end = 100 + 1;   // loop upper bound (exclusive)
+                
+                for (; i < end; ++i) {
+                    scalar_counter[0] = i;   // store current loop index
+                    
+                    int idx = scalar_counter[0] - 1;  // convert to 0-based index
+                    
+                    float val1 = in_array1[idx];
+                    float val2 = in_array2[idx];
+                    float result = val1 + val2; // addition (fastmath contract is implied)
+                    
+                    out_array[idx] = result;
+                }
+                
+                scalar_counter[0] = i; // store final loop counter (101)
             }
             )CLC";
 
@@ -647,9 +666,9 @@ class HostPrinter(BasePrinter):
         kernel = self.get_name(op.handle)
         kernel_create : device.KernelCreate = op.handle.owner
 
-        arg_names = []
-        for arg in kernel_create.mapped_data:
-            arg_names.append(self.get_name(arg))
+        for arg_idx,arg in enumerate(kernel_create.mapped_data):
+            arg_name = self.get_name(arg)
+            self.print_string(f"{kernel}.setArg({arg_idx}, {arg_name});\n")
 
         self.print_string(
             f"#ifdef DEBUG\n"
