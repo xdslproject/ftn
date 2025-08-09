@@ -240,7 +240,7 @@ class TargetToHLSPass(ModulePass):
 
     walker.rewrite_module(module)
 
-    if self.generate == "hls":
+    if self.generate == "device":
         # Keep only the top level module to contain the function
         for target_func in target_funcs:
             target_func.detach()
@@ -250,3 +250,16 @@ class TargetToHLSPass(ModulePass):
         module_block.erase()
         module.body.add_block(Block(target_funcs))
         module.attributes = {}
+    elif self.generate == "host":
+        host_module = None
+        for op in module.body.walk():
+            if isinstance(op, builtin.ModuleOp) and "target" not in op.attributes:
+                host_module = op
+                break
+
+        module_block = module.body.block
+        host_module_block = host_module.body.block
+        host_module.body.detach_block(host_module.body.block)
+        module.body.detach_block(module_block)
+        module_block.erase()
+        module.body.add_block(host_module_block)
