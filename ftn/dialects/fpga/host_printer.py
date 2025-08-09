@@ -189,18 +189,11 @@ class HostPrinter(BasePrinter):
                 c_result_type = "long"
         elif isinstance(result_type,  builtin.IndexType):
             c_result_type = "int"
-        elif isinstance(result_type, hls.HLSStreamType):
-            c_result_type = "stream"
         elif isinstance(result_type, builtin.Float32Type):
             c_result_type = "float"
         elif isinstance(result_type, builtin.Float64Type):
             c_result_type = "double"
-        elif isinstance(result_type, llvm.LLVMPointerType):
-            c_result_type = "__global struct packaged_double * restrict"
         elif isinstance(result_type, memref.MemRefType):
-            #memref_type = HostPrinter.convert_result_type(result_type.element_type)
-            ##c_result_type = f"__global {memref_type} * const restrict"
-            #c_result_type = f"{memref_type}"
             # FIXME: this is only for device side buffers
             c_result_type = "cl::Buffer"
 
@@ -290,8 +283,27 @@ class HostPrinter(BasePrinter):
         if func_op.sym_visibility:
             # Do not print private functions
             return
+
+        # FIXME: this is a wrapper main function needed by flang that should be removed for 
+        # the C compiler. This is hack, the function should be removed at the MLIR level
+        if func_op.sym_name.data == "main":
+            return
+        # FIXME: Generating the main function here for now. Note that the name of the function called
+        # might be mangled differently. This is a temporary hack.
         if func_op.sym_name.data == "_QQmain":
-            self.print_string(f"void main(")
+            self.print_string("""
+            int main() {
+                try {
+                    initOpenCL();
+                    _QMex1_testPcalc();
+                } catch (const std::exception &ex) {
+                    std::cerr << "Error: " << ex.what() << "\\n";
+                    return 1;
+                }
+                return 0;
+            }
+            """)
+            return
         else:
             self.print_string(f"void {func_op.sym_name.data}(")
 
