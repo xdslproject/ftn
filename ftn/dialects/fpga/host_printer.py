@@ -92,7 +92,21 @@ class HostPrinter(BasePrinter):
     @print.register
     def _(self, op: builtin.ModuleOp):
         self.print_string("#include <stdlib.h>\n")
-        self.print_string("#include <stdio.h>\n")
+        self.print_string("#include <iostream>\n")
+        self.print_string("#include <unordered_map>\n")
+        self.print_string("#include <string>\n")
+        self.print_string("#include <CL/cl2.hpp>\n")
+        self.print_string(
+            "#ifndef DEBUG\n"
+            "#include <CL/cl_ext_xilinx.h>\n"
+            "#endif\n"
+        )
+
+        self.print_string("cl::Context context;\n")
+        self.print_string("cl::CommandQueue queue;\n")
+        self.print_string("cl::CommandQueue compute_queue;\n")
+        self.print_string("cl::Program program;\n")
+        self.print_string("cl_int err;\n")
 
         self.print_string("std::unordered_map<std::string, cl::Buffer> bufferMap;")
         self.print_string("""
@@ -104,6 +118,59 @@ class HostPrinter(BasePrinter):
             throw std::runtime_error("Failed to get buffer size");
             }
             return size;
+        }
+        """)
+
+        self.print_string("""
+        void initOpenCL() {
+            // 1. Get platforms
+            std::vector<cl::Platform> platforms;
+            cl::Platform::get(&platforms);
+            if (platforms.empty()) throw std::runtime_error("No OpenCL platforms found.");
+
+            // Pick the first platform
+            cl::Platform platform = platforms[0];
+            std::cout << "Using platform: " << platform.getInfo<CL_PLATFORM_NAME>() << "\\n";
+
+            // 2. Get devices (prefer GPU if available)
+            std::vector<cl::Device> devices;
+            platform.getDevices(CL_DEVICE_TYPE_GPU, &devices);
+            if (devices.empty()) {
+            platform.getDevices(CL_DEVICE_TYPE_CPU, &devices);
+            if (devices.empty())
+                throw std::runtime_error("No OpenCL devices found.");
+            }
+
+            cl::Device device = devices[0];
+            std::cout << "Using device: " << device.getInfo<CL_DEVICE_NAME>() << "\\n";
+
+            // 3. Create context with device
+            context = cl::Context(device);
+
+            // 4. Create command queues
+            queue = cl::CommandQueue(context, device, 0, &err);
+            if (err != CL_SUCCESS) throw std::runtime_error("Failed to create command queue");
+
+            compute_queue = cl::CommandQueue(context, device, 0, &err);
+            if (err != CL_SUCCESS) throw std::runtime_error("Failed to create compute queue");
+
+            // 5. Build a simple program (replace with your actual kernel source)
+            const char* kernel_source = R"CLC(
+            __kernel void tt_device() {
+                // example kernel - does nothing
+            }
+            )CLC";
+
+            cl::Program::Sources sources;
+            sources.push_back({kernel_source, strlen(kernel_source)});
+
+            program = cl::Program(context, sources);
+            err = program.build({device});
+            if (err != CL_SUCCESS) {
+            std::string build_log = program.getBuildInfo<CL_PROGRAM_BUILD_LOG>(device);
+            std::cerr << "Build error:\\n" << build_log << "\\n";
+            throw std::runtime_error("Failed to build program");
+            }
         }
         """)
 
@@ -220,36 +287,19 @@ class HostPrinter(BasePrinter):
 
     @print.register
     def _(self, func_op: func.FuncOp):
-        #if func_op.sym_visibility and func_op.sym_visibility.data == "private":
         if func_op.sym_visibility:
             # Do not print private functions
             return
-        self.print_string(f"void {func_op.sym_name.data}(")
+        if func_op.sym_name.data == "_QQmain":
+            self.print_string(f"void main(")
+        else:
+            self.print_string(f"void {func_op.sym_name.data}(")
 
         arg_names_lst = []
         for arg_idx,arg in enumerate(func_op.body.block.args):
             arg_type = HostPrinter.convert_result_type(arg.type)
             arg_name = self.gen_name(arg)
-            if isinstance(arg.type, builtin.MemRefType):
-                # TODO: this is very hacky. Refactor
-                # The read functions have a 1D array as first argument and a HitTile_float as second argument
-                arg_shape = "".join(list(map(lambda dim: f"[{dim.data}]", arg.type.shape.data)))
-                if "read_into_sr" in func_op.sym_name.data:
-                    if arg_idx == 0:
-                        arg_names_lst.append(f"{arg_type} {arg_name} {arg_shape}")
-                    else:
-                        arg_names_lst.append(f"HitTile_{arg_type} {arg_name}")
-                        self.is_hitTile_by_name.add(arg_name)
-                        if arg_type not in self.new_hitTile_types:
-                            self.new_hitTile_types.add(arg_type)
-                else:
-                    #arg_names_lst.append(f"{arg_type} {arg_name} {arg_shape}")
-                    arg_names_lst.append(f"HitTile_{arg_type} {arg_name}")
-                    self.is_hitTile_by_name.add(arg_name)
-                    if arg_type not in self.new_hitTile_types:
-                        self.new_hitTile_types.add(arg_type)
-            else:
-                arg_names_lst.append(f"{arg_type} {arg_name}")
+            arg_names_lst.append(f"{arg_type} {arg_name}")
 
         self.print_string(", ".join(arg_names_lst) + ") {\n")
 
@@ -280,19 +330,10 @@ class HostPrinter(BasePrinter):
 
     @print.register
     def _(self, yield_op: scf.YieldOp):
-        #pass
-        #if not isinstance(yield_op.parent_op(), scf.WhileOp):
-        #if not isinstance(yield_op.parent_op(), scf.IfOp):
-        #    return
         if isinstance(yield_op.parent_op(), scf.IfOp):
             if_op : scf.IfOp = yield_op.parent_op()
             for arg_idx, arg in enumerate(yield_op.arguments):
-        #        cyclic_var = self.get_name(yield_op.parent_op().results[arg_idx])
                 res_var = self.get_name(if_op.results[arg_idx])
-
-        #        if isinstance(arg.owner, scf.IfOp):
-        #            arg = arg.owner.results[arg.index]
-
                 value = self.get_name(arg)
 
                 self.print_string(self.indent * "\t" + f"{res_var} = {value};\n")
@@ -347,24 +388,6 @@ class HostPrinter(BasePrinter):
             self.print(op)
 
     @print.register
-    def _(self, op: affine.StoreOp):
-        value_name = self.get_name(op.value)
-        memref_name = self.get_name(op.memref)
-        indices_names = []
-        for index in op.indices:
-            indices_names.append(self.get_name(index))
-
-        if memref_name in self.is_hitTile_by_name:
-            # If the memref is a HitTile, we use the hit function
-            # to store the value in the tile.
-            indices_list = ",".join(indices_names)
-            self.print_string(f"hit({memref_name}, {indices_list}) = {value_name};\n")
-        else:
-            # Otherwise, we use the standard array notation
-            indices_array_form = "".join([f"[{ind_name}]" for ind_name in indices_names])
-            self.print_string(f"{memref_name}{indices_array_form} = {value_name};\n")
-
-    @print.register
     def _(self, op: memref.StoreOp):
         value_name = self.get_name(op.value)
         memref_name = self.get_name(op.memref)
@@ -374,7 +397,6 @@ class HostPrinter(BasePrinter):
 
         indices_array_form = "".join([f"[{ind_name}]" for ind_name in indices_names])
         self.print_string(f"{memref_name}{indices_array_form} = {value_name};\n")
-
 
     @print.register
     def _(self, op: affine.YieldOp):
@@ -483,21 +505,19 @@ class HostPrinter(BasePrinter):
     def _(self, op: memref.LoadOp):
         self.names[RESULT].append(f"res{self.counters[RESULT]}")
         memref_load_res = self.names[RESULT][self.counters[RESULT]]
-        memref_load_operand = op.attributes["func_arg_name"].data[0].data[0].data
+        memref_load_operand = self.get_name(op.memref)
 
         # TODO: there might be more than one dimension in the load and this should be chosen
         # based on the index stored
-        load_idx = op.attributes["func_arg_name"].data[1].data[0].data
+        load_idx = self.get_name(op.indices[0])
 
-        self.propagate_arg(op.res, RESULT)
-    
         result_type = ""
         if isinstance(op.res.type, builtin.Float32Type):
             result_type = "float"
         elif isinstance(op.res.type, builtin.Float64Type):
             result_type = "double"
 
-        self.print(self.indent * "\t" + f"{result_type} {memref_load_res} = {memref_load_operand}[{load_idx}];\n")
+        self.print_string(self.indent * "\t" + f"{result_type} {memref_load_res} = {memref_load_operand}[{load_idx}];\n")
 
     @print.register
     def _(self, op: memref.AllocaOp | memref.AllocOp):
@@ -515,33 +535,7 @@ class HostPrinter(BasePrinter):
         if array_shape == "":
             array_shape = "1"
 
-        self.print_string(self.indent * "\t" + f"{alloca_type}* {alloca_res} = malloc({array_shape} * sizeof({alloca_type}));\n")
-
-    @print.register
-    def _(self, op: llvm.AllocaOp):
-        self.names[RESULT].append(f"res{self.counters[RESULT]}")
-        alloca_res = self.names[RESULT][self.counters[RESULT]]
-        alloca_operand = op.attributes["func_arg_name"].data[0].data[0].data
-
-        elem_type = op.res.type.type
-        alloca_type = HostPrinter.convert_result_type(elem_type)
-        
-        self.propagate_arg(op.res, RESULT)
-
-        self.print(self.indent * "\t" + f"{alloca_type} * {alloca_res} = malloc({op.size.owner.value.value.data} * sizeof({alloca_type}));\n")
-
-    @print.register
-    def _(self, op: llvm.LoadOp):
-        self.names[RESULT].append(f"res{self.counters[RESULT]}")
-        load_res = self.names[RESULT][self.counters[RESULT]]
-        load_operand = op.attributes["func_arg_name"].data[0].data[0].data
-
-        elem_type = op.ptr.type.type
-        load_type = HostPrinter.convert_result_type(elem_type)
-        
-        self.propagate_arg(op.dereferenced_value, RESULT)
-
-        self.print(self.indent * "\t" + f"{load_type} {load_res} = *{load_operand};\n")
+        self.print_string(self.indent * "\t" + f"{alloca_type}* {alloca_res} = ({alloca_type}*)malloc({array_shape} * sizeof({alloca_type}));\n")
 
     @print.register
     def _(self, op: arith.ComparisonOperation):
@@ -610,13 +604,11 @@ class HostPrinter(BasePrinter):
     @print.register
     def _(self, op: device.AllocOp):
         memref_name = self.gen_name(op.memref)
-        #shape = ", ".join([str(dim.data) for dim in op.memref.type.shape.data])
-        #self.print_string(f"{HostPrinter.convert_result_type(op.memref.type)} {memref_name} = alloc(\"{op.memory_name.data}\", {shape}, {op.memory_space.value.data});\n")
 
         size = prod([dim.data for dim in op.memref.type.shape.data])
 
         self.print_string(f"cl::Buffer {memref_name}(context, CL_MEM_READ_WRITE, {size});\n")
-        self.print_string(f"bufferMap.emplace(\"{op.memory_name.data}\" {memref_name});\n")
+        self.print_string(f"bufferMap.emplace(\"{op.memory_name.data}\", {memref_name});\n")
 
     @print.register
     def _(self, op: device.DataAcquire):
@@ -628,7 +620,6 @@ class HostPrinter(BasePrinter):
     @print.register
     def _(self, op: device.DataNumElements):
         num_elements_name = self.gen_name(op.res)
-        #self.print_string(f"int {num_elements_name} = data_num_elements(\"{op.memory_name.data}\", {op.memory_space.value.data});\n")
         self.print_string(f"cl_ulong {num_elements_name} = getBufferSize(bufferMap.at(\"{op.memory_name.data}\"));\n")
 
     @print.register
@@ -648,7 +639,13 @@ class HostPrinter(BasePrinter):
         for arg in kernel_create.mapped_data:
             arg_names.append(self.get_name(arg))
 
-        self.print_string(f"compute_queue.enqueueTask({kernel}, nullptr, nullptr);\n")
+        self.print_string(
+            f"#ifdef DEBUG\n"
+            f"compute_queue.enqueueNDRangeKernel({kernel}, cl::NullRange, cl::NDRange(1), cl::NullRange);\n"
+            f"#else\n"
+            f"compute_queue.enqueueTask({kernel}, nullptr, nullptr);\n"
+            f"#endif\n"
+        )
 
     @print.register
     def _(self, op: device.KernelWait):
@@ -672,7 +669,7 @@ class HostPrinter(BasePrinter):
             self.print_string(f"queue.enqueueReadBuffer({src_name}, CL_TRUE, 0, {n_elems}, {dst_name}, nullptr, &{event});\n")
         else:
             # Host to device
-            self.print_string(f"queue.enqueueWriteBuffer({src_name}, CL_TRUE, 0, {n_elems}, {dst_name}, nullptr, &{event});\n")
+            self.print_string(f"queue.enqueueWriteBuffer({dst_name}, CL_TRUE, 0, {n_elems}, {src_name}, nullptr, &{event});\n")
 
     @print.register
     def _(self, op: memref.DmaWaitOp):
@@ -680,4 +677,11 @@ class HostPrinter(BasePrinter):
 
         self.print_string(f"{event}.wait();\n")
 
-
+    @print.register
+    def _(self, scope_op: memref.AllocaScopeOp):
+        for op in scope_op.scope.ops:
+            self.print(op)
+    
+    @print.register
+    def _(self, op: memref.AllocaScopeReturnOp):
+        return
