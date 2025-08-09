@@ -8,6 +8,7 @@ from xdsl.dialects.experimental import hls
 from xdsl.ir import Operation, SSAValue, BlockArgument
 from xdsl.utils.base_printer import BasePrinter
 from ftn.dialects import device
+from math import prod
 
 RESULT = 0
 HLS_STREAM = 1
@@ -583,8 +584,12 @@ class HostPrinter(BasePrinter):
     @print.register
     def _(self, op: device.AllocOp):
         memref_name = self.gen_name(op.memref)
-        shape = ", ".join([str(dim.data) for dim in op.memref.type.shape.data])
-        self.print_string(f"{HostPrinter.convert_result_type(op.memref.type)} {memref_name} = alloc(\"{op.memory_name.data}\", {shape}, {op.memory_space.value.data});\n")
+        #shape = ", ".join([str(dim.data) for dim in op.memref.type.shape.data])
+        #self.print_string(f"{HostPrinter.convert_result_type(op.memref.type)} {memref_name} = alloc(\"{op.memory_name.data}\", {shape}, {op.memory_space.value.data});\n")
+
+        size = prod([dim.data for dim in op.memref.type.shape.data])
+
+        self.print_string(f"cl_mem {memref_name} = clCreateBuffer(context, CL_MEM_READ_WRITE, {size}, NULL, &err);\n")
 
     @print.register
     def _(self, op: device.DataAcquire):
