@@ -213,7 +213,6 @@ class HostPrinter(BasePrinter):
         elif isinstance(mlir_type, builtin.Float64Type):
             c_type = "double"
         elif isinstance(mlir_type, memref.MemRefType):
-            # FIXME: this is only for device side buffers
             if mlir_type.memory_space != builtin.NoneAttr() and mlir_type.memory_space.value.data == 2:
                 c_type = "cl::Buffer"
             else:
