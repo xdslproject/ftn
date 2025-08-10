@@ -1,4 +1,5 @@
 from dataclasses import dataclass, field
+from socket import if_indextoname
 from xdsl.utils.hints import isa
 from xdsl.dialects import memref, scf, omp
 from xdsl.context import Context
@@ -222,6 +223,26 @@ class TargetFuncToHLS(RewritePattern):
 
         RemoveOps.remove_remaining_omp_ops(target_func, rewriter)
 
+@dataclass
+class RemoveMemorySpaces(RewritePattern):
+    """
+    This pattern removes the memory space from memref types in the target function.
+    """
+    @op_type_rewrite_pattern
+    def match_and_rewrite(self, func_op: func.FuncOp, rewriter: PatternRewriter, /):
+        if func_op.sym_visibility:
+            return
+
+        for arg in func_op.body.block.args:
+            if isa(arg.type, builtin.MemRefType):
+                new_type = builtin.MemRefType(arg.type.element_type, arg.type.shape)
+                func_op.replace_argument_type(arg, new_type, rewriter)
+
+        for op in func_op.walk():
+            if isinstance(op, memref.AllocaOp):
+                new_type = builtin.MemRefType(op.memref.type.element_type, op.memref.type.shape)
+                rewriter.replace_op(op, memref.AllocaOp.get(new_type))
+
 
 @dataclass(frozen=True)
 class TargetToHLSPass(ModulePass):
@@ -236,6 +257,7 @@ class TargetToHLSPass(ModulePass):
     target_funcs : list[func.FuncOp] = []
     walker = PatternRewriteWalker(GreedyRewritePatternApplier([
         TargetFuncToHLS(target_funcs),
+        RemoveMemorySpaces(),
     ]), apply_recursively=False, walk_reverse=True)
 
     walker.rewrite_module(module)
