@@ -255,10 +255,15 @@ class TargetToHLSPass(ModulePass):
 
   def apply(self, ctx: Context, module: builtin.ModuleOp):
     target_funcs : list[func.FuncOp] = []
-    walker = PatternRewriteWalker(GreedyRewritePatternApplier([
-        TargetFuncToHLS(target_funcs),
-        RemoveMemorySpaces(),
-    ]), apply_recursively=False, walk_reverse=True)
+    if self.generate == "device":
+        walker = PatternRewriteWalker(GreedyRewritePatternApplier([
+            TargetFuncToHLS(target_funcs),
+            RemoveMemorySpaces(),
+        ]), apply_recursively=False, walk_reverse=True)
+    else:
+        walker = PatternRewriteWalker(GreedyRewritePatternApplier([
+            TargetFuncToHLS(target_funcs),
+        ]), apply_recursively=False, walk_reverse=True)
 
     walker.rewrite_module(module)
 
