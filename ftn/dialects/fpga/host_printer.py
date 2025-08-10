@@ -196,27 +196,31 @@ class HostPrinter(BasePrinter):
         for o in op.body.ops:
             self.print(o)
 
-    def convert_result_type(result_type):
-        c_result_type = ""
+    def mlir_type_to_c(mlir_type):
+        c_type = ""
 
-        if isinstance(result_type,  builtin.IntegerType):
-            if result_type.width.data == 1:
-                c_result_type = "bool"
-            elif result_type.width.data == 32:
-                c_result_type = "int"
-            elif result_type.width.data == 64:
-                c_result_type = "long"
-        elif isinstance(result_type,  builtin.IndexType):
-            c_result_type = "int"
-        elif isinstance(result_type, builtin.Float32Type):
-            c_result_type = "float"
-        elif isinstance(result_type, builtin.Float64Type):
-            c_result_type = "double"
-        elif isinstance(result_type, memref.MemRefType):
+        if isinstance(mlir_type,  builtin.IntegerType):
+            if mlir_type.width.data == 1:
+                c_type = "bool"
+            elif mlir_type.width.data == 32:
+                c_type = "int"
+            elif mlir_type.width.data == 64:
+                c_type = "long"
+        elif isinstance(mlir_type,  builtin.IndexType):
+            c_type = "int"
+        elif isinstance(mlir_type, builtin.Float32Type):
+            c_type = "float"
+        elif isinstance(mlir_type, builtin.Float64Type):
+            c_type = "double"
+        elif isinstance(mlir_type, memref.MemRefType):
             # FIXME: this is only for device side buffers
-            c_result_type = "cl::Buffer"
+            if mlir_type.memory_space != builtin.NoneAttr() and mlir_type.memory_space.value.data == 2:
+                c_type = "cl::Buffer"
+            else:
+                element_c_type = HostPrinter.mlir_type_to_c(mlir_type.element_type)
+                c_type = f"{element_c_type}*"
 
-        return c_result_type
+        return c_type
 
 
     @print.register
@@ -225,7 +229,7 @@ class HostPrinter(BasePrinter):
             self.gen_name(arg)
             # The argument name must be the same in both regions
             self.ssa_name[while_op.before_region.blocks[0].args[arg_idx]] = self.ssa_name[arg]
-            arg_type = HostPrinter.convert_result_type(arg.type)
+            arg_type = HostPrinter.mlir_type_to_c(arg.type)
             value = self.get_name(while_op.arguments[arg_idx])
 
             self.print_string(self.indent * "\t" + f"{arg_type} {self.ssa_name[arg]} = {value};\n")
@@ -287,7 +291,7 @@ class HostPrinter(BasePrinter):
         lhs = self.get_name(op.lhs)
         rhs = self.get_name(op.rhs)
 
-        result_type = HostPrinter.convert_result_type(op.result.type)
+        result_type = HostPrinter.mlir_type_to_c(op.result.type)
         self.print_string(self.indent * "\t" + f"{result_type} {const_name} = {lhs} {op_sign} {rhs};\n")
 
     def propagate_name_to_use(name, use):
@@ -327,8 +331,8 @@ class HostPrinter(BasePrinter):
             self.print_string(f"void {func_op.sym_name.data}(")
 
         arg_names_lst = []
-        for arg_idx,arg in enumerate(func_op.body.block.args):
-            arg_type = HostPrinter.convert_result_type(arg.type)
+        for arg in func_op.body.block.args:
+            arg_type = HostPrinter.mlir_type_to_c(arg.type)
             arg_name = self.gen_name(arg)
             arg_names_lst.append(f"{arg_type} {arg_name}")
 
@@ -343,7 +347,7 @@ class HostPrinter(BasePrinter):
     def _(self, call_op: func.CallOp):
         for res in call_op.results:
             res_name = self.gen_name(res)
-            res_type = HostPrinter.convert_result_type(res.type)
+            res_type = HostPrinter.mlir_type_to_c(res.type)
             self.print_string(self.indent * "\t" + f"{res_type} {res_name};\n")
             self.print_string(self.indent * "\t" + f"{res_name} = ")
         self.print_string(call_op.callee.root_reference.data + "(")
@@ -506,7 +510,7 @@ class HostPrinter(BasePrinter):
     def _(self, op: arith.IndexCastOp):
         src = self.get_name(op.input)
         casted = self.gen_name(op.result)
-        result_type = HostPrinter.convert_result_type(op.result.type)
+        result_type = HostPrinter.mlir_type_to_c(op.result.type)
 
         self.print_string(self.indent * "\t" + f"{result_type} {casted} = (int) {src};\n")
 
@@ -519,7 +523,7 @@ class HostPrinter(BasePrinter):
     def _(self, op: affine.LoadOp):
         memref_load_res = self.gen_name(op.result)
         memref_load_operand = self.get_name(op.memref)
-        res_type = HostPrinter.convert_result_type(op.result.type)
+        res_type = HostPrinter.mlir_type_to_c(op.result.type)
         indices_names = []
         for index in op.indices:
             indices_names.append(self.get_name(index))
@@ -535,12 +539,15 @@ class HostPrinter(BasePrinter):
     @print.register
     def _(self, op: memref.LoadOp):
         self.names[RESULT].append(f"res{self.counters[RESULT]}")
-        memref_load_res = self.names[RESULT][self.counters[RESULT]]
+        memref_load_res = self.gen_name(op.res)
         memref_load_operand = self.get_name(op.memref)
 
         # TODO: there might be more than one dimension in the load and this should be chosen
         # based on the index stored
-        load_idx = self.get_name(op.indices[0])
+        if op.indices:
+            load_idx = self.get_name(op.indices[0])
+        else:
+            load_idx = 0
 
         result_type = ""
         if isinstance(op.res.type, builtin.Float32Type):
@@ -560,7 +567,7 @@ class HostPrinter(BasePrinter):
                 return
 
         elem_type = op.memref.type.element_type
-        alloca_type = HostPrinter.convert_result_type(elem_type)
+        alloca_type = HostPrinter.mlir_type_to_c(elem_type)
 
         array_shape = " * ".join(list(map(lambda dim: f"{dim.data}", op.memref.type.shape.data)))
         if array_shape == "":
@@ -605,7 +612,7 @@ class HostPrinter(BasePrinter):
                 else:
                     res_type = "cl_ulong"
             else:
-                res_type = HostPrinter.convert_result_type(res.type)
+                res_type = HostPrinter.mlir_type_to_c(res.type)
             self.print_string(self.indent * "\t" + f"{res_type} {res_name};\n")
 
         self.print_string(f"if({cond_name})\n")
