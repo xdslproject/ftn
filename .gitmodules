@@ -1,0 +1,3 @@
+[submodule "amd_fpga"]
+	path = amd_fpga
+	url = git@github.com:gabrielrodcanal/amd_fpga.git
