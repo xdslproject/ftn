@@ -44,6 +44,8 @@ class HostPrinter(BasePrinter):
     ssa_name : dict[SSAValue, str] = dict()
     name_counter = 0
 
+    host_func_name = ""
+
     def gen_name(self, v: SSAValue) -> str:
         # If the value is returned in a yield then parent operation generates a value for it in the outer scope
         # In that case a variable has already been generated for it (e.g. scf.if). This does not apply when the
@@ -91,6 +93,10 @@ class HostPrinter(BasePrinter):
 
     @print.register
     def _(self, op: builtin.ModuleOp):
+        self.print_string("#ifndef DEBUG\n"
+                          "#include <host_support.h>\n"
+                          "#endif\n"
+        )
         self.print_string("#include <stdlib.h>\n")
         self.print_string("#include <iostream>\n")
         self.print_string("#include <unordered_map>\n")
@@ -102,10 +108,10 @@ class HostPrinter(BasePrinter):
             "#endif\n"
         )
 
-        self.print_string("cl::Context context;\n")
+        self.print_string("cl::Context *context;\n")
         self.print_string("cl::CommandQueue queue;\n")
         self.print_string("cl::CommandQueue compute_queue;\n")
-        self.print_string("cl::Program program;\n")
+        self.print_string("cl::Program *program;\n")
         self.print_string("cl_int err;\n")
 
         self.print_string("std::unordered_map<std::string, cl::Buffer> bufferMap;")
@@ -122,74 +128,27 @@ class HostPrinter(BasePrinter):
         """)
 
         self.print_string("""
-        void initOpenCL() {
-            // 1. Get platforms
+        void initOpenCL(const std::string &binary_path) {
+            cl_int err;
+
             std::vector<cl::Platform> platforms;
             cl::Platform::get(&platforms);
-            if (platforms.empty()) throw std::runtime_error("No OpenCL platforms found.");
+            if (platforms.empty())
+                throw std::runtime_error("No OpenCL platforms found.");
 
-            // Pick the first platform
             cl::Platform platform = platforms[0];
             std::cout << "Using platform: " << platform.getInfo<CL_PLATFORM_NAME>() << "\\n";
 
-            // 2. Get devices (prefer GPU if available)
             std::vector<cl::Device> devices;
-            platform.getDevices(CL_DEVICE_TYPE_GPU, &devices);
-            if (devices.empty()) {
-            platform.getDevices(CL_DEVICE_TYPE_CPU, &devices);
-            if (devices.empty())
-                throw std::runtime_error("No OpenCL devices found.");
-            }
+            std::tie(program, context, devices)=initialiseDevice("Xilinx", "u280", binary_path);
 
-            cl::Device device = devices[0];
-            std::cout << "Using device: " << device.getInfo<CL_DEVICE_NAME>() << "\\n";
+            queue = cl::CommandQueue(*context, devices[0], 0, &err);
+            if (err != CL_SUCCESS)
+                throw std::runtime_error("Failed to create command queue");
 
-            // 3. Create context with device
-            context = cl::Context(device);
-
-            // 4. Create command queues
-            queue = cl::CommandQueue(context, device, 0, &err);
-            if (err != CL_SUCCESS) throw std::runtime_error("Failed to create command queue");
-
-            compute_queue = cl::CommandQueue(context, device, 0, &err);
-            if (err != CL_SUCCESS) throw std::runtime_error("Failed to create compute queue");
-
-            // 5. Build a simple program (replace with your actual kernel source)
-            const char* kernel_source = R"CLC(
-            __kernel void tt_device(__global int *scalar_counter,
-                        __global float *out_array,
-                        __global float *in_array1,
-                        __global float *in_array2) {
-                // Loop variables like in MLIR:
-                int i = 1;           // start index
-                int end = 100 + 1;   // loop upper bound (exclusive)
-                
-                for (; i < end; ++i) {
-                    scalar_counter[0] = i;   // store current loop index
-                    
-                    int idx = scalar_counter[0] - 1;  // convert to 0-based index
-                    
-                    float val1 = in_array1[idx];
-                    float val2 = in_array2[idx];
-                    float result = val1 + val2; // addition (fastmath contract is implied)
-                    
-                    out_array[idx] = result;
-                }
-                
-                scalar_counter[0] = i; // store final loop counter (101)
-            }
-            )CLC";
-
-            cl::Program::Sources sources;
-            sources.push_back({kernel_source, strlen(kernel_source)});
-
-            program = cl::Program(context, sources);
-            err = program.build({device});
-            if (err != CL_SUCCESS) {
-            std::string build_log = program.getBuildInfo<CL_PROGRAM_BUILD_LOG>(device);
-            std::cerr << "Build error:\\n" << build_log << "\\n";
-            throw std::runtime_error("Failed to build program");
-            }
+            compute_queue = cl::CommandQueue(*context, devices[0], 0, &err);
+            if (err != CL_SUCCESS)
+                throw std::runtime_error("Failed to create compute queue");
         }
         """)
 
@@ -313,21 +272,37 @@ class HostPrinter(BasePrinter):
         # FIXME: Generating the main function here for now. Note that the name of the function called
         # might be mangled differently. This is a temporary hack.
         if func_op.sym_name.data == "_QQmain":
-            self.print_string("""
-            int main() {
-                try {
-                    initOpenCL();
-                    _QMex1_testPcalc();
-                } catch (const std::exception &ex) {
-                    std::cerr << "Error: " << ex.what() << "\\n";
-                    return 1;
-                }
-                return 0;
-            }
+            self.print_string(f"""
+                int main(int argc, char *argv[]) {{
+                    if (argc < 2) {{
+                #ifndef DEBUG
+                        std::cerr << "Usage: " << argv[0] << " <fpga_binary_file>\\n";
+                        return 1;
+                #else
+                        std::cout << "DEBUG mode: FPGA binary path argument ignored.\\n";
+                #endif
+                    }}
+
+                    try {{
+                #ifndef DEBUG
+                        std::string binary_path = argv[1];
+                        initOpenCL(binary_path);
+                #else
+                        initOpenCL(""); // binary path unused in DEBUG mode
+                #endif
+                        {self.host_func_name}();
+                    }} catch (const std::exception &ex) {{
+                        std::cerr << "Error: " << ex.what() << "\\n";
+                        return 1;
+                    }}
+
+                    return 0;
+                }}
             """)
             return
         else:
             self.print_string(f"void {func_op.sym_name.data}(")
+            self.host_func_name = func_op.sym_name.data 
 
         arg_names_lst = []
         for arg in func_op.body.block.args:
@@ -644,7 +619,9 @@ class HostPrinter(BasePrinter):
 
         size = prod([dim.data for dim in op.memref.type.shape.data])
 
-        self.print_string(f"cl::Buffer {memref_name}(context, CL_MEM_READ_WRITE, {size});\n")
+        # TODO: currently this is only supporting float32 buffers. The sizeof operator should take the 
+        # element type into account
+        self.print_string(f"cl::Buffer {memref_name}(*context, CL_MEM_READ_WRITE, {size} * sizeof(float));\n")
         self.print_string(f"bufferMap.emplace(\"{op.memory_name.data}\", {memref_name});\n")
 
     @print.register
@@ -664,7 +641,7 @@ class HostPrinter(BasePrinter):
         kernel = self.gen_name(op.res)
         kernel_name = op.device_function.root_reference.data
 
-        self.print_string(f"cl::Kernel {kernel}(program, \"{kernel_name}\", &err);\n")
+        self.print_string(f"cl::Kernel {kernel}(*program, \"{kernel_name}\", &err);\n")
 
 
     @print.register
