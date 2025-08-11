@@ -10,9 +10,10 @@ from xdsl.pattern_rewriter import (RewritePattern, PatternRewriter,
                                    PatternRewriteWalker,
                                    GreedyRewritePatternApplier)
 from xdsl.passes import ModulePass
-from xdsl.dialects import builtin, func, arith
+from xdsl.dialects import builtin, func, arith, math
 from xdsl.rewriter import InsertPoint
 from xdsl.dialects.experimental.hls import PragmaPipelineOp, PragmaUnrollOp
+from ftn.transforms.to_core.components.control_flow import generate_index_inversion_at_start_of_loop
 
 class DerefMemrefs:
     @staticmethod
@@ -74,6 +75,7 @@ class RemoveOps:
         flat_lb = arith.IndexCastOp(loop_nest_op.lowerBound[0], builtin.IndexType())
         flat_ub = arith.IndexCastOp(loop_nest_op.upperBound[0], builtin.IndexType())
         flat_step = arith.IndexCastOp(loop_nest_op.step[0], builtin.IndexType())
+
         rewriter.insert_op(flat_lb, InsertPoint.after(loop_nest_op.lowerBound[0].owner))
         rewriter.insert_op(flat_ub, InsertPoint.after(loop_nest_op.upperBound[0].owner))
         rewriter.insert_op(flat_step, InsertPoint.after(loop_nest_op.step[0].owner))
@@ -109,10 +111,31 @@ class RemoveOps:
                             rewriter.insert_op(cast_ind_var, InsertPoint.after(index_load))
                             index_load.res.replace_by_if(cast_ind_var.result, lambda use: use.operation != cast_ind_var)
 
+
+
         flat_loop = scf.ForOp(flat_lb, flat_ub, flat_step, (), flat_loop_body)
         #flat_loop = scf.ForOp(loop_nest_op.lowerBound[0], omp_loop_op.upperBound[0], omp_loop_op.step[0], (), flat_loop_body)
         rewriter.replace_op(loop_nest_op, flat_loop)
 
+        loop_body_ops = []
+        if loop_nest_op.step[0].owner.value.value.data < 0:
+            # If the step is negative, we need to reverse the bounds
+            flat_lb, flat_ub = flat_ub, flat_lb
+            loop_body_ops = generate_index_inversion_at_start_of_loop(
+                flat_loop_body.block.args[0],
+                flat_lb,
+                flat_ub,
+                flat_loop_body.block.args[0].type
+            )
+            rewriter.insert_op(loop_body_ops, InsertPoint.at_start(flat_loop.body.block))
+            new_step = loop_body_ops[-1].result
+            flat_loop_body.block.args[0].replace_by_if(new_step, lambda use: flat_loop_body.block.get_operation_index(use.operation) 
+                                                       > flat_loop_body.block.get_operation_index(new_step.owner))
+            
+            abs_step = math.AbsIOp(flat_loop.step)
+            rewriter.insert_op(abs_step, InsertPoint.before(flat_loop))
+            #flat_loop.step.replace_by(abs_step.result)
+            flat_loop.step = abs_step.result
         return flat_loop
 
 
@@ -203,13 +226,12 @@ class TargetFuncToHLS(RewritePattern):
 
             RemoveOps.forward_map_info(map_info, rewriter)
 
-        omp_parallel = None
+        omp_parallel_loops = []
         for op in target_func.walk():
             if isinstance(op, omp.ParallelOp):
-                omp_parallel = op
-                break
+                omp_parallel_loops.append(op)
 
-        if omp_parallel:
+        for omp_parallel in omp_parallel_loops:
             RemoveOps.remove_omp_parallel(omp_parallel, rewriter)
 
         omp_simd = None
@@ -240,8 +262,8 @@ class RemoveMemorySpaces(RewritePattern):
 
         for op in func_op.walk():
             if isinstance(op, memref.AllocaOp):
-                new_type = builtin.MemRefType(op.memref.type.element_type, op.memref.type.shape)
-                rewriter.replace_op(op, memref.AllocaOp.get(new_type))
+                #new_type = builtin.MemRefType(op.memref.type.element_type, op.memref.type.shape)
+                rewriter.replace_op(op, memref.AllocaOp.get(op.memref.type.element_type, shape=op.memref.type.shape))
 
 
 @dataclass(frozen=True)
