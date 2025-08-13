@@ -4,13 +4,14 @@ from enum import Enum
 from xdsl.builder import Builder
 from xdsl.context import Context
 from xdsl.dialects import arith, builtin, memref, omp, scf
-from xdsl.ir import BlockArgument
+from xdsl.ir import BlockArgument, Block, Region
 from xdsl.passes import ModulePass
 from xdsl.pattern_rewriter import (
     GreedyRewritePatternApplier,
     PatternRewriter,
     PatternRewriteWalker,
     RewritePattern,
+    InsertPoint,
     op_type_rewrite_pattern,
 )
 from xdsl.utils.hints import isa
@@ -25,14 +26,18 @@ class DataEnvironmentDirection(Enum):
 
 
 class DataMovementGenerator:
-    def collect_mapped_vars_by_stack_and_heap(mapped_vars):
+    def collect_mapped_vars_by_stack_and_heap(mapped_vars, use_mapped_vars):
         sorted_mapped_vars = []
         ignore_mapped_vars = []
-        for mapped_var in mapped_vars:
+        for idx, mapped_var in enumerate(mapped_vars):
             if mapped_var in ignore_mapped_vars:
                 continue
 
-            if mapped_var.owner.var_name is not None and mapped_var.owner.var_name.data:
+            if (
+                mapped_var.owner.var_name is not None
+                and mapped_var.owner.var_name.data
+                and use_mapped_vars[idx]
+            ):
                 # This has a name, therefore the overarching descriptor
                 if (
                     mapped_var.owner.members is not None
@@ -51,7 +56,11 @@ class DataMovementGenerator:
         return sorted_mapped_vars
 
     def generate_for_mapped_vars(
-        mapped_vars, rewriter, data_env_direction, device_mem_space
+        mapped_vars,
+        rewriter,
+        data_env_direction,
+        device_mem_space,
+        use_mapped_vars=None,
     ):
         """
         Generates operations for handling a list of mapped variables
@@ -63,8 +72,13 @@ class DataMovementGenerator:
         wait_from_ssas_list = []
         alloc_ssas = []
 
+        if use_mapped_vars is None:
+            use_mapped_vars = [True] * len(mapped_vars)
+
         sorted_mapped_vars = (
-            DataMovementGenerator.collect_mapped_vars_by_stack_and_heap(mapped_vars)
+            DataMovementGenerator.collect_mapped_vars_by_stack_and_heap(
+                mapped_vars, use_mapped_vars
+            )
         )
 
         for input_mapped_var in sorted_mapped_vars:
@@ -483,12 +497,24 @@ class LowerTargetOp(RewritePattern):
 
     @op_type_rewrite_pattern
     def match_and_rewrite(self, op: omp.TargetOp, rewriter: PatternRewriter):
+        use_mapped_vars = []
+        unused_args = []
+        for ssa in op.region.block.args:
+            # We only process arguments that are used in the SSA, sometimes
+            # Flang/OpenMP will generate additional arguments for duplicate
+            # map_info that we want to ignore here
+            use_mapped_vars.append(ssa.uses.get_length() > 0)
+            if not ssa.uses:
+                unused_args.append(ssa)
+
+        assert len(op.map_vars) == len(use_mapped_vars)
         alloc_ssas, preamble_ops, postamble_ops = (
             DataMovementGenerator.generate_for_mapped_vars(
                 op.map_vars,
                 rewriter,
                 DataEnvironmentDirection.BOTH,
                 self.device_mem_space,
+                use_mapped_vars,
             )
         )
 
@@ -496,6 +522,25 @@ class LowerTargetOp(RewritePattern):
 
         rewriter.insert_op_before_matched_op(preamble_ops)
         rewriter.insert_op_after_matched_op(postamble_ops)
+
+        if unused_args:
+            # If there are unused arguments then remove these from the block too,
+            # strictly speaking we could avoid this and do it in the subsequent
+            # removal process, but this ensures there is a 1-1 mapping between
+            # what is ignored as inputs and the block arguments that are removed
+            bbargs = [a for a in op.region.block.args if a not in unused_args]
+            bbargs_type = [a.type for a in bbargs]
+
+            for arg in unused_args:
+                op.region.block.erase_arg(arg)
+
+            new_block = Block(arg_types=bbargs_type)
+            rewriter.inline_block(
+                op.region.block, InsertPoint.at_start(new_block), new_block.args
+            )
+            new_region = Region(new_block)
+        else:
+            new_region = rewriter.move_region_contents_to_new_regions(op.region)
 
         # Now rebuild the target operation with the memrefs passed in as
         # has_device_addr_vars , we no longer have map vars
@@ -514,7 +559,7 @@ class LowerTargetOp(RewritePattern):
                 op.private_vars,
                 op.thread_limit,
             ],
-            regions=[rewriter.move_region_contents_to_new_regions(op.region)],
+            regions=[new_region],
             properties=op.properties.copy(),
         )
         rewriter.replace_matched_op(target_op)
