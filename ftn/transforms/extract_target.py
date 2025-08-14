@@ -1,119 +1,57 @@
-from abc import ABC
-from typing import TypeVar, cast
-from dataclasses import dataclass
-import itertools
-from xdsl.utils.hints import isa
-from xdsl.dialects import memref, scf, omp
-from xdsl.ir import Operation, SSAValue, OpResult, Attribute, MLContext, Block, Region
+from dataclasses import dataclass, field
+from xdsl.context import Context
+from xdsl.ir import Operation, Block, Region
 
 from xdsl.pattern_rewriter import (RewritePattern, PatternRewriter,
                                    op_type_rewrite_pattern,
                                    PatternRewriteWalker,
                                    GreedyRewritePatternApplier)
 from xdsl.passes import ModulePass
-from xdsl.dialects import builtin, func, llvm, arith
-from ftn.util.visitor import Visitor
+from xdsl.dialects import builtin, func
+from xdsl.rewriter import InsertPoint
+from ftn.dialects import device
 
+@dataclass
 class RewriteTarget(RewritePattern):
-  def __init__(self):
-    self.target_ops=[]
+  module : builtin.ModuleOp
+  target_ops: list[Operation] = field(default_factory=list)
 
   @op_type_rewrite_pattern
-  def match_and_rewrite(self, op: omp.TargetOp, rewriter: PatternRewriter, /):
-    arg_types=[]
-    arg_ssa=[]
+  def match_and_rewrite(self, op: device.KernelCreate, rewriter: PatternRewriter, /):
+    arg_types = []
+    for var in op.mapped_data:
+      assert isinstance(var.type, builtin.MemRefType)
+      var_type = var.type
+      arg_types.append(var_type)
 
-    loc_idx=0
+    assert op.body
+    dev_func_body = rewriter.move_region_contents_to_new_regions(op.body)
+    dev_func = func.FuncOp.from_region(
+        "tt_device",
+        arg_types,
+        [],
+        dev_func_body
+    )
 
-    locations={}
+    ## Fix type of the block arguments (there is a mismatch between mapped_data and block args)
+    n_args = len(dev_func_body.block.args)
+    for block_arg, arg_type in zip(dev_func_body.block.args, arg_types):
+      new_block_arg = dev_func_body.block.insert_arg(arg_type, len(dev_func_body.block.args))
+      block_arg.replace_by(new_block_arg)
 
-    memref_dim_ops=[]
-    # Grab bounds and info, then at end the terminator
-    for var in op.map_vars:
-      var_op=var.owner
-      var_op.parent.detach_op(var_op)
-      arg_types.append(var_op.var_ptr[0].type)
-      arg_ssa.append(var_op.var_ptr[0])
-      if isa(var_op.var_ptr[0].type, builtin.MemRefType):
-        memref_type=var_op.var_ptr[0].type
-        src_memref=var_op.var_ptr[0]
-        if isa(memref_type.element_type, builtin.MemRefType):
-          assert len(memref_type.shape) == 0
-          memref_type=var_op.var_ptr[0].type.element_type
-          memref_loadop=memref.Load.get(src_memref, [])
-          src_memref=memref_loadop.results[0]
-          memref_dim_ops.append(memref_loadop)
-        for idx, s in enumerate(memref_type.shape):
-          assert isa(s, builtin.IntAttr)
-          if (s.data == -1):
-            # Need to pass the dimension shape size in explicitly as it is deferred
-            const_op=arith.Constant.from_int_and_width(idx, builtin.IndexType())
-            dim_size=memref.Dim.from_source_and_index(src_memref, const_op)
-            memref_dim_ops+=[const_op, dim_size]
-            arg_ssa.append(dim_size.results[0])
-            arg_types.append(dim_size.results[0].type)
+    for arg in dev_func_body.block.args[:n_args]:
+      rewriter.erase_block_argument(arg)
 
-      locations[var_op]=loc_idx
-      loc_idx+=1
-      if len(var_op.bounds) > 0:
-        bound_op=var_op.bounds[0].owner
-        bound_op.parent.detach_op(bound_op)
-        #self.target_ops+=[bound_op, var_op]
-        arg_types.append(bound_op.lower[0].type)
-        arg_ssa.append(bound_op.lower[0])
-        locations[bound_op]=loc_idx
-        # Add two, as second is the size
-        loc_idx+=2
-      else:
-        pass#self.target_ops+=[var_op]
+    # kernel_create cannot have both a pointer to a device_function and a body.
+    op.device_function = builtin.SymbolRefAttr(dev_func.sym_name)
 
-    new_block = Block(arg_types=arg_types)
+    assert dev_func_body.block.last_op is not None, "The last operation in the device function block must not be None"
+    rewriter.erase_op(dev_func_body.block.last_op)
 
-    new_mapinfo_ssa=[]
-    for var in op.map_vars:
-      var_op=var.owner
+    rewriter.insert_op(func.ReturnOp(), InsertPoint.at_end(dev_func_body.block))
 
-      map_bounds=[]
-      if len(var_op.bounds) > 0:
-        bound_op=var_op.bounds[0].owner
-        res_types=[]
-        for res in bound_op.results: res_types.append(res.type)
-        new_bounds_op=omp.BoundsOp.build(operands=[[new_block.args[locations[bound_op]]], [], [], [], []],
-                      properties={"stride_in_bytes": bound_op.stride_in_bytes},
-                      result_types=res_types)
+    self.target_ops = [dev_func]
 
-        new_block.add_op(new_bounds_op)
-        map_bounds=[new_bounds_op.results[0]]
-
-      res_types=[]
-      for res in var_op.results: res_types.append(res.type)
-      mapinfo_op=omp.MapInfoOp.build(operands=[[new_block.args[locations[var_op]]], [], map_bounds],
-                      properties={"map_type": var_op.map_type, "var_name": var_op.var_name, "var_type": var_op.var_type},
-                      result_types=res_types)
-      new_mapinfo_ssa.append(mapinfo_op.results[0])
-
-      new_block.add_op(mapinfo_op)
-
-    reg=op.region
-    op.detach_region(reg)
-
-    new_omp_target_op=omp.TargetOp.build(operands=[[],[],[], new_mapinfo_ssa], regions=[reg])
-    new_block.add_op(new_omp_target_op)
-    new_block.add_op(func.Return())
-
-    new_fn_type=builtin.FunctionType.from_lists(arg_types, [])
-
-    body = Region()
-    body.add_block(new_block)
-
-    new_func=func.FuncOp("tt_device", new_fn_type, body)
-
-    self.target_ops=[new_func]
-
-    call_fn=func.Call.create(properties={"callee": builtin.SymbolRefAttr("tt_device")}, operands=arg_ssa, result_types=[])
-    op.parent.insert_ops_before(memref_dim_ops+[call_fn], op)
-
-    op.parent.detach_op(op)
 
 @dataclass(frozen=True)
 class ExtractTarget(ModulePass):
@@ -122,15 +60,17 @@ class ExtractTarget(ModulePass):
   """
   name = 'extract-target'
 
-  def apply(self, ctx: MLContext, module: builtin.ModuleOp):
-    rw_target= RewriteTarget()
+  def apply(self, ctx: Context, module: builtin.ModuleOp):
+    rw_target= RewriteTarget(module)
     walker = PatternRewriteWalker(GreedyRewritePatternApplier([
               rw_target,
     ]), apply_recursively=False, walk_reverse=True)
 
     walker.rewrite_module(module)
 
-    containing_mod=builtin.ModuleOp([])
+    # NOTE: The region recieving the block must be empty. Otherwise, the single block region rule of
+    # the module will not be satisfied.
+    containing_mod=builtin.ModuleOp(Region())
     module.regions[0].move_blocks(containing_mod.regions[0])
 
     new_module=builtin.ModuleOp(rw_target.target_ops, {"target": builtin.StringAttr("tt_device")})
