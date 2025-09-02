@@ -9,16 +9,16 @@ from ftn.dialects import device
 
 
 class TargetConfiguration(ABC):
-    @abstractmethod
     @classmethod
+    @abstractmethod
     def get(cls) -> dlti.TargetDeviceSpecAttr: ...
 
-    @abstractmethod
     @classmethod
+    @abstractmethod
     def _memory_subsystem(cls) -> dlti.MapAttr: ...
 
-    @abstractmethod
     @classmethod
+    @abstractmethod
     def _compute_subsystem(cls) -> dlti.MapAttr: ...
 
 
