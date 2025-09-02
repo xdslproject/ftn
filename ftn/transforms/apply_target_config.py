@@ -130,6 +130,11 @@ class ApplyTargetConfig(ModulePass):
         )
 
     def _get_config(self) -> dlti.TargetDeviceSpecAttr:
+        """
+        Get the device spec for the current `self.taregt`
+
+        If overriding this function, make sure to *not* specify `name` field again
+        """
         if config := SYSTEM_CONFIGURATIONS.get(self.target):
             return config.get()
         raise ValueError(f"No such target configuration {self.target}")
