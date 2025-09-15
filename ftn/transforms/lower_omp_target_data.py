@@ -1,10 +1,11 @@
+from collections.abc import Sequence
 from dataclasses import dataclass
 from enum import Enum
 
 from xdsl.builder import Builder
 from xdsl.context import Context
 from xdsl.dialects import arith, builtin, memref, omp, scf
-from xdsl.ir import BlockArgument, Block, Region
+from xdsl.ir import Block, BlockArgument, Operation, Region, Region Block, SSAValue
 from xdsl.passes import ModulePass
 from xdsl.pattern_rewriter import (
     GreedyRewritePatternApplier,
@@ -24,6 +25,8 @@ class DataEnvironmentDirection(Enum):
     EXIT = 2
     BOTH = 3
 
+
+_DO_NOT_WAIT = 1<<64
 
 class DataMovementGenerator:
     def collect_mapped_vars_by_stack_and_heap(mapped_vars, use_mapped_vars):
@@ -305,7 +308,7 @@ class DataMovementGenerator:
         """
         data_exists_op = device.DataCheckExists(var_name, memory_space)
 
-        ops = [data_exists_op]
+        ops: list[Operation] = [data_exists_op]
         if is_not_conditional:
             const_op = arith.ConstantOp.from_int_and_width(1, 1)
             ex_io_op = arith.XOrIOp(const_op, data_exists_op, builtin.i1)
@@ -314,6 +317,12 @@ class DataMovementGenerator:
         else:
             condition_ssa = data_exists_op
 
+        if false_region is None:
+            @Builder.implicit_region([])
+            def false_region(args: tuple[BlockArgument, ...]) -> None:
+                dummy_tag = memref.AllocaOp.get(builtin.i32, shape=[])
+                do_not_wait = arith.ConstantOp(builtin.IntegerAttr.from_index_int_value(_DO_NOT_WAIT))
+                scf.YieldOp(dummy_tag, do_not_wait)
         cond = scf.IfOp(
             condition_ssa, conditional_return_type, true_region, false_region
         )
@@ -441,15 +450,20 @@ class DataMovementGenerator:
         )
         return tag_ssa, [device_memref] + ops_list
 
-    def generate_dma_waits_for_tags(wait_ssas_list):
+    @staticmethod
+    def generate_dma_waits_for_tags(wait_ssas_list: Sequence[tuple[SSAValue|Operation, SSAValue|Operation]]):
         """
         Generates the DMA wait operations based upon the provided wait list, each
         entry in the wait list is a tuple (wait tag, number elements).
         """
-        ops_list = []
+        ops_list: list[Operation] = []
         for tag, num_els in wait_ssas_list:
-            wait_op = memref.DmaWaitOp.get(tag, [], num_els)
-            ops_list.append(wait_op)
+            do_not_wait = arith.ConstantOp(builtin.IntegerAttr.from_index_int_value(_DO_NOT_WAIT))
+            should_wait = arith.CmpiOp(num_els, do_not_wait, "ne")
+            if_op = scf.IfOp(should_wait, [], Region(Block(
+                [memref.DmaWaitOp.get(tag, [], num_els)]
+                )))
+            ops_list.extend([do_not_wait, should_wait, if_op])
         return ops_list
 
 
