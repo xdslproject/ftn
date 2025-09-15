@@ -447,7 +447,7 @@ class DataMovementGenerator:
             do_not_wait = arith.ConstantOp(builtin.IntegerAttr.from_index_int_value(_DO_NOT_WAIT))
             should_wait = arith.CmpiOp(num_els, do_not_wait, "ne")
             if_op = scf.IfOp(should_wait, [], Region(Block(
-                [memref.DmaWaitOp.get(tag, [], num_els)]
+                [memref.DmaWaitOp.get(tag, [], num_els), scf.YieldOp()]
                 )))
             ops_list.extend([do_not_wait, should_wait, if_op])
         return ops_list
