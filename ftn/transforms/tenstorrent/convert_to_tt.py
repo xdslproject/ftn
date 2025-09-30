@@ -497,7 +497,7 @@ class ConvertToTT(ModulePass):
       mem_size_bytes_op=arith.Muli(dt_width_conversion_op, new_block.args[(len(memory_type)*2)+idx])
       read_op=data_movement.DMNocAsyncRead(dm_op.results[0], cb_op.results[0], mem_size_bytes_op)
 
-      target_memref=builtin.MemRefType(element_type, [-1])
+      target_memref=builtin.MemRefType(element_type, [builtin.DYNAMIC_INDEX])
       conversion_op=builtin.UnrealizedConversionCastOp.get([cb_op.results[0]], [target_memref])
       conversion_op.results[0].name_hint = f"src{idx}_data"
 

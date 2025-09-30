@@ -497,7 +497,7 @@ class LiftOMPToTensors(RewritePattern, ABC):
                 tensor_sizes.append(int((upper_const - (lower_const - 1)) / step_const))
             else:
                 # Otherwise this dimension size is dynamic
-                tensor_sizes.append(-1)
+                tensor_sizes.append(builtin.DYNAMIC_INDEX)
 
         # Create dependency tree walker, this is passed the private (intermediate)
         # memrefs, and SSA of the device mapped data

@@ -19,12 +19,12 @@ def handle_create_temporary_linalg_output_memref(
     result_type, element_type, input_ssas, input_dims_to_read
 ):
     output_shape = [
-        -1 if isa(s, fir.DeferredAttr) else s.value for s in result_type.shape
+        builtin.DYNAMIC_INDEX if isa(s, fir.DeferredAttr) else s.value for s in result_type.shape
     ]
 
     ops_list = []
     dynamic_sizes = []
-    if -1 in output_shape:
+    if builtin.DYNAMIC_INDEX in output_shape:
         # If we have deferred sizes then grab the output sizes from the input array sizes
         # Ensure all elements are -1
         assert len(set(output_shape)) == 1
@@ -177,9 +177,9 @@ def handle_reduction_operation(
         memref_shape = []
         memref_dynamic_sizes = []
     elif len(reduction_dimensions) == 1:
-        if -1 in input_array_shape:
+        if builtin.DYNAMIC_INDEX in input_array_shape:
             assert len(set(input_array_shape)) == 1
-            memref_shape = [-1] * (len(array_load_ssa.type.shape) - 1)
+            memref_shape = [builtin.DYNAMIC_INDEX] * (len(array_load_ssa.type.shape) - 1)
             memref_dynamic_sizes = []
             if len(array_load_ssa.type.shape) > 1:
                 for dim in list(range(len(array_load_ssa.type.shape))):

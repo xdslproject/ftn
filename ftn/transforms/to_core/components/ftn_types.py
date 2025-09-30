@@ -25,7 +25,7 @@ def compare_memrefs(memref_a, memref_b):
         return MemrefComparison.INCOMPATIBLE
     for dim_size_a, dim_size_b in zip(memref_a.shape, memref_b.shape):
         if dim_size_a.data != dim_size_b.data and (
-            dim_size_a.data == -1 or dim_size_b.data == -1
+            dim_size_a.data == builtin.DYNAMIC_INDEX or dim_size_b.data == builtin.DYNAMIC_INDEX
         ):
             return MemrefComparison.CONVERTABLE
     return MemrefComparison.SAME
@@ -111,7 +111,7 @@ def convert_fir_type_to_standard(fir_type, ref_as_mem_ref=True):
             if isa(shape_el, builtin.IntegerAttr):
                 dim_sizes.append(shape_el.value.data)
             else:
-                dim_sizes.append(-1)
+                dim_sizes.append(builtin.DYNAMIC_INDEX)
         # Reverse the sizes to go from Fortran to C allocation semantics
         dim_sizes.reverse()
         return builtin.MemRefType(
@@ -229,7 +229,7 @@ def translate_convert(program_state: ProgramState, ctx: SSAValueCtx, op: fir.Con
             shape_size = []
             for s in out_type.type.shape.data:
                 if isa(s, fir.DeferredAttr):
-                    shape_size.append(-1)
+                    shape_size.append(builtin.DYNAMIC_INDEX)
                 else:
                     shape_size.append(s.value.data)
             # Reverse shape_size to get it from Fortran allocation to C/MLIR allocation
