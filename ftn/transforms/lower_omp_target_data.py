@@ -343,7 +343,7 @@ class DataMovementGenerator:
         """
         dynamic_ssas = []
         for idx, shape in enumerate(var_type.shape):
-            if shape.data == -1:
+            if shape.data == builtin.DYNAMIC_INDEX:
                 dynamic_ssas.append(size_ssas[idx])
 
         return device.AllocOp(

@@ -410,13 +410,13 @@ def generate_allocatable_array_allocate(
 
     assert len(dim_sizes) == len(dim_starts) == len(dim_ends)
 
-    # Now create memref, passing -1 as shape will make this deferred size
+    # Now create memref, passing DYNAMIC_INDEX as shape will make this deferred size
     # Reverse the indicies as Fortran and C/MLIR are opposite in terms of
     # the order of the contiguous dimension (F is least, whereas C/MLIR is highest)
     dim_ssa_reversed = dim_ssas.copy()
     dim_ssa_reversed.reverse()
     memref_allocation_op = memref_alloca_op = memref.AllocOp.get(
-        base_type, shape=[-1] * len(dim_ssas), dynamic_sizes=dim_ssa_reversed
+        base_type, shape=[builtin.DYNAMIC_INDEX] * len(dim_ssas), dynamic_sizes=dim_ssa_reversed
     )
     ops_list.append(memref_allocation_op)
 
@@ -462,13 +462,13 @@ def handle_pointer_assignment(
         source_ssa = ctx[source_op]
         ops = []
 
-    if any(i.data != -1 for i in ctx[source_op].type.shape.data):
+    if any(i.data != builtin.DYNAMIC_INDEX for i in ctx[source_op].type.shape.data):
         # The source type has explicit dimension sizes, by definition a pointer must be unknown
         # dimension sizes so we need to convert
         num_dims = len(ctx[source_op].type.shape.data)
         cast_op = memref.CastOp.get(
             source_ssa,
-            builtin.MemRefType(source_ssa.type.element_type, shape=num_dims * [-1]),
+            builtin.MemRefType(source_ssa.type.element_type, shape=num_dims * [builtin.DYNAMIC_INDEX]),
         )
         source_ssa = cast_op.results[0]
         ops.append(cast_op)

@@ -423,7 +423,7 @@ def translate_declare(
         else:
             alloc_memref_container = memref.AllocaOp.get(
                 builtin.MemRefType(
-                    op.results[0].type.type.type.type.type, shape=num_dims * [-1]
+                    op.results[0].type.type.type.type.type, shape=num_dims * [builtin.DYNAMIC_INDEX]
                 ),
                 shape=[],
             )
@@ -720,14 +720,14 @@ def translate_elemental(program_state, ctx, op: hlfir.ElementalOp):
     sizes.reverse()
 
     memref_shape = [
-        -1 if isa(f, fir.DeferredAttr) else f.value.data
+        builtin.DYNAMIC_INDEX if isa(f, fir.DeferredAttr) else f.value.data
         for f in op.results[0].type.shape
     ]
 
     dynamic_sizes = []
 
     for idx, s in enumerate(memref_shape):
-        if s == -1:
+        if s == builtin.DYNAMIC_INDEX:
             dynamic_sizes.append(ctx[sizes[idx]])
 
     memref_alloca_op = memref.AllocOp(
