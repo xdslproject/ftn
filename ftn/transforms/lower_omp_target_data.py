@@ -629,7 +629,7 @@ class CleanTargetOpBlockArgs(RewritePattern):
 class LowerOmpTargetDataPass(ModulePass):
     name = "lower-omp-target-data"
 
-    memory_order: str = "HBM,DDR"
+    memory_order: str = "SRAM,HBM,DDR"
 
     def get_device_mem_space_name(self, accel_config):
         for mem in self.memory_order.split(","):
@@ -641,7 +641,6 @@ class LowerOmpTargetDataPass(ModulePass):
 
     def get_mem_space_from_target_system_spec(self, target, configuration):
         accel_config = configuration[target]
-
         memspace_name = self.get_device_mem_space_name(accel_config)
         assert memspace_name is not None
 
