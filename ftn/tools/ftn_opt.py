@@ -6,7 +6,9 @@ from xdsl.dialects.builtin import ModuleOp
 from ftn.transforms.rewrite_fir_to_core import RewriteFIRToCore
 from ftn.transforms.merge_memref_deref import MergeMemRefDeref
 from ftn.transforms.lower_omp_target_data import LowerOmpTargetDataPass
-# from ftn.transforms.extract_target import ExtractTarget
+from ftn.transforms.apply_target_config import ApplyTargetConfig
+from ftn.transforms.omp_target_to_kernel import OmpTargetToKernelPass
+from ftn.transforms.lift_omp_to_tensor import LiftOmpToTensorPass
 # from ftn.transforms.isolate_target import IsolateTarget
 # from psy.extract_stencil import ExtractStencil
 # from ftn.transforms.tenstorrent.convert_to_tt import ConvertToTT
@@ -28,7 +30,9 @@ class FtnOptMain(xDSLOptMain):
         self.register_pass("rewrite-fir-to-core", lambda: RewriteFIRToCore)
         self.register_pass("merge-memref-deref", lambda: MergeMemRefDeref)
         self.register_pass("lower-omp-target-data", lambda: LowerOmpTargetDataPass)
-        # self.register_pass("extract-target", lambda: ExtractTarget)
+        self.register_pass("apply-target", lambda: ApplyTargetConfig)
+        self.register_pass("omp-target-to-kernel", lambda: OmpTargetToKernelPass)
+        self.register_pass("lift-omp-to-tensor", lambda: LiftOmpToTensorPass)
         # self.register_pass("isolate-target", lambda: IsolateTarget)
         # self.register_pass("convert-to-tt", lambda: ConvertToTT)
 
