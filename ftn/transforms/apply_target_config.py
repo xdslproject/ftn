@@ -51,7 +51,17 @@ class TenstorrentConfiguration(TargetConfiguration):
             "integration": device.IntegrationKindAttr(device.IntegrationKind.PCIe),
             "num_cores": 128,
             "core_config": {
-                "vector_length": 256,
+                "vector_unit": {
+                    "max_element_width": 1024,
+                    "simd_lanes": 32,
+                    "lane_width": 32,
+                    "data_types": "fp32,int32,bf16,fp16,int16,int8",
+                },
+                "matrix_unit": {
+                    "max_element_width": 1024,
+                    "element_width": 19,
+                    "data_types": "fp16,bf16,int8",
+                },
                 "local_memory": {
                     "kind": device.MemoryKindAttr(device.MemoryKind.SRAM),
                     "size": "1.5MB",
@@ -97,9 +107,49 @@ class U280Configuration(TargetConfiguration):
         return dlti.MapAttr(config)
 
 
+class PhoenixConfiguration:
+    def get():
+        return dlti.TargetDeviceSpecAttr(
+            {
+                "memory": PhoenixConfiguration._memory_subsystem(),
+                "compute": PhoenixConfiguration._compute_subsystem(),
+            }
+        )
+
+    def _memory_subsystem():
+        config = {}
+        for i in range(5):
+            config["TILE_" + str(i)] = {
+                "kind": device.MemoryKindAttr(device.MemoryKind.SRAM),
+                "size": "512KB",
+            }
+        return dlti.MapAttr(config)
+
+    def _compute_subsystem():
+        config = {
+            "architecture_type": device.ArchitectureKindAttr(
+                device.ArchitectureKind.MANYCORE
+            ),
+            "integration": device.IntegrationKindAttr(device.IntegrationKind.EMBEDDED),
+            "num_cores": 20,
+            "core_config": {
+                "vector_unit": {
+                    "bit_width": 512,
+                    "data_types": "fp32,fp16int8,int16,int32,uint8",
+                },
+                "local_memory": {
+                    "kind": device.MemoryKindAttr(device.MemoryKind.SRAM),
+                    "size": "64KB",
+                },
+            },
+        }
+        return dlti.MapAttr(config)
+
+
 SYSTEM_CONFIGURATIONS = {
     "tenstorrent": TenstorrentConfiguration,
     "u280": U280Configuration,
+    "phoenix": PhoenixConfiguration,
 }
 
 
@@ -109,15 +159,10 @@ class ApplyTargetConfig(ModulePass):
 
     target: str = "tenstorrent"
 
-    def get_dlti_item(config, name):
-        for e in config.entries.data:
-            if e.key == builtin.StringAttr(name):
-                return e.value
-
     def generate_system_config(self, accelerator_name, accelerator_config):
-        mem_config = ApplyTargetConfig.get_dlti_item(accelerator_config, "memory")
+        mem_config = accelerator_config["memory"]
         accel_memories = []
-        for entry in mem_config.entries.data:
+        for entry in mem_config.entries:
             accel_memories.append(entry.key.data)
         memory_spaces_config = {"0": "HOST_DRAM"}
         for idx, am in enumerate(accel_memories):

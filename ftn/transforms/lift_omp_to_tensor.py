@@ -3,7 +3,7 @@ from collections.abc import Sequence
 from enum import Enum
 
 from xdsl.context import Context
-from xdsl.dialects import arith, bufferization, builtin, memref, omp, tensor, tosa
+from xdsl.dialects import arith, bufferization, builtin, memref, omp, tensor, tosa, func
 from xdsl.ir import Block, Region, SSAValue
 from xdsl.passes import ModulePass
 from xdsl.pattern_rewriter import (
@@ -476,7 +476,12 @@ class LiftOMPToTensors(RewritePattern, ABC):
 
         # Also locate the kernel create, this gives us the input and output memref SSAs
         kernel_create_op = LiftOMPToTensors.find_parent_op(device.KernelCreate, op)
-        assert kernel_create_op is not None
+        if kernel_create_op is None:
+          # Have potentially extracted out into a function, therefore look at function args
+          fn_op=LiftOMPToTensors.find_parent_op(func.FuncOp, op)
+          parent_block_args=fn_op.body.block.args
+        else:
+          parent_block_args=kernel_create_op.body.block.args
 
         # Work through the loop counts provided to the loop nest operation to build
         # the bounds of the tensors that will be operated on here, this supports
@@ -502,7 +507,7 @@ class LiftOMPToTensors(RewritePattern, ABC):
         # Create dependency tree walker, this is passed the private (intermediate)
         # memrefs, and SSA of the device mapped data
         dependence_tree_generator = BuildApplicableOpDependencyTrees(
-            private_memrefs, kernel_create_op.body.block.args
+            private_memrefs, parent_block_args
         )
         dependence_tree_generator.traverse(loop_nest_op)
 
