@@ -311,6 +311,7 @@ class GetStoreCalculationContributedOperations(Visitor):
     def traverse_div_s_i_op(self, divsi_op: arith.DivSIOp):
         return self.handle_binary_op(divsi_op)
 
+    @staticmethod
     def find_memref_store_on_memref(op, memref_ssa):
         # This works backwards from the operation, inspecting each memref.store
         # and checking whether it is a store on the provided memref SSA. It will
@@ -433,31 +434,34 @@ class BuildApplicableOpDependencyTrees(Visitor):
 
 
 class LiftOMPToTensors(RewritePattern, ABC):
-    def find_parent_op(cls, op):
+    @staticmethod
+    def find_parent_op(t: type, op):
         # From an operation will walk backwards through the IR
         # to find an operation of a specific type
-        if isa(op, cls):
+        if isa(op, t):
             return op
         elif op is None:
             return None
         else:
-            return LiftSIMDOp.find_parent_op(cls, op.parent)
+            return LiftSIMDOp.find_parent_op(t, op.parent)
 
-    def find_child_op(cls, search_op):
+    @staticmethod
+    def find_child_op(t: type, search_op):
         # From an operation walks forward through it's regions and
         # blocks to find a child operation
-        if isa(search_op, cls):
+        if isa(search_op, t):
             return search_op
         else:
             for region in search_op.regions:
                 for block in region.blocks:
                     for op in block.ops:
-                        c = LiftOMPToTensors.find_child_op(cls, op)
+                        c = LiftOMPToTensors.find_child_op(t, op)
                         if c is not None:
                             return c
             return None
 
-    def get_constant(token):
+    @staticmethod
+    def get_constant(token) -> int | None:
         # If an operation is an i32 constant it will return this
         if isa(token, arith.ConstantOp) and token.value.type == builtin.i32:
             return token.value.value.data
@@ -478,8 +482,8 @@ class LiftOMPToTensors(RewritePattern, ABC):
         kernel_create_op = LiftOMPToTensors.find_parent_op(device.KernelCreate, op)
         if kernel_create_op is None:
           # Have potentially extracted out into a function, therefore look at function args
-          fn_op=LiftOMPToTensors.find_parent_op(func.FuncOp, op)
-          parent_block_args=fn_op.body.block.args
+          fn_op = LiftOMPToTensors.find_parent_op(func.FuncOp, op)
+          parent_block_args = fn_op.body.block.args
         else:
           parent_block_args=kernel_create_op.body.block.args
 
@@ -615,6 +619,7 @@ class LiftWsLoopOp(LiftOMPToTensors):
         for par_op in parallel_op.region.block.ops:
             if isa(par_op, memref.AllocOp) or isa(par_op, memref.AllocaOp):
                 private_memrefs.append(par_op.results[0])
+
         self.lift_op(private_memrefs, op, rewriter)
 
 
