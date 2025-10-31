@@ -77,7 +77,7 @@ def does_type_represent_ftn_pointer(type_chain):
 
 def convert_fir_type_to_standard_if_needed(fir_type):
     if isa(fir_type, fir.ReferenceType) and fir_type.type == builtin.i8:
-        return llvm.LLVMPointerType.opaque()
+        return llvm.LLVMPointerType()
     else:
         return convert_fir_type_to_standard(fir_type)
 
@@ -93,7 +93,7 @@ def convert_fir_type_to_standard(fir_type, ref_as_mem_ref=True):
                     base_t, [], builtin.NoneAttr(), builtin.NoneAttr()
                 )
         else:
-            return llvm.LLVMPointerType.opaque()
+            return llvm.LLVMPointerType()
     elif isa(fir_type, fir.BoxType):
         return convert_fir_type_to_standard(fir_type.type, ref_as_mem_ref)
     elif isa(fir_type, fir.HeapType):
@@ -121,7 +121,7 @@ def convert_fir_type_to_standard(fir_type, ref_as_mem_ref=True):
         return builtin.i1
     elif isa(fir_type, fir.BoxCharType):
         return llvm.LLVMStructType.from_type_list(
-            [llvm.LLVMPointerType.opaque(), builtin.i64]
+            [llvm.LLVMPointerType(), builtin.i64]
         )
     elif isa(fir_type, builtin.TupleType):
         new_types = []
@@ -214,7 +214,7 @@ def translate_convert(program_state: ProgramState, ctx: SSAValueCtx, op: fir.Con
             get_element_ptr = llvm.GEPOp(
                 ctx[op.value],
                 [0, 0],
-                result_type=llvm.LLVMPointerType.opaque(),
+                result_type=llvm.LLVMPointerType(),
                 pointee_type=llvm.LLVMArrayType.from_size_and_type(
                     1, builtin.IntegerType(8)
                 ),

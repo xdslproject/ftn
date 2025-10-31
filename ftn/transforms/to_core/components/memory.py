@@ -29,7 +29,7 @@ def generate_memref_from_llvm_ptr(llvm_ptr_in_ssa, dim_sizes, target_type):
     # Builds a memref from an LLVM pointer. This is required if we are working with
     # global arrays, as they are llvm.array, and the pointer is grabbed from that and
     # then the memref constructed
-    ptr_type = llvm.LLVMPointerType.opaque()
+    ptr_type = llvm.LLVMPointerType()
 
     offsets = [1]
     if len(dim_sizes) > 1:
@@ -637,7 +637,7 @@ def translate_address_of(
         return []
 
     assert isa(op.results[0].type, fir.ReferenceType)
-    global_lookup = llvm.AddressOfOp(op.symbol, llvm.LLVMPointerType.opaque())
+    global_lookup = llvm.AddressOfOp(op.symbol, llvm.LLVMPointerType())
 
     ctx[op.results[0]] = global_lookup.results[0]
     return [global_lookup]
@@ -648,7 +648,7 @@ def translate_emboxchar(program_state, ctx, op: fir.EmboxcharOp):
         return []
 
     struct_type = llvm.LLVMStructType.from_type_list(
-        [llvm.LLVMPointerType.opaque(), builtin.i64]
+        [llvm.LLVMPointerType(), builtin.i64]
     )
 
     char_ptr_ops_list = expressions.translate_expr(program_state, ctx, op.memref)
@@ -693,7 +693,7 @@ def translate_unboxchar(program_state, ctx, op: fir.UnboxcharOp):
     extract_char_ptr = llvm.ExtractValueOp(
         builtin.DenseArrayBase.from_list(builtin.i64, [0]),
         ctx[op.boxchar],
-        llvm.LLVMPointerType.opaque(),
+        llvm.LLVMPointerType(),
     )
     extract_char_len = llvm.ExtractValueOp(
         builtin.DenseArrayBase.from_list(builtin.i64, [1]), ctx[op.boxchar], builtin.i64

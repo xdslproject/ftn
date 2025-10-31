@@ -51,7 +51,7 @@ def translate_function(program_state: ProgramState, ctx: SSAValueCtx, fn: func.F
             if ftn_types.does_type_represent_ftn_pointer(fir_type):
                 # If we are passing a Fortran pointer then we need to handle this differently, actually pass
                 # the LLVM pointer of this and reconstruct, to access the same underlying memref
-                converted_type = llvm.LLVMPointerType.opaque()
+                converted_type = llvm.LLVMPointerType()
                 ptr_unpack_args.append((idx, fir_type))
             else:
                 converted_type = ftn_types.convert_fir_type_to_standard(fir_type)
