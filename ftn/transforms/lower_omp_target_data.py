@@ -5,7 +5,7 @@ from enum import Enum
 from xdsl.builder import Builder
 from xdsl.context import Context
 from xdsl.dialects import arith, builtin, memref, omp, scf
-from xdsl.ir import Block, BlockArgument, Operation, Region, Region Block, SSAValue
+from xdsl.ir import Block, BlockArgument, Operation, Region, SSAValue
 from xdsl.passes import ModulePass
 from xdsl.pattern_rewriter import (
     GreedyRewritePatternApplier,
