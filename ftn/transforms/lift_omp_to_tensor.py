@@ -5,6 +5,7 @@ from enum import Enum
 from xdsl.context import Context
 from xdsl.dialects import arith, bufferization, builtin, memref, omp, tensor, tosa, func
 from xdsl.ir import Block, Region, SSAValue
+from xdsl.irdl import Operation
 from xdsl.passes import ModulePass
 from xdsl.pattern_rewriter import (
     GreedyRewritePatternApplier,
@@ -159,6 +160,10 @@ class GetStoreCalculationContributedOperations(Visitor):
                 rhs_ops.append(splat)
                 rhs_ssa = splat.results[0]
 
+            # we don't care about the shift operand, can be empty, but needed
+            # for this MLIR version of `tosa.mul`
+            shift_op = tensor.EmptyOp([], builtin.TensorType(builtin.i8, []))
+
             if (
                 self.arith_type
                 == GetStoreCalculationContributedOperations.ArithmeticOperation.ArithOpTypes.SUB
@@ -177,19 +182,36 @@ class GetStoreCalculationContributedOperations(Visitor):
                 self.arith_type
                 == GetStoreCalculationContributedOperations.ArithmeticOperation.ArithOpTypes.MUL
             ):
-                tensor_arith_op = tosa.MulOp.build(
+                tensor_mul_op = tosa.MulOp.build(
                     operands=[lhs_ssa, rhs_ssa], result_types=[lhs_ssa.type]
                 )
+                tensor_arith_op = [shift_op, tensor_mul_op]
             elif (
                 self.arith_type
                 == GetStoreCalculationContributedOperations.ArithmeticOperation.ArithOpTypes.DIV
             ):
-                # No divide provided
-                raise Exception("Divide not supported")
+                # do a reciprocal on the RHS
+                # then do a multiply on the result with the LHS
+                tensor_recip_op = tosa.ReciprocalOp.build(
+                    operands=[rhs_ssa], result_types=[rhs_ssa.type]
+                )
+                tensor_mul_op = tosa.MulOp.build(
+                    operands=[lhs_ssa, tensor_recip_op.result, shift_op], result_types=[lhs_ssa.type]
+                )
+                tensor_arith_op = [shift_op, tensor_recip_op, tensor_mul_op]
             else:
                 raise Exception("Unknown operation in tensorisation")
 
-            return lhs_ops + rhs_ops + [tensor_arith_op], tensor_arith_op.results[0]
+            if isinstance(tensor_arith_op, Operation):
+                ops = [tensor_arith_op]
+                res = tensor_arith_op.results[0]
+            elif isinstance(tensor_arith_op, list):
+                ops = tensor_arith_op
+                res = tensor_arith_op[-1].results[0]
+            else:
+                raise Exception(f"Invalid type for `tensor_arith_op`: {type(tensor_arith_op)}")
+
+            return lhs_ops + rhs_ops + ops, res 
 
     class ConstantOperation(ContributedOperation):
         def __init__(self, value, op_data_type):
