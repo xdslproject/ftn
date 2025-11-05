@@ -25,7 +25,7 @@ def compare_memrefs(memref_a, memref_b):
         return MemrefComparison.INCOMPATIBLE
     for dim_size_a, dim_size_b in zip(memref_a.shape, memref_b.shape):
         if dim_size_a.data != dim_size_b.data and (
-            dim_size_a.data == -1 or dim_size_b.data == -1
+            dim_size_a.data == builtin.DYNAMIC_INDEX or dim_size_b.data == builtin.DYNAMIC_INDEX
         ):
             return MemrefComparison.CONVERTABLE
     return MemrefComparison.SAME
@@ -77,7 +77,7 @@ def does_type_represent_ftn_pointer(type_chain):
 
 def convert_fir_type_to_standard_if_needed(fir_type):
     if isa(fir_type, fir.ReferenceType) and fir_type.type == builtin.i8:
-        return llvm.LLVMPointerType.opaque()
+        return llvm.LLVMPointerType()
     else:
         return convert_fir_type_to_standard(fir_type)
 
@@ -93,7 +93,7 @@ def convert_fir_type_to_standard(fir_type, ref_as_mem_ref=True):
                     base_t, [], builtin.NoneAttr(), builtin.NoneAttr()
                 )
         else:
-            return llvm.LLVMPointerType.opaque()
+            return llvm.LLVMPointerType()
     elif isa(fir_type, fir.BoxType):
         return convert_fir_type_to_standard(fir_type.type, ref_as_mem_ref)
     elif isa(fir_type, fir.HeapType):
@@ -111,7 +111,7 @@ def convert_fir_type_to_standard(fir_type, ref_as_mem_ref=True):
             if isa(shape_el, builtin.IntegerAttr):
                 dim_sizes.append(shape_el.value.data)
             else:
-                dim_sizes.append(-1)
+                dim_sizes.append(builtin.DYNAMIC_INDEX)
         # Reverse the sizes to go from Fortran to C allocation semantics
         dim_sizes.reverse()
         return builtin.MemRefType(
@@ -121,7 +121,7 @@ def convert_fir_type_to_standard(fir_type, ref_as_mem_ref=True):
         return builtin.i1
     elif isa(fir_type, fir.BoxCharType):
         return llvm.LLVMStructType.from_type_list(
-            [llvm.LLVMPointerType.opaque(), builtin.i64]
+            [llvm.LLVMPointerType(), builtin.i64]
         )
     elif isa(fir_type, builtin.TupleType):
         new_types = []
@@ -214,7 +214,7 @@ def translate_convert(program_state: ProgramState, ctx: SSAValueCtx, op: fir.Con
             get_element_ptr = llvm.GEPOp(
                 ctx[op.value],
                 [0, 0],
-                result_type=llvm.LLVMPointerType.opaque(),
+                result_type=llvm.LLVMPointerType(),
                 pointee_type=llvm.LLVMArrayType.from_size_and_type(
                     1, builtin.IntegerType(8)
                 ),
@@ -229,7 +229,7 @@ def translate_convert(program_state: ProgramState, ctx: SSAValueCtx, op: fir.Con
             shape_size = []
             for s in out_type.type.shape.data:
                 if isa(s, fir.DeferredAttr):
-                    shape_size.append(-1)
+                    shape_size.append(builtin.DYNAMIC_INDEX)
                 else:
                     shape_size.append(s.value.data)
             # Reverse shape_size to get it from Fortran allocation to C/MLIR allocation

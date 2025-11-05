@@ -1,4 +1,5 @@
 from dataclasses import dataclass
+from abc import ABC, abstractmethod
 
 from xdsl.context import Context
 from xdsl.dialects import builtin, dlti
@@ -7,16 +8,32 @@ from xdsl.passes import ModulePass
 from ftn.dialects import device
 
 
-class TenstorrentConfiguration:
-    def get():
+class TargetConfiguration(ABC):
+    @classmethod
+    @abstractmethod
+    def get(cls) -> dlti.TargetDeviceSpecAttr: ...
+
+    @classmethod
+    @abstractmethod
+    def _memory_subsystem(cls) -> dlti.MapAttr: ...
+
+    @classmethod
+    @abstractmethod
+    def _compute_subsystem(cls) -> dlti.MapAttr: ...
+
+
+class TenstorrentConfiguration(TargetConfiguration):
+    @classmethod
+    def get(cls):
         return dlti.TargetDeviceSpecAttr(
             {
-                "memory": TenstorrentConfiguration._memory_subsystem(),
-                "compute": TenstorrentConfiguration._compute_subsystem(),
+                "memory": cls._memory_subsystem(),
+                "compute": cls._compute_subsystem(),
             }
         )
 
-    def _memory_subsystem():
+    @classmethod
+    def _memory_subsystem(cls):
         config = {
             "DRAM": {
                 "kind": device.MemoryKindAttr(device.MemoryKind.DDR),
@@ -25,7 +42,8 @@ class TenstorrentConfiguration:
         }
         return dlti.MapAttr(config)
 
-    def _compute_subsystem():
+    @classmethod
+    def _compute_subsystem(cls):
         config = {
             "architecture_type": device.ArchitectureKindAttr(
                 device.ArchitectureKind.MANYCORE
@@ -53,16 +71,18 @@ class TenstorrentConfiguration:
         return dlti.MapAttr(config)
 
 
-class U280Configuration:
-    def get():
+class U280Configuration(TargetConfiguration):
+    @classmethod
+    def get(cls):
         return dlti.TargetDeviceSpecAttr(
             {
-                "memory": U280Configuration._memory_subsystem(),
-                "compute": U280Configuration._compute_subsystem(),
+                "memory": cls._memory_subsystem(),
+                "compute": cls._compute_subsystem(),
             }
         )
 
-    def _memory_subsystem():
+    @classmethod
+    def _memory_subsystem(cls):
         config = {
             "DRAM": {
                 "kind": device.MemoryKindAttr(device.MemoryKind.DDR),
@@ -76,7 +96,8 @@ class U280Configuration:
             }
         return dlti.MapAttr(config)
 
-    def _compute_subsystem():
+    @classmethod
+    def _compute_subsystem(cls):
         config = {
             "architecture_type": device.ArchitectureKindAttr(
                 device.ArchitectureKind.FPGA
@@ -153,14 +174,22 @@ class ApplyTargetConfig(ModulePass):
             }
         )
 
+    def _get_config(self) -> dlti.TargetDeviceSpecAttr:
+        """
+        Get the device spec for the current `self.taregt`
+
+        If overriding this function, make sure to *not* specify `name` field again
+        """
+        if config := SYSTEM_CONFIGURATIONS.get(self.target):
+            return config.get()
+        raise ValueError(f"No such target configuration {self.target}")
+
     def apply(self, ctx: Context, op: builtin.ModuleOp) -> None:
         op.attributes["omp.target_triples"] = builtin.ArrayAttr(
             [builtin.StringAttr(self.target)]
         )
 
-        assert self.target in SYSTEM_CONFIGURATIONS.keys()
-
-        config = SYSTEM_CONFIGURATIONS[self.target].get()
+        config = self._get_config()
 
         op.attributes["dlti.target_system_spec"] = self.generate_system_config(
             self.target, config
