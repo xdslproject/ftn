@@ -288,7 +288,7 @@ def translate_string_literal(
         "internal",
         0,
         True,
-        value=op.value,
+        value=builtin.BytesAttr(op.value.data.encode()),
         unnamed_addr=0,
     )
     return [str_global_op]
