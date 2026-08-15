@@ -8,7 +8,7 @@ from typing import IO
 from ftn.transforms.rewrite_fir_to_core import RewriteFIRToCore
 from ftn.transforms.merge_memref_deref import MergeMemRefDeref
 from ftn.transforms.extract_target import ExtractTarget
-from ftn.transforms.fpga.target_to_hls import TargetToHLSPass
+from amd_fpga.transforms.target_to_hls import TargetToHLSPass
 from ftn.transforms.lower_omp_target_data import LowerOmpTargetDataPass
 from ftn.transforms.apply_target_config import ApplyTargetConfig
 from ftn.transforms.omp_target_to_kernel import OmpTargetToKernelPass
@@ -43,7 +43,7 @@ class FtnOptMain(xDSLOptMain):
 
     def register_all_targets(self):
         def _output_fpga_host(prog: ModuleOp, output: IO[str]):
-            from ftn.dialects.fpga.host_printer import HostPrinter
+            from amd_fpga.dialects.host_printer import HostPrinter
 
             printer = HostPrinter(stream=output)
             printer.print(prog)

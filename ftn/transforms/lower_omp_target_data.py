@@ -173,8 +173,10 @@ class DataMovementGenerator:
 
         var_type = mapped_var_description["var_type"]
         if not isa(var_type, builtin.MemRefType):
-            # If this is a scalar then package as a memref
-            var_type = builtin.MemRefType(var_type, [])
+            # map_info only carries the element type here. If bounds are present
+            # this is an array (e.g. an assumed-shape dummy argument), so build a
+            # memref with one dynamic dimension per bound; otherwise it's a scalar.
+            var_type = builtin.MemRefType(var_type, len(size_ssas) * [-1])
 
         alloc_memref_ssa, alloc_ops = DataMovementGenerator.generate_allocate_or_lookup(
             var_type, mapped_var_description["var_name"], device_mem_space, size_ssas

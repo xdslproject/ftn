@@ -58,7 +58,7 @@ class ConditionalBranchOp(IRDLOperation):
     then_arguments: VarOperand = var_operand_def(AnyAttr())
     else_arguments: VarOperand = var_operand_def(AnyAttr())
 
-    irdl_options = [AttrSizedOperandSegments(as_property=True)]
+    irdl_options = (AttrSizedOperandSegments(as_property=True),)
 
     then_block: IntegerAttr = prop_def(IntegerAttr)
     else_block: IntegerAttr = prop_def(IntegerAttr)

@@ -105,7 +105,7 @@ class AllocOp(IRDLOperation):
     memory_name = prop_def(StringAttr, prop_name="name")
     memory_space = prop_def(IntegerAttr)
 
-    irdl_options = [AttrSizedOperandSegments(as_property=True)]
+    irdl_options = (AttrSizedOperandSegments(as_property=True),)
 
     traits = traits_def(MemoryAllocEffect())
 
@@ -241,7 +241,7 @@ class KernelCreate(IRDLOperation):
 
     res = result_def(KernelHandle)
 
-    irdl_options = [AttrSizedOperandSegments(as_property=True)]
+    irdl_options = (AttrSizedOperandSegments(as_property=True),)
 
     def __init__(
         self,
@@ -340,7 +340,7 @@ class TensorComputeOp(IRDLOperation):
 
     body = region_def("single_block")
 
-    irdl_options = [AttrSizedOperandSegments(as_property=True)]
+    irdl_options = (AttrSizedOperandSegments(as_property=True),)
 
     def __init__(
         self,
